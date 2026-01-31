@@ -227,27 +227,19 @@ export class Track {
     ctx.lineTo(finishX, bounds.y + bounds.height + 10);
     ctx.stroke();
 
-    // Animated checkerboard (scrolling barberpole effect)
+    // Static checkerboard pattern
     const checkSize = 12;
     const cols = 4;
-    const scrollOffset = (this.time * checkSize) % (checkSize * 2); // 1 square/sec
-
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(finishX + 2, bounds.y - 10, cols * checkSize, bounds.height + 20);
-    ctx.clip();
-
-    for (let row = -1; row < Math.ceil((bounds.height + 20) / checkSize) + 1; row++) {
+    for (let row = 0; row < Math.ceil((bounds.height + 20) / checkSize); row++) {
       for (let col = 0; col < cols; col++) {
         ctx.fillStyle = (row + col) % 2 === 0 ? '#e94560' : '#1a1a2e';
         ctx.fillRect(
           finishX + 2 + col * checkSize,
-          bounds.y - 10 + row * checkSize + scrollOffset,
+          bounds.y - 10 + row * checkSize,
           checkSize, checkSize
         );
       }
     }
-    ctx.restore();
 
     // "FINISH" text above
     ctx.fillStyle = '#e94560';
