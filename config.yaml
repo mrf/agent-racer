@@ -1,0 +1,15 @@
+server:
+  port: 8080
+  host: "0.0.0.0"
+
+monitor:
+  poll_interval: 1s
+  snapshot_interval: 5s
+  broadcast_throttle: 100ms
+
+models:
+  claude-opus-4-5-20251101: 200000
+  claude-sonnet-4-5-20250929: 200000
+  claude-sonnet-4-20250514: 200000
+  claude-haiku-3-5-20241022: 200000
+  default: 200000

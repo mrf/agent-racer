@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Claude Racing Dashboard</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header id="header">
+    <div class="header-left">
+      <h1>Claude Racing Dashboard</h1>
+    </div>
+    <div class="header-right">
+      <span id="session-count">0 sessions</span>
+      <span id="connection-status" class="status-dot disconnected"></span>
+    </div>
+  </header>
+
+  <div id="race-container">
+    <canvas id="race-canvas"></canvas>
+  </div>
+
+  <div id="detail-panel" class="hidden">
+    <div class="detail-header">
+      <span>Session Details</span>
+      <button id="detail-close">X</button>
+    </div>
+    <div id="detail-content"></div>
+  </div>
+
+  <div id="debug-panel" class="hidden">
+    <div class="debug-header">
+      <span>Debug Log</span>
+      <button id="debug-close">X</button>
+    </div>
+    <div id="debug-log"></div>
+  </div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

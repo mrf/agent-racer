@@ -1,0 +1,139 @@
+CHANGELOG - Agent Racer
+=======================
+
+## v0.1.0 - Initial Implementation (2026-01-30)
+
+Full implementation of the revised plan (Groups A-E, all 37 items).
+
+### Group A: Skeleton
+
+- Makefile with targets: dev, run, build, test, deps, clean, embed, dist
+- config.yaml with server, monitor, and model context window settings
+- Go module (go 1.22) with gorilla/websocket and yaml.v3 dependencies
+- Config loader (backend/internal/config/config.go)
+  - YAML parsing, model context window map, MaxContextTokens() lookup
+- Session state model (backend/internal/session/state.go)
+  - 8-state Activity enum: Starting, Thinking, ToolUse, Waiting, Idle, Complete, Errored, Lost
+  - SessionState struct with token tracking, timing, PID, lane assignment
+  - Custom JSON marshaling (activity as lowercase string)
+- Session store (backend/internal/session/store.go)
+  - Thread-safe map with RWMutex
+  - Auto-incrementing lane assignment for new sessions
+- WebSocket protocol (backend/internal/ws/protocol.go)
+  - Message types: snapshot, delta, completion, error
+  - Typed payload structs
+- WebSocket broadcaster (backend/internal/ws/broadcast.go)
+  - Per-client write channels (64-slot buffers)
+  - 100ms throttled delta batching
+  - Periodic full snapshots every 5s
+  - Automatic slow-client disconnection
+- HTTP/WS server (backend/internal/ws/server.go)
+  - /ws endpoint (WebSocket upgrade, read-only broadcast)
+  - /api/sessions endpoint (REST JSON snapshot)
+  - / for frontend static files
+- Mock generator (backend/internal/mock/generator.go)
+  - 5 simulated sessions with distinct behavior patterns:
+    opus-refactor (steady growth, completes at 180K)
+    sonnet-tests (burst pattern, completes quickly)
+    opus-debug (stalls mid-conversation, resumes)
+    sonnet-feature (errors at ~60% context)
+    opus-review (slow/methodical, heavy tool use)
+  - Realistic tool rotation: Read, Write, Edit, Bash, Grep, Glob, Task, LSP
+- Server entry point (backend/cmd/server/main.go)
+  - CLI flags: --mock, --dev, --config, --port
+  - Graceful shutdown via signal handling
+- Frontend skeleton: index.html, styles.css, websocket.js, main.js
+  - Dark theme (#1a1a2e background)
+  - Auto-reconnecting WebSocket client with exponential backoff
+
+### Group B: Canvas Rendering
+
+- Particle system (frontend/src/canvas/Particles.js)
+  - Presets: exhaust (gray trail), sparks (orange/yellow), smoke (dark gray), confetti (colorful + gravity)
+  - Physics: velocity, alpha decay, gravity, rotation
+- Track renderer (frontend/src/canvas/Track.js)
+  - Dynamic lane layout adjusting to racer count
+  - Asphalt gradient background
+  - Checkerboard start line (white/black) and finish line (red/dark)
+  - Dashed token markers at 50K, 100K, 150K
+  - Labels: "0" at start, "200K" at finish
+- Race canvas (frontend/src/canvas/RaceCanvas.js)
+  - requestAnimationFrame loop
+  - Device pixel ratio scaling
+  - Click detection on racers (30px radius)
+  - Connection status overlay when disconnected
+  - Empty state message
+- Racer entity (frontend/src/entities/Racer.js)
+  - Model colors: Opus (purple), Sonnet (blue/cyan), Haiku (green)
+  - Car body: polygon shape with windshield, 4 wheels
+  - Activity animations:
+    Thinking: exhaust particles + thought bubble + headlight glow
+    Tool use: sparks + brighter color + faster wheel rotation
+    Waiting: amber hazard lights (flashing)
+    Complete: trophy emoji + confetti burst
+    Errored: spin animation + smoke
+    Lost: opacity fade to 0.2
+  - Info labels: name above, model badge, token count below, tool name
+  - Smooth position interpolation via lerp + wobble
+- Browser notifications (frontend/src/notifications.js)
+  - Permission request, notify on session complete/error
+- Keyboard shortcuts: D=debug, M=mute, F=fullscreen, Esc=close detail
+- Sound effects synthesized via AudioContext (victory fanfare, error buzz)
+- Detail panel: click racer for full session info sidebar
+
+### Group C: Real Session Monitoring
+
+- Process discovery (backend/internal/monitor/process.go)
+  - Scans /proc for claude/claude-code processes
+  - Reads /proc/<pid>/cwd for working directory
+  - Reads /proc/<pid>/cmdline for command args
+  - Filters out Claude's internal processes (CWD inside ~/.claude)
+  - Supports node runner detection
+- JSONL reader (backend/internal/monitor/jsonl.go, 300 lines)
+  - FindSessionFile(): URL-encodes project path, finds most recent .jsonl by mtime
+  - ParseSessionJSONL(): incremental reading from byte offset
+  - Token extraction: input_tokens + cache_read + cache_creation from assistant message blocks
+  - Tool call counting from content blocks
+  - Activity classification from entry types
+  - SessionIDFromPath(), FindRecentSessionFiles(), DecodeProjectPath() helpers
+- Monitor loop (backend/internal/monitor/monitor.go)
+  - 1s ticker-based polling
+  - Process discovery -> JSONL read -> activity classification -> store update -> broadcast
+  - Tracks active/disappeared processes
+  - Marks processes as Complete when they disappear
+  - Token counts never decrease (monotonic accumulation)
+
+### Group D: Polish
+
+- scripts/claude-race-wrapper.sh for explicit completion signaling
+- Session detail panel with progress bar (green <50%, orange 50-80%, red >80%)
+- /api/sessions REST endpoint returning JSON array
+- Sound effects with mute toggle (M key)
+- Session lifecycle management in monitor (appear/disappear handling)
+
+### Group E: Packaging
+
+- backend/internal/frontend/embed.go with go:embed (build tag: embed)
+- backend/internal/frontend/noembed.go fallback (build tag: !embed)
+- Makefile embed target: copies frontend/ to backend/internal/frontend/static/
+- Makefile dist target: cross-compile for linux/darwin amd64/arm64
+- scripts/install.sh: builds binary, copies to /usr/local/bin, installs config
+- Compiled binary: 9.5MB ELF with embedded frontend
+
+### Tests
+
+- session/state_test.go: Activity JSON marshaling (8 types), utilization calc, terminal state
+- monitor/process_test.go: Claude process detection, command line parsing
+- monitor/jsonl_test.go: JSONL parsing, token counting, incremental reading
+- All tests pass (go test ./...)
+
+### Plan Comparison
+
+The PLAN.md file contains the original tmux-based plan (first session).
+The revised plan (in CLAUDE.md) replaced tmux with process scanning + JSONL reading.
+Implementation follows the revised plan entirely. Key differences from original plan:
+- No tmux dependency (process scanning via /proc instead)
+- Position driven by context window utilization, not relative chunk counts
+- No completion detection chain (process exit + JSONL state is sufficient)
+- No xxhash dependency (file offset tracking instead of content hashing)
+- Simpler config.yaml (no tmux filters, no detection chain config)
