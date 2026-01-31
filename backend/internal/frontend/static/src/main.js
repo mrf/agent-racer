@@ -1,5 +1,6 @@
 import { RaceConnection } from './websocket.js';
 import { RaceCanvas } from './canvas/RaceCanvas.js';
+import { SoundEngine } from './audio/SoundEngine.js';
 import { requestPermission, notifyCompletion } from './notifications.js';
 
 const debugPanel = document.getElementById('debug-panel');
@@ -16,52 +17,26 @@ let sessions = new Map();
 let debugVisible = false;
 let muted = false;
 let selectedSessionId = null;
+let ambientStarted = false;
 
+// Track known session IDs and their activities for detecting appear/disappear/transitions
+let knownSessionIds = new Set();
+let sessionActivities = new Map();
+
+const engine = new SoundEngine();
 const raceCanvas = new RaceCanvas(canvas);
+raceCanvas.setEngine(engine);
 window.raceCanvas = raceCanvas;
 
-// Sound effects (generated via AudioContext)
-let audioCtx = null;
-
-function getAudioCtx() {
-  if (!audioCtx) {
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  }
-  return audioCtx;
+// Start ambient audio on first user interaction (autoplay policy)
+function tryStartAmbient() {
+  if (ambientStarted) return;
+  ambientStarted = true;
+  engine.startAmbient();
 }
 
-function playTone(freq, duration, type = 'sine') {
-  if (muted) return;
-  try {
-    const ctx = getAudioCtx();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = type;
-    osc.frequency.value = freq;
-    gain.gain.setValueAtTime(0.15, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start();
-    osc.stop(ctx.currentTime + duration);
-  } catch {
-    // Audio may not be available
-  }
-}
-
-function playVictoryFanfare() {
-  if (muted) return;
-  playTone(523, 0.15, 'square');
-  setTimeout(() => playTone(659, 0.15, 'square'), 150);
-  setTimeout(() => playTone(784, 0.15, 'square'), 300);
-  setTimeout(() => playTone(1047, 0.4, 'square'), 450);
-}
-
-function playErrorSound() {
-  if (muted) return;
-  playTone(300, 0.2, 'sawtooth');
-  setTimeout(() => playTone(200, 0.3, 'sawtooth'), 200);
-}
+document.addEventListener('click', tryStartAmbient, { once: false });
+document.addEventListener('keydown', tryStartAmbient, { once: false });
 
 function log(msg, type = '') {
   const entry = document.createElement('div');
@@ -172,10 +147,28 @@ function renderDetailPanel(state) {
 }
 
 function handleSnapshot(payload) {
+  const oldIds = new Set(knownSessionIds);
   sessions.clear();
+  knownSessionIds.clear();
+
   for (const s of payload.sessions) {
     sessions.set(s.id, s);
+    knownSessionIds.add(s.id);
+    sessionActivities.set(s.id, s.activity);
+
+    // Play appear sound for new sessions
+    if (!oldIds.has(s.id)) {
+      engine.playAppear();
+    }
   }
+
+  // Play disappear sound for removed sessions
+  for (const id of oldIds) {
+    if (!knownSessionIds.has(id)) {
+      engine.playDisappear();
+    }
+  }
+
   updateSessionCount();
   log(`Snapshot: ${payload.sessions.length} sessions`, 'info');
   raceCanvas.setAllRacers(payload.sessions);
@@ -189,6 +182,27 @@ function handleSnapshot(payload) {
 function handleDelta(payload) {
   if (payload.updates) {
     for (const s of payload.updates) {
+      const isNew = !knownSessionIds.has(s.id);
+      if (isNew) {
+        engine.playAppear();
+        knownSessionIds.add(s.id);
+      }
+
+      // Detect activity transitions
+      const prevActivity = sessionActivities.get(s.id);
+      if (prevActivity && prevActivity !== s.activity) {
+        // Play tool click when entering tool_use
+        if (s.activity === 'tool_use') {
+          engine.playToolClick();
+        }
+        // Play gear shift on any active transition
+        if ((s.activity === 'thinking' || s.activity === 'tool_use') &&
+            (prevActivity === 'thinking' || prevActivity === 'tool_use')) {
+          engine.playGearShift();
+        }
+      }
+      sessionActivities.set(s.id, s.activity);
+
       sessions.set(s.id, s);
       raceCanvas.updateRacer(s);
     }
@@ -196,7 +210,11 @@ function handleDelta(payload) {
   if (payload.removed) {
     for (const id of payload.removed) {
       sessions.delete(id);
+      knownSessionIds.delete(id);
+      sessionActivities.delete(id);
       raceCanvas.removeRacer(id);
+      engine.playDisappear();
+      engine.stopEngine(id);
     }
   }
   updateSessionCount();
@@ -213,10 +231,10 @@ function handleCompletion(payload) {
 
   if (payload.activity === 'complete') {
     raceCanvas.onComplete(payload.sessionId);
-    playVictoryFanfare();
+    engine.playVictory();
   } else if (payload.activity === 'errored') {
     raceCanvas.onError(payload.sessionId);
-    playErrorSound();
+    engine.playCrash();
   }
 }
 
@@ -226,7 +244,7 @@ function handleStatus(status) {
   log(`Connection: ${status}`, status === 'connected' ? 'info' : 'error');
 }
 
-// Racer click → detail panel
+// Racer click -> detail panel
 raceCanvas.onRacerClick = (state) => {
   showDetailPanel(state);
 };
@@ -254,6 +272,7 @@ document.addEventListener('keydown', (e) => {
       break;
     case 'm':
       muted = !muted;
+      engine.setMuted(muted);
       log(`Sound ${muted ? 'muted' : 'unmuted'}`, 'info');
       break;
     case 'f':
