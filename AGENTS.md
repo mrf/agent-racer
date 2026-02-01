@@ -8,6 +8,8 @@ This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get sta
 
 **Follow XDG Base Directory spec** for config, state, and cache paths whenever applicable (e.g., config in `~/.config`, state in `~/.local/state`). Avoid writing new files directly into `$HOME` unless there is a clear exception.
 
+**Place research and planning docs in `docs/`.** All design documents, research notes, and implementation plans go in the `docs/` directory — not the project root. Keep the root clean (only README.md, AGENTS.md, and config files).
+
 ## Quick Reference
 
 ```bash
