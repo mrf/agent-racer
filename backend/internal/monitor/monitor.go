@@ -20,20 +20,22 @@ type trackedSession struct {
 }
 
 type Monitor struct {
-	cfg         *config.Config
-	store       *session.Store
-	broadcaster *ws.Broadcaster
-	tracked     map[int]*trackedSession // keyed by PID
-	skipped     map[int]bool            // PIDs we failed to find session files for
+	cfg           *config.Config
+	store         *session.Store
+	broadcaster   *ws.Broadcaster
+	tracked       map[int]*trackedSession // keyed by PID
+	skipped       map[int]bool            // PIDs we failed to find session files for
+	fileToSession map[string]int          // session file path -> tracking PID (dedup)
 }
 
 func NewMonitor(cfg *config.Config, store *session.Store, broadcaster *ws.Broadcaster) *Monitor {
 	return &Monitor{
-		cfg:         cfg,
-		store:       store,
-		broadcaster: broadcaster,
-		tracked:     make(map[int]*trackedSession),
-		skipped:     make(map[int]bool),
+		cfg:           cfg,
+		store:         store,
+		broadcaster:   broadcaster,
+		tracked:       make(map[int]*trackedSession),
+		skipped:       make(map[int]bool),
+		fileToSession: make(map[string]int),
 	}
 }
 
@@ -97,6 +99,7 @@ func (m *Monitor) poll() {
 			m.broadcaster.QueueCompletion(sessionID, session.Complete, state.Name)
 			m.broadcaster.QueueUpdate([]*session.SessionState{state})
 		}
+		delete(m.fileToSession, ts.sessionFile)
 		delete(m.tracked, pid)
 	}
 
@@ -119,12 +122,20 @@ func (m *Monitor) poll() {
 				continue
 			}
 
+			// Deduplicate: skip if another PID is already tracking this session file
+			if trackingPID, ok := m.fileToSession[sessionFile]; ok {
+				log.Printf("PID %d shares session file with PID %d, skipping", proc.PID, trackingPID)
+				m.skipped[proc.PID] = true
+				continue
+			}
+
 			ts = &trackedSession{
 				pid:         proc.PID,
 				sessionFile: sessionFile,
 				workingDir:  proc.WorkingDir,
 			}
 			m.tracked[proc.PID] = ts
+			m.fileToSession[sessionFile] = proc.PID
 			log.Printf("Tracking new session: PID %d, dir %s, file %s", proc.PID, proc.WorkingDir, sessionFile)
 		}
 
@@ -167,7 +178,9 @@ func (m *Monitor) poll() {
 		}
 
 		state.Activity = activity
-		state.Model = model
+		if result.Model != "" {
+			state.Model = model
+		}
 		state.LastActivityAt = time.Now()
 
 		// Token count: use the latest usage from the most recent assistant message
