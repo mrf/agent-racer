@@ -69,6 +69,11 @@ function formatTime(dateStr) {
   return d.toLocaleTimeString();
 }
 
+function esc(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
 function formatElapsed(startStr) {
   if (!startStr) return '-';
   const start = new Date(startStr);
@@ -92,7 +97,7 @@ function renderDetailPanel(state) {
   detailContent.innerHTML = `
     <div class="detail-row">
       <span class="label">Activity</span>
-      <span class="value"><span class="detail-activity ${state.activity}">${state.activity}</span></span>
+      <span class="value"><span class="detail-activity ${esc(state.activity)}">${esc(state.activity)}</span></span>
     </div>
     <div class="detail-progress">
       <div class="detail-progress-bar" style="width:${pct}%;background:${barColor}"></div>
@@ -100,11 +105,11 @@ function renderDetailPanel(state) {
     </div>
     <div class="detail-row">
       <span class="label">Model</span>
-      <span class="value">${state.model || 'unknown'}</span>
+      <span class="value">${esc(state.model) || 'unknown'}</span>
     </div>
     <div class="detail-row">
       <span class="label">Working Dir</span>
-      <span class="value" title="${state.workingDir}">${state.workingDir || '-'}</span>
+      <span class="value" title="${esc(state.workingDir)}">${esc(state.workingDir) || '-'}</span>
     </div>
     <div class="detail-row">
       <span class="label">Messages</span>
@@ -116,7 +121,7 @@ function renderDetailPanel(state) {
     </div>
     <div class="detail-row">
       <span class="label">Current Tool</span>
-      <span class="value">${state.currentTool || '-'}</span>
+      <span class="value">${esc(state.currentTool) || '-'}</span>
     </div>
     <div class="detail-row">
       <span class="label">Started</span>
@@ -141,7 +146,7 @@ function renderDetailPanel(state) {
     </div>
     <div class="detail-row">
       <span class="label">Session ID</span>
-      <span class="value" title="${state.id}">${state.id.substring(0, 12)}...</span>
+      <span class="value" title="${esc(state.id)}">${esc(state.id.substring(0, 12))}...</span>
     </div>
   `;
 }
