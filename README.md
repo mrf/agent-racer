@@ -270,7 +270,8 @@ agent-racer/
 │       │   ├── broadcast.go      # Per-client write channels, throttled broadcasting
 │       │   └── server.go         # HTTP/WS handlers
 │       ├── monitor/
-│       │   ├── process.go        # /proc-based Claude process discovery
+│       │   ├── source.go         # Unified Source interface for multi-agent support
+│       │   ├── process.go        # File-based session discovery
 │       │   ├── jsonl.go          # Incremental JSONL parser
 │       │   └── monitor.go        # Main poll loop
 │       ├── mock/
@@ -327,4 +328,4 @@ cp agent-racer /usr/local/bin/
 
 ## License
 
-MIT
+[MIT](LICENSE)
