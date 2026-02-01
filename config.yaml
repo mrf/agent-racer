@@ -13,6 +13,9 @@ monitor:
   snapshot_interval: 5s
   broadcast_throttle: 100ms
   session_stale_after: 2m
+  completion_remove_after: 8s
+  # Optional override for Claude SessionEnd hook markers
+  # session_end_dir: "/home/user/.local/state/agent-racer/session-end"
 
 models:
   claude-opus-4-5-20251101: 200000

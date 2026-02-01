@@ -84,7 +84,25 @@ In real mode (the default), the dashboard:
 1. Scans `~/.claude/projects/*/*.jsonl` for recently updated session files
 2. Incrementally parses new JSONL entries each poll (1s interval, only reads new bytes)
 3. Extracts token usage, model, activity, and tool calls from the session log
-4. Marks sessions complete after a configurable inactivity timeout
+4. Marks sessions complete after a Claude SessionEnd hook (preferred) or a configurable inactivity timeout
+
+### SessionEnd Hook (Recommended)
+
+Agent Racer can use Claude Code's `SessionEnd` hook to mark a session complete immediately and remove the racer after the completion animation.
+
+The install script sets this up automatically:
+
+```bash
+./scripts/install.sh
+```
+
+If you manage hooks manually, add a `SessionEnd` hook that runs:
+
+```bash
+~/.config/agent-racer/hooks/session-end.sh
+```
+
+Completion markers are written to `~/.local/state/agent-racer/session-end/` by default (XDG state directory). Configure `monitor.session_end_dir` if you want a different path.
 
 No wrappers, hooks, or environment variables needed. Just run `claude` anywhere and it shows up.
 
@@ -149,6 +167,8 @@ monitor:
   snapshot_interval: 5s     # Full state broadcast interval
   broadcast_throttle: 100ms # Minimum time between delta broadcasts
   session_stale_after: 2m   # Mark sessions complete after no new data
+  completion_remove_after: 8s # Remove racers after completion animation
+  session_end_dir: "/home/user/.local/state/agent-racer/session-end" # SessionEnd markers
 
 models:
   claude-opus-4-5-20251101: 200000

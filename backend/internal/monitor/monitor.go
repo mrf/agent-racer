@@ -2,6 +2,7 @@ package monitor
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"os"
 	"path/filepath"
@@ -19,19 +20,29 @@ type trackedSession struct {
 	workingDir   string
 }
 
+type sessionEndMarker struct {
+	SessionID      string `json:"session_id"`
+	TranscriptPath string `json:"transcript_path"`
+	Cwd            string `json:"cwd"`
+	Reason         string `json:"reason"`
+	Timestamp      string `json:"timestamp"`
+}
+
 type Monitor struct {
-	cfg         *config.Config
-	store       *session.Store
-	broadcaster *ws.Broadcaster
-	tracked     map[string]*trackedSession // keyed by session file path
+	cfg            *config.Config
+	store          *session.Store
+	broadcaster    *ws.Broadcaster
+	tracked        map[string]*trackedSession // keyed by session file path
+	pendingRemoval map[string]time.Time
 }
 
 func NewMonitor(cfg *config.Config, store *session.Store, broadcaster *ws.Broadcaster) *Monitor {
 	return &Monitor{
-		cfg:         cfg,
-		store:       store,
-		broadcaster: broadcaster,
-		tracked:     make(map[string]*trackedSession),
+		cfg:            cfg,
+		store:          store,
+		broadcaster:    broadcaster,
+		tracked:        make(map[string]*trackedSession),
+		pendingRemoval: make(map[string]time.Time),
 	}
 }
 
@@ -56,6 +67,9 @@ func (m *Monitor) Start(ctx context.Context) {
 }
 
 func (m *Monitor) poll() {
+	now := time.Now()
+	m.consumeSessionEndMarkers(now)
+
 	sessionFiles, err := FindRecentSessionFiles(10 * time.Minute)
 	if err != nil {
 		log.Printf("Session file discovery error: %v", err)
@@ -67,7 +81,6 @@ func (m *Monitor) poll() {
 		activeFiles[path] = true
 	}
 
-	now := time.Now()
 	var toRemove []string
 	for path, ts := range m.tracked {
 		stale := !activeFiles[path]
@@ -80,12 +93,11 @@ func (m *Monitor) poll() {
 
 		sessionID := SessionIDFromPath(path)
 		if state, ok := m.store.Get(sessionID); ok {
-			state.Activity = session.Complete
-			completedAt := time.Now()
-			state.CompletedAt = &completedAt
-			m.store.Update(state)
-			m.broadcaster.QueueCompletion(sessionID, session.Complete, state.Name)
-			m.broadcaster.QueueUpdate([]*session.SessionState{state})
+			completedAt := now
+			if state.CompletedAt != nil {
+				completedAt = *state.CompletedAt
+			}
+			m.markComplete(state, completedAt)
 		}
 		toRemove = append(toRemove, path)
 	}
@@ -125,6 +137,7 @@ func (m *Monitor) poll() {
 
 		state, existed := m.store.Get(sessionID)
 		if existed && state.IsTerminal() {
+			delete(m.tracked, path)
 			continue
 		}
 
@@ -180,6 +193,130 @@ func (m *Monitor) poll() {
 
 	if len(updates) > 0 {
 		m.broadcaster.QueueUpdate(updates)
+	}
+
+	m.flushRemovals(now)
+}
+
+func (m *Monitor) markComplete(state *session.SessionState, completedAt time.Time) {
+	if state == nil {
+		return
+	}
+	wasComplete := state.Activity == session.Complete
+	state.Activity = session.Complete
+	state.CompletedAt = &completedAt
+	m.store.Update(state)
+	if !wasComplete {
+		m.broadcaster.QueueCompletion(state.ID, session.Complete, state.Name)
+	}
+	m.broadcaster.QueueUpdate([]*session.SessionState{state})
+	m.scheduleRemoval(state.ID, completedAt)
+}
+
+func (m *Monitor) scheduleRemoval(sessionID string, completedAt time.Time) {
+	if m.cfg.Monitor.CompletionRemoveAfter <= 0 {
+		return
+	}
+	removeAt := completedAt.Add(m.cfg.Monitor.CompletionRemoveAfter)
+	if existing, ok := m.pendingRemoval[sessionID]; ok && existing.Before(removeAt) {
+		return
+	}
+	m.pendingRemoval[sessionID] = removeAt
+}
+
+func (m *Monitor) flushRemovals(now time.Time) {
+	if len(m.pendingRemoval) == 0 {
+		return
+	}
+	var removeIDs []string
+	for id, removeAt := range m.pendingRemoval {
+		if !now.Before(removeAt) {
+			removeIDs = append(removeIDs, id)
+			delete(m.pendingRemoval, id)
+			m.store.Remove(id)
+		}
+	}
+	if len(removeIDs) > 0 {
+		m.broadcaster.QueueRemoval(removeIDs)
+	}
+}
+
+func (m *Monitor) consumeSessionEndMarkers(now time.Time) {
+	dir := m.cfg.Monitor.SessionEndDir
+	if dir == "" {
+		return
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return
+		}
+		log.Printf("Session end dir read error: %v", err)
+		return
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		data, err := os.ReadFile(path)
+		if err != nil {
+			log.Printf("Session end marker read error: %v", err)
+			continue
+		}
+
+		var marker sessionEndMarker
+		if err := json.Unmarshal(data, &marker); err != nil {
+			log.Printf("Session end marker parse error: %v", err)
+			_ = os.Remove(path)
+			continue
+		}
+		if marker.SessionID == "" {
+			_ = os.Remove(path)
+			continue
+		}
+
+		m.handleSessionEnd(marker, now)
+
+		if err := os.Remove(path); err != nil {
+			log.Printf("Session end marker cleanup error: %v", err)
+		}
+	}
+}
+
+func (m *Monitor) handleSessionEnd(marker sessionEndMarker, now time.Time) {
+	state, ok := m.store.Get(marker.SessionID)
+	if !ok {
+		workingDir := marker.Cwd
+		if workingDir == "" && marker.TranscriptPath != "" {
+			workingDir = workingDirFromFile(marker.TranscriptPath)
+		}
+		state = &session.SessionState{
+			ID:         marker.SessionID,
+			Name:       nameFromPath(workingDir),
+			WorkingDir: workingDir,
+			StartedAt:  now,
+		}
+	}
+
+	completedAt := now
+	if marker.Timestamp != "" {
+		if parsed, err := time.Parse(time.RFC3339Nano, marker.Timestamp); err == nil {
+			completedAt = parsed
+		}
+	}
+	m.markComplete(state, completedAt)
+
+	if marker.TranscriptPath != "" {
+		delete(m.tracked, marker.TranscriptPath)
+	} else {
+		for path := range m.tracked {
+			if SessionIDFromPath(path) == marker.SessionID {
+				delete(m.tracked, path)
+			}
+		}
 	}
 }
 
