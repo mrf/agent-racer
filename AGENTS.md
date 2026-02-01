@@ -2,6 +2,10 @@
 
 This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get started.
 
+## Global Engineering Principle
+
+**Favor modular design and minimal duplication.** Keep backend logic UI-agnostic so the Go service can power alternative GUIs. For multi-agent work, reuse shared abstractions instead of duplicating parsing or state logic, and avoid tight coupling between agent sources and frontend rendering.
+
 ## Quick Reference
 
 ```bash
