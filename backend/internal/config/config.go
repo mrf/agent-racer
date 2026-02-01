@@ -24,6 +24,7 @@ type MonitorConfig struct {
 	PollInterval      time.Duration `yaml:"poll_interval"`
 	SnapshotInterval  time.Duration `yaml:"snapshot_interval"`
 	BroadcastThrottle time.Duration `yaml:"broadcast_throttle"`
+	SessionStaleAfter time.Duration `yaml:"session_stale_after"`
 }
 
 func Load(path string) (*Config, error) {
@@ -41,6 +42,7 @@ func Load(path string) (*Config, error) {
 			PollInterval:      time.Second,
 			SnapshotInterval:  5 * time.Second,
 			BroadcastThrottle: 100 * time.Millisecond,
+			SessionStaleAfter: 2 * time.Minute,
 		},
 		Models: map[string]int{
 			"default": 200000,

@@ -3,6 +3,7 @@ package monitor
 import (
 	"context"
 	"log"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -12,30 +13,25 @@ import (
 )
 
 type trackedSession struct {
-	pid          int
 	sessionFile  string
 	fileOffset   int64
-	lastPollTime time.Time
+	lastDataTime time.Time
 	workingDir   string
 }
 
 type Monitor struct {
-	cfg           *config.Config
-	store         *session.Store
-	broadcaster   *ws.Broadcaster
-	tracked       map[int]*trackedSession // keyed by PID
-	skipped       map[int]bool            // PIDs we failed to find session files for
-	fileToSession map[string]int          // session file path -> tracking PID (dedup)
+	cfg         *config.Config
+	store       *session.Store
+	broadcaster *ws.Broadcaster
+	tracked     map[string]*trackedSession // keyed by session file path
 }
 
 func NewMonitor(cfg *config.Config, store *session.Store, broadcaster *ws.Broadcaster) *Monitor {
 	return &Monitor{
-		cfg:           cfg,
-		store:         store,
-		broadcaster:   broadcaster,
-		tracked:       make(map[int]*trackedSession),
-		skipped:       make(map[int]bool),
-		fileToSession: make(map[string]int),
+		cfg:         cfg,
+		store:       store,
+		broadcaster: broadcaster,
+		tracked:     make(map[string]*trackedSession),
 	}
 }
 
@@ -60,138 +56,118 @@ func (m *Monitor) Start(ctx context.Context) {
 }
 
 func (m *Monitor) poll() {
-	processes, err := DiscoverSessions()
+	sessionFiles, err := FindRecentSessionFiles(10 * time.Minute)
 	if err != nil {
-		log.Printf("Process discovery error: %v", err)
+		log.Printf("Session file discovery error: %v", err)
 		return
 	}
 
-	activePIDs := make(map[int]bool)
-	for _, p := range processes {
-		activePIDs[p.PID] = true
+	activeFiles := make(map[string]bool)
+	for _, path := range sessionFiles {
+		activeFiles[path] = true
 	}
 
-	// Clean up skipped PIDs that are gone so we re-check if they reappear
-	for pid := range m.skipped {
-		if !activePIDs[pid] {
-			delete(m.skipped, pid)
+	now := time.Now()
+	var toRemove []string
+	for path, ts := range m.tracked {
+		stale := !activeFiles[path]
+		if !stale && m.cfg.Monitor.SessionStaleAfter > 0 && now.Sub(ts.lastDataTime) > m.cfg.Monitor.SessionStaleAfter {
+			stale = true
 		}
-	}
-
-	// Detect disappeared processes
-	var disappeared []int
-	for pid := range m.tracked {
-		if !activePIDs[pid] {
-			disappeared = append(disappeared, pid)
+		if !stale {
+			continue
 		}
-	}
 
-	for _, pid := range disappeared {
-		ts := m.tracked[pid]
-		log.Printf("Process %d disappeared (session in %s)", pid, ts.workingDir)
-
-		sessionID := SessionIDFromPath(ts.sessionFile)
+		sessionID := SessionIDFromPath(path)
 		if state, ok := m.store.Get(sessionID); ok {
 			state.Activity = session.Complete
-			now := time.Now()
-			state.CompletedAt = &now
+			completedAt := time.Now()
+			state.CompletedAt = &completedAt
 			m.store.Update(state)
 			m.broadcaster.QueueCompletion(sessionID, session.Complete, state.Name)
 			m.broadcaster.QueueUpdate([]*session.SessionState{state})
 		}
-		delete(m.fileToSession, ts.sessionFile)
-		delete(m.tracked, pid)
+		toRemove = append(toRemove, path)
+	}
+	for _, path := range toRemove {
+		delete(m.tracked, path)
 	}
 
-	// Process active sessions
 	var updates []*session.SessionState
 
-	for _, proc := range processes {
-		if m.skipped[proc.PID] {
-			continue
-		}
-
-		ts, exists := m.tracked[proc.PID]
-
+	for _, path := range sessionFiles {
+		ts, exists := m.tracked[path]
 		if !exists {
-			// New process found
-			sessionFile, err := FindSessionForProcess(proc.WorkingDir, proc.StartTime)
-			if err != nil {
-				log.Printf("Skipping PID %d (%s): no session file found", proc.PID, proc.WorkingDir)
-				m.skipped[proc.PID] = true
-				continue
-			}
-
-			// Deduplicate: skip if another PID is already tracking this session file
-			if trackingPID, ok := m.fileToSession[sessionFile]; ok {
-				log.Printf("PID %d shares session file with PID %d, skipping", proc.PID, trackingPID)
-				m.skipped[proc.PID] = true
-				continue
-			}
-
+			workingDir := workingDirFromFile(path)
 			ts = &trackedSession{
-				pid:         proc.PID,
-				sessionFile: sessionFile,
-				workingDir:  proc.WorkingDir,
+				sessionFile: path,
+				workingDir:  workingDir,
 			}
-			m.tracked[proc.PID] = ts
-			m.fileToSession[sessionFile] = proc.PID
-			log.Printf("Tracking new session: PID %d, dir %s, file %s", proc.PID, proc.WorkingDir, sessionFile)
+			m.tracked[path] = ts
+			log.Printf("Tracking new session file: %s", path)
 		}
 
-		// Read new JSONL entries
+		oldOffset := ts.fileOffset
 		result, newOffset, err := ParseSessionJSONL(ts.sessionFile, ts.fileOffset)
 		if err != nil {
-			log.Printf("JSONL parse error for PID %d: %v", proc.PID, err)
+			log.Printf("JSONL parse error for file %s: %v", ts.sessionFile, err)
 			continue
 		}
 		ts.fileOffset = newOffset
-		ts.lastPollTime = time.Now()
-
-		sessionID := SessionIDFromPath(ts.sessionFile)
-		model := result.Model
-		if model == "" {
-			model = "unknown"
+		if newOffset > oldOffset {
+			ts.lastDataTime = now
 		}
 
-		maxTokens := m.cfg.MaxContextTokens(model)
-
-		var tokensUsed int
-		if result.LatestUsage != nil {
-			tokensUsed = result.LatestUsage.TotalContext()
+		sessionID := result.SessionID
+		if sessionID == "" {
+			sessionID = SessionIDFromPath(ts.sessionFile)
 		}
 
-		// Determine activity
-		activity := classifyActivity(result, ts)
-
-		// Get existing state or create new
 		state, existed := m.store.Get(sessionID)
+		if existed && state.IsTerminal() {
+			continue
+		}
+
 		if !existed {
+			startedAt := now
+			if info, err := os.Stat(ts.sessionFile); err == nil {
+				startedAt = info.ModTime()
+			}
 			state = &session.SessionState{
-				ID:               sessionID,
-				Name:             nameFromPath(ts.workingDir),
-				StartedAt:        proc.StartTime,
-				MaxContextTokens: maxTokens,
-				WorkingDir:       ts.workingDir,
-				PID:              proc.PID,
+				ID:         sessionID,
+				Name:       nameFromPath(ts.workingDir),
+				StartedAt:  startedAt,
+				WorkingDir: ts.workingDir,
 			}
 		}
 
+		activity := classifyActivity(result, ts)
 		state.Activity = activity
 		if result.Model != "" {
-			state.Model = model
+			state.Model = result.Model
 		}
-		state.LastActivityAt = time.Now()
 
-		// Token count: use the latest usage from the most recent assistant message
-		// This represents the total context window used in that API call
-		if tokensUsed > state.TokensUsed {
-			state.TokensUsed = tokensUsed
+		modelForLookup := state.Model
+		if modelForLookup == "" {
+			modelForLookup = "unknown"
+		}
+		maxTokens := m.cfg.MaxContextTokens(modelForLookup)
+
+		if result.LastTime.IsZero() {
+			state.LastActivityAt = now
+		} else {
+			state.LastActivityAt = result.LastTime
+		}
+
+		if result.LatestUsage != nil {
+			tokensUsed := result.LatestUsage.TotalContext()
+			if tokensUsed > state.TokensUsed {
+				state.TokensUsed = tokensUsed
+			}
 		}
 		state.MaxContextTokens = maxTokens
 		state.UpdateUtilization()
 
-		// Accumulate counts
 		state.MessageCount += result.MessageCount
 		state.ToolCallCount += result.ToolCalls
 		if result.LastTool != "" {
@@ -248,4 +224,12 @@ func splitPath(path string) []string {
 		}
 	}
 	return parts
+}
+
+func workingDirFromFile(sessionFile string) string {
+	projectDir := filepath.Base(filepath.Dir(sessionFile))
+	if projectDir == "" || projectDir == "." || projectDir == "/" {
+		return ""
+	}
+	return DecodeProjectPath(projectDir)
 }

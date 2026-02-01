@@ -24,15 +24,13 @@ Sessions are discovered automatically via process scanning. State is read direct
 ## How It Works
 
 ```
-Process Scanner (/proc)          Go Backend            Browser (Canvas)
+JSONL File Discovery               Go Backend            Browser (Canvas)
  |                                  |                      |
- |-- pgrep claude, read PIDs ------>|                      |
- |-- /proc/<pid>/cwd ------------->|                      |
- |                                  |                      |
-JSONL File Reader                   |-- WebSocket -------->|
- |-- ~/.claude/projects/...jsonl -->|   snapshots + deltas |
+ |-- ~/.claude/projects/*/*.jsonl ->|                      |
  |-- parse token usage ----------->|                      |
  |-- classify activity ----------->|                      |
+ |                                  |-- WebSocket -------->|
+ |                                  |   snapshots + deltas |
                                     |                      |
                                     |   Canvas renders:    |
                                     |   - Race track       |
@@ -83,12 +81,10 @@ Mock mode (`--mock`) simulates 5 sessions with distinct behaviors for demo and d
 
 In real mode (the default), the dashboard:
 
-1. Scans `/proc` for running `claude` / `claude-code` processes
-2. Reads each process's working directory from `/proc/<pid>/cwd`
-3. Finds the corresponding session JSONL at `~/.claude/projects/<encoded-path>/<session>.jsonl`
-4. Incrementally parses new JSONL entries each poll (1s interval, only reads new bytes)
-5. Extracts token usage, model, activity, and tool calls from the session log
-6. When a process disappears, marks the session as complete
+1. Scans `~/.claude/projects/*/*.jsonl` for recently updated session files
+2. Incrementally parses new JSONL entries each poll (1s interval, only reads new bytes)
+3. Extracts token usage, model, activity, and tool calls from the session log
+4. Marks sessions complete after a configurable inactivity timeout
 
 No wrappers, hooks, or environment variables needed. Just run `claude` anywhere and it shows up.
 
@@ -152,6 +148,7 @@ monitor:
   poll_interval: 1s         # How often to scan for processes and read JSONL
   snapshot_interval: 5s     # Full state broadcast interval
   broadcast_throttle: 100ms # Minimum time between delta broadcasts
+  session_stale_after: 2m   # Mark sessions complete after no new data
 
 models:
   claude-opus-4-5-20251101: 200000
@@ -304,7 +301,7 @@ cp agent-racer /usr/local/bin/
 ## Requirements
 
 - **Go 1.22+** for building
-- **Linux** for real mode (requires `/proc` filesystem for process discovery)
+- **Linux** for real mode (reads Claude Code session files in `~/.claude/projects`)
 - Mock mode works on any platform
 - Modern browser with Canvas support
 

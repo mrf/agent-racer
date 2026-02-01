@@ -12,6 +12,7 @@ monitor:
   poll_interval: 1s
   snapshot_interval: 5s
   broadcast_throttle: 100ms
+  session_stale_after: 2m
 
 models:
   claude-opus-4-5-20251101: 200000
