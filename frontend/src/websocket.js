@@ -12,7 +12,10 @@ export class RaceConnection {
 
   connect() {
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const url = `${protocol}//${location.host}/ws`;
+    const params = new URLSearchParams(location.search);
+    const token = params.get('token');
+    const tokenQuery = token ? `?token=${encodeURIComponent(token)}` : '';
+    const url = `${protocol}//${location.host}/ws${tokenQuery}`;
 
     this.onStatus('connecting');
     this.ws = new WebSocket(url);

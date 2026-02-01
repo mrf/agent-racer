@@ -8,14 +8,16 @@ import (
 )
 
 type Config struct {
-	Server  ServerConfig          `yaml:"server"`
-	Monitor MonitorConfig         `yaml:"monitor"`
-	Models  map[string]int        `yaml:"models"`
+	Server  ServerConfig   `yaml:"server"`
+	Monitor MonitorConfig  `yaml:"monitor"`
+	Models  map[string]int `yaml:"models"`
 }
 
 type ServerConfig struct {
-	Port int    `yaml:"port"`
-	Host string `yaml:"host"`
+	Port           int      `yaml:"port"`
+	Host           string   `yaml:"host"`
+	AllowedOrigins []string `yaml:"allowed_origins"`
+	AuthToken      string   `yaml:"auth_token"`
 }
 
 type MonitorConfig struct {
@@ -33,7 +35,7 @@ func Load(path string) (*Config, error) {
 	cfg := &Config{
 		Server: ServerConfig{
 			Port: 8080,
-			Host: "0.0.0.0",
+			Host: "127.0.0.1",
 		},
 		Monitor: MonitorConfig{
 			PollInterval:      time.Second,

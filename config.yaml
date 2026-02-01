@@ -1,6 +1,12 @@
 server:
   port: 8080
-  host: "0.0.0.0"
+  host: "127.0.0.1"
+  # Optional: restrict browser origins that can open WebSocket connections
+  # allowed_origins:
+  #   - "http://localhost:8080"
+  #   - "http://127.0.0.1:8080"
+  # Optional: require an auth token for API/WS access
+  # auth_token: ""
 
 monitor:
   poll_interval: 1s

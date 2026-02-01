@@ -142,7 +142,11 @@ Configuration is via `config.yaml`:
 ```yaml
 server:
   port: 8080          # HTTP/WebSocket port
-  host: "0.0.0.0"     # Bind address
+  host: "127.0.0.1"   # Bind address (localhost by default)
+  # allowed_origins:  # Optional: restrict browser origins for WS
+  #   - "http://localhost:8080"
+  #   - "http://127.0.0.1:8080"
+  # auth_token: ""    # Optional: require token for API/WS
 
 monitor:
   poll_interval: 1s         # How often to scan for processes and read JSONL

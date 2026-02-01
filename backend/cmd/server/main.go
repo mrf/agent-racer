@@ -63,7 +63,7 @@ func main() {
 		}
 	}
 
-	server := ws.NewServer(store, broadcaster, frontendDir, *devMode, embeddedHandler)
+	server := ws.NewServer(store, broadcaster, frontendDir, *devMode, embeddedHandler, cfg.Server.AllowedOrigins, cfg.Server.AuthToken)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -94,4 +94,3 @@ func main() {
 		log.Fatalf("Server error: %v", err)
 	}
 }
-
