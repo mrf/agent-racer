@@ -108,6 +108,10 @@ function renderDetailPanel(state) {
       <span class="value">${esc(state.model) || 'unknown'}</span>
     </div>
     <div class="detail-row">
+      <span class="label">Source</span>
+      <span class="value">${esc(state.source) || 'unknown'}</span>
+    </div>
+    <div class="detail-row">
       <span class="label">Working Dir</span>
       <span class="value" title="${esc(state.workingDir)}">${esc(state.workingDir) || '-'}</span>
     </div>

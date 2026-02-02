@@ -7,8 +7,35 @@ const MODEL_COLORS = {
 
 const DEFAULT_COLOR = { main: '#6b7280', dark: '#4b5563', light: '#9ca3af', name: '?' };
 
-function getModelColor(model) {
-  return MODEL_COLORS[model] || DEFAULT_COLOR;
+function shortModelName(model) {
+  if (!model) return '?';
+  const parts = model.split(/[-_]/).filter(Boolean);
+  if (parts.length === 0) return model.slice(0, 6).toUpperCase();
+  if (parts[0] === 'gemini') {
+    const version = parts[1] ? parts[1].replace(/[^0-9.]/g, '') : '';
+    const tier = parts[2] ? parts[2][0].toUpperCase() : '';
+    return `G${version}${tier}` || 'G';
+  }
+  if (parts[0].startsWith('o')) {
+    return parts[0].toUpperCase();
+  }
+  if (parts[0] === 'gpt') {
+    return `${parts[0].toUpperCase()}${parts[1] ? parts[1] : ''}`.slice(0, 6);
+  }
+  return parts[0].slice(0, 6).toUpperCase();
+}
+
+function getModelColor(model, source) {
+  if (MODEL_COLORS[model]) {
+    return MODEL_COLORS[model];
+  }
+  if (model) {
+    return { ...DEFAULT_COLOR, name: shortModelName(model) };
+  }
+  if (source) {
+    return { ...DEFAULT_COLOR, name: source.toUpperCase() };
+  }
+  return DEFAULT_COLOR;
 }
 
 function formatTokens(tokens) {
@@ -173,7 +200,7 @@ export class Racer {
         }
         // Speed lines for fast movement
         if (particles && speed > 1.5) {
-          const color = getModelColor(this.state.model);
+          const color = getModelColor(this.state.model, this.state.source);
           const rgb = hexToRgb(color.main);
           particles.emitWithColor('speedLines', this.displayX - 25, this.displayY, 1, rgb);
         }
@@ -240,7 +267,7 @@ export class Racer {
   draw(ctx) {
     const x = this.displayX;
     const y = this.displayY;
-    const color = getModelColor(this.state.model);
+    const color = getModelColor(this.state.model, this.state.source);
     const activity = this.state.activity;
 
     ctx.save();
