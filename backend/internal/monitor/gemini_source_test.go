@@ -167,8 +167,11 @@ func TestGeminiSourceParseMtimeSkip(t *testing.T) {
 	if update.MessageCount != 2 {
 		t.Errorf("MessageCount = %d, want 2", update.MessageCount)
 	}
+	if offset == 0 {
+		t.Error("expected non-zero offset from first parse")
+	}
 
-	// Second parse with same mtime should skip (no new data).
+	// Second parse with same mtime should skip (no new data) but return same non-zero offset.
 	update2, offset2, err := src.Parse(handle, offset)
 	if err != nil {
 		t.Fatal(err)
@@ -176,7 +179,63 @@ func TestGeminiSourceParseMtimeSkip(t *testing.T) {
 	if update2.HasData() {
 		t.Error("expected no data on re-read with same mtime")
 	}
-	_ = offset2
+	if offset2 != offset {
+		t.Errorf("offset changed from %d to %d on re-parse", offset, offset2)
+	}
+}
+
+func TestGeminiSourceParseRetrackAfterPreviousParse(t *testing.T) {
+	// Regression test for re-tracking bug: if a file was parsed in a previous
+	// tracking cycle, then the monitor stops tracking it, then rediscovers it,
+	// Parse() with offset=0 should return a non-zero offset even when skipping
+	// the parse (because mtime hasn't changed).
+	dir := t.TempDir()
+	path := filepath.Join(dir, "session-2026-01-30T10-00-retrack.json")
+
+	data := `[{"role":"user","content":{"parts":[{"text":"hello"}]}},{"role":"model","content":{"parts":[{"text":"hi"}]}}]`
+	if err := os.WriteFile(path, []byte(data), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	src := NewGeminiSource(10 * time.Minute)
+	handle := SessionHandle{
+		SessionID: "retrack",
+		LogPath:   path,
+		Source:    "gemini",
+	}
+
+	// First parse: file is new to the source.
+	update1, offset1, err := src.Parse(handle, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !update1.HasData() {
+		t.Error("expected data from first parse")
+	}
+	if offset1 == 0 {
+		t.Error("expected non-zero offset from first parse")
+	}
+
+	// Simulate monitor stopping tracking (source keeps lastParsed state).
+	// Now monitor rediscovers the session and calls Parse() with offset=0.
+	update2, offset2, err := src.Parse(handle, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The file hasn't changed, so Parse() should skip and return no data.
+	// But crucially, it must return a non-zero offset, not 0, so the monitor
+	// knows the file has been processed. This prevents the session from
+	// appearing stale (lastDataTime never set) and being immediately removed.
+	if update2.HasData() {
+		t.Error("expected no data when re-tracking unchanged file")
+	}
+	if offset2 == 0 {
+		t.Error("REGRESSION: offset=0 returned when re-tracking, should return current mtime")
+	}
+	if offset2 != offset1 {
+		t.Errorf("offset mismatch: first=%d, retrack=%d", offset1, offset2)
+	}
 }
 
 func TestGeminiSourceParseEmpty(t *testing.T) {

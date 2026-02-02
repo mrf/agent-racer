@@ -132,8 +132,11 @@ func (g *GeminiSource) Parse(handle SessionHandle, offset int64) (SourceUpdate, 
 	lastMtime := g.lastParsed[handle.LogPath]
 
 	if !lastMtime.IsZero() && !currentMtime.After(lastMtime) {
-		// File unchanged since last parse.
-		return SourceUpdate{}, offset, nil
+		// File unchanged since last parse. Return the current mtime as offset
+		// so the monitor knows this file has been processed, even if we're
+		// skipping the parse. This prevents newly-tracked sessions from having
+		// offset=0 when the file was parsed in a previous tracking cycle.
+		return SourceUpdate{}, currentMtime.UnixNano(), nil
 	}
 
 	data, err := os.ReadFile(handle.LogPath)
