@@ -251,6 +251,9 @@ function handleSnapshot(payload) {
   log(`Snapshot: ${payload.sessions.length} sessions`, 'info');
   raceCanvas.setAllRacers(payload.sessions);
 
+  // Update crowd excitement based on current race state
+  engine.updateExcitement(payload.sessions);
+
   // Update detail flyout if open
   if (selectedSessionId && sessions.has(selectedSessionId)) {
     const state = sessions.get(selectedSessionId);
@@ -298,6 +301,9 @@ function handleDelta(payload) {
   }
   updateSessionCount();
 
+  // Update crowd excitement based on current race state
+  engine.updateExcitement([...sessions.values()]);
+
   // Update detail flyout if open
   if (selectedSessionId && sessions.has(selectedSessionId)) {
     const state = sessions.get(selectedSessionId);
@@ -312,12 +318,15 @@ function handleCompletion(payload) {
   if (payload.activity === 'complete') {
     raceCanvas.onComplete(payload.sessionId);
     engine.playVictory();
+    engine.recordCompletion();
   } else if (payload.activity === 'errored') {
     raceCanvas.onError(payload.sessionId);
     engine.playCrash();
+    engine.recordCrash();
   } else if (payload.activity === 'lost') {
     raceCanvas.onError(payload.sessionId);
     engine.playCrash();
+    engine.recordCrash();
   }
 }
 

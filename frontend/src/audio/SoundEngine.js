@@ -542,4 +542,47 @@ export class SoundEngine {
       }
     }
   }
+
+  setMasterVolume(volume) {
+    if (this.masterGain && !this.muted) {
+      this.masterGain.gain.value = Math.max(0, Math.min(1, volume));
+    }
+  }
+
+  setAmbientVolume(volume) {
+    if (this.ambientBus) {
+      this.ambientBus.gain.value = Math.max(0, Math.min(1, volume));
+    }
+  }
+
+  setSfxVolume(volume) {
+    if (this.sfxBus) {
+      this.sfxBus.gain.value = Math.max(0, Math.min(1, volume));
+    }
+  }
+
+  applyConfig(config) {
+    if (!config) return;
+
+    if (typeof config.enabled === 'boolean') {
+      this.setMuted(!config.enabled);
+    }
+
+    if (typeof config.master_volume === 'number') {
+      this.setMasterVolume(config.master_volume);
+    }
+
+    if (typeof config.ambient_volume === 'number') {
+      this.setAmbientVolume(config.ambient_volume);
+    }
+
+    if (typeof config.sfx_volume === 'number') {
+      this.setSfxVolume(config.sfx_volume);
+    }
+
+    // Handle ambient and sfx enable/disable
+    if (config.enable_ambient === false && this.ambientRunning) {
+      this.stopAmbient();
+    }
+  }
 }
