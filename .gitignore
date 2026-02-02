@@ -2,3 +2,4 @@
 agent-racer
 dist/
 backend/internal/frontend/static/
+.playwright-mcp
