@@ -346,9 +346,8 @@ export class Track {
 
     for (let i = 0; i < this._crowdHeads.length; i++) {
       const head = this._crowdHeads[i];
-      const bob = Math.sin(this.time * 2 + i * 0.3) * 2;
       const hx = bounds.x - 10 + head.x;
-      const hy = crowdY - bob;
+      const hy = crowdY;
 
       ctx.fillStyle = '#252535';
       ctx.beginPath();

@@ -690,11 +690,12 @@ export class Racer {
   }
 
   drawInfo(ctx, x, y, color, activity) {
-    // Session name above
+    // Session name and model name above
     ctx.fillStyle = '#ddd';
     ctx.font = 'bold 11px Courier New';
     ctx.textAlign = 'center';
-    ctx.fillText(this.state.name, x, y - 22);
+    const labelText = `${this.state.name} • ${color.name}`;
+    ctx.fillText(labelText, x, y - 22);
 
     // Model badge
     ctx.fillStyle = color.dark;
