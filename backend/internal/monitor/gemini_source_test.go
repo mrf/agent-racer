@@ -262,6 +262,42 @@ func TestGeminiSourceParseWithModelField(t *testing.T) {
 	}
 }
 
+func TestGeminiContextWindow(t *testing.T) {
+	tests := []struct {
+		model string
+		want  int
+	}{
+		{"gemini-2.5-pro", 1_048_576},
+		{"gemini-2.5-flash", 1_048_576},
+		{"gemini-2.0-flash", 1_048_576},
+		{"gemini-2.0-flash-exp", 1_048_576},
+		{"gemini-3-pro-preview", 1_000_000},
+		{"gemini-3-flash-preview", 1_000_000},
+		{"gemini-1.5-pro-latest", 2_097_152},
+		{"gemini-1.5-flash-latest", 1_048_576},
+		{"some-unknown-model", 1_048_576},
+	}
+
+	for _, tt := range tests {
+		got := geminiContextWindow(tt.model)
+		if got != tt.want {
+			t.Errorf("geminiContextWindow(%q) = %d, want %d", tt.model, got, tt.want)
+		}
+	}
+}
+
+func TestGeminiSessionSetsMaxContextTokens(t *testing.T) {
+	data := []byte(`[
+		{"role": "user", "content": {"parts": [{"text": "hi"}]}},
+		{"role": "model", "model": "gemini-2.5-pro", "content": {"parts": [{"text": "hello"}]}, "usageMetadata": {"promptTokenCount": 100, "candidatesTokenCount": 50, "totalTokenCount": 150}}
+	]`)
+
+	update := parseGeminiSession(data)
+	if update.MaxContextTokens != 1_048_576 {
+		t.Errorf("MaxContextTokens = %d, want 1048576", update.MaxContextTokens)
+	}
+}
+
 func TestIsGeminiProcess(t *testing.T) {
 	tests := []struct {
 		cmdline string

@@ -215,6 +215,57 @@ func TestCodexSourceParseResponseItemEnvelope(t *testing.T) {
 	}
 }
 
+func TestCodexSourceParseContextWindow(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "rollout-ctx.jsonl")
+
+	content := `{"type":"session_meta","payload":{"session_id":"ctx-test","model":"gpt-5-codex"}}
+{"type":"event_msg","payload":{"type":"turn_started","payload":{"model_context_window":272000}}}
+{"type":"event_msg","payload":{"type":"token_count","payload":{"input_tokens":8000,"output_tokens":500,"model_context_window":272000}}}
+`
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	src := NewCodexSource(10 * time.Minute)
+	handle := SessionHandle{SessionID: "ctx-test", LogPath: path, Source: "codex"}
+
+	update, _, err := src.Parse(handle, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if update.MaxContextTokens != 272000 {
+		t.Errorf("MaxContextTokens = %d, want 272000", update.MaxContextTokens)
+	}
+	if update.TokensIn != 8000 {
+		t.Errorf("TokensIn = %d, want 8000", update.TokensIn)
+	}
+}
+
+func TestCodexSourceParseContextWindowFromTokenCount(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "rollout-tc.jsonl")
+
+	// Only token_count event (no turn_started), should still get context window.
+	content := `{"session_id":"tc-test","model":"o3","timestamp":"2026-01-30T10:00:00.000Z"}
+{"type":"token_count","input_tokens":3000,"output_tokens":100,"model_context_window":200000}
+`
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	src := NewCodexSource(10 * time.Minute)
+	handle := SessionHandle{SessionID: "tc-test", LogPath: path, Source: "codex"}
+
+	update, _, err := src.Parse(handle, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if update.MaxContextTokens != 200000 {
+		t.Errorf("MaxContextTokens = %d, want 200000", update.MaxContextTokens)
+	}
+}
+
 func TestCodexSessionIDFromFilenameFallback(t *testing.T) {
 	// Short filename that doesn't contain a full UUID.
 	got := codexSessionIDFromFilename("rollout-short.jsonl")

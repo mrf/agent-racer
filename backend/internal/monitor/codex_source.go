@@ -131,16 +131,17 @@ func (c *CodexSource) Parse(handle SessionHandle, offset int64) (SourceUpdate, i
 
 // codexParsed holds fields extracted from a single Codex JSONL line.
 type codexParsed struct {
-	sessionID  string
-	model      string
-	workingDir string
-	activity   string
-	lastTool   string
-	tokensIn   int
-	tokensOut  int
-	messages   int
-	toolCalls  int
-	timestamp  time.Time
+	sessionID        string
+	model            string
+	workingDir       string
+	activity         string
+	lastTool         string
+	tokensIn         int
+	tokensOut        int
+	maxContextTokens int
+	messages         int
+	toolCalls        int
+	timestamp        time.Time
 }
 
 // parseCodexLine parses a single line from a Codex rollout JSONL file.
@@ -179,19 +180,19 @@ func parseCodexEnvelope(typ string, payload json.RawMessage) codexParsed {
 	switch typ {
 	case "session_meta":
 		var meta struct {
-			SessionID     string `json:"session_id"`
-			ConversationID string `json:"conversation_id"`
-			Model         string `json:"model"`
-			ModelProvider string `json:"model_provider"`
-			Timestamp     string `json:"timestamp"`
-			Source        string `json:"source"`
+			SessionID      string          `json:"session_id"`
+			ConversationID string          `json:"conversation_id"`
+			Model          json.RawMessage `json:"model"`
+			ModelProvider  string          `json:"model_provider"`
+			Timestamp      string          `json:"timestamp"`
+			Source         string          `json:"source"`
 		}
 		if json.Unmarshal(payload, &meta) == nil {
 			parsed.sessionID = meta.SessionID
 			if parsed.sessionID == "" {
 				parsed.sessionID = meta.ConversationID
 			}
-			parsed.model = meta.Model
+			parsed.model = parseCodexModel(meta.Model)
 			if meta.Timestamp != "" {
 				if t, err := time.Parse(time.RFC3339Nano, meta.Timestamp); err == nil {
 					parsed.timestamp = t
@@ -201,7 +202,7 @@ func parseCodexEnvelope(typ string, payload json.RawMessage) codexParsed {
 
 	case "event_msg":
 		var event struct {
-			Type    string `json:"type"`
+			Type    string          `json:"type"`
 			Payload json.RawMessage `json:"payload"`
 		}
 		if json.Unmarshal(payload, &event) == nil {
@@ -214,12 +215,16 @@ func parseCodexEnvelope(typ string, payload json.RawMessage) codexParsed {
 				parsed.activity = "thinking"
 			case "token_count":
 				parseCodexTokenCount(event.Payload, &parsed)
+			case "turn_started":
+				parseCodexTurnStarted(event.Payload, &parsed)
+			case "tool_call":
+				parseCodexToolCall(event.Payload, &parsed)
 			case "session_configured":
 				var cfg struct {
-					Model string `json:"model"`
+					Model json.RawMessage `json:"model"`
 				}
-				if json.Unmarshal(event.Payload, &cfg) == nil && cfg.Model != "" {
-					parsed.model = cfg.Model
+				if json.Unmarshal(event.Payload, &cfg) == nil {
+					parsed.model = parseCodexModel(cfg.Model)
 				}
 			}
 		}
@@ -242,17 +247,17 @@ func parseCodexEnvelope(typ string, payload json.RawMessage) codexParsed {
 func parseCodexSessionMeta(line []byte) codexParsed {
 	var parsed codexParsed
 	var meta struct {
-		SessionID      string `json:"session_id"`
-		ConversationID string `json:"conversation_id"`
-		Model          string `json:"model"`
-		Timestamp      string `json:"timestamp"`
+		SessionID      string          `json:"session_id"`
+		ConversationID string          `json:"conversation_id"`
+		Model          json.RawMessage `json:"model"`
+		Timestamp      string          `json:"timestamp"`
 	}
 	if json.Unmarshal(line, &meta) == nil {
 		parsed.sessionID = meta.SessionID
 		if parsed.sessionID == "" {
 			parsed.sessionID = meta.ConversationID
 		}
-		parsed.model = meta.Model
+		parsed.model = parseCodexModel(meta.Model)
 		if meta.Timestamp != "" {
 			if t, err := time.Parse(time.RFC3339Nano, meta.Timestamp); err == nil {
 				parsed.timestamp = t
@@ -301,6 +306,10 @@ func parseCodexBareItem(line []byte) codexParsed {
 				parsed.lastTool = mcp.Name
 			}
 		}
+	case "token_count":
+		parseCodexTokenCount(line, &parsed)
+	case "tool_call":
+		parseCodexToolCall(line, &parsed)
 	case "reasoning":
 		parsed.activity = "thinking"
 	case "web_search":
@@ -342,6 +351,8 @@ func parseCodexResponseItem(payload json.RawMessage, parsed *codexParsed) {
 		if parsed.lastTool == "" {
 			parsed.lastTool = item.Name
 		}
+	case "tool_call":
+		parseCodexToolCall(payload, parsed)
 	case "reasoning":
 		parsed.activity = "thinking"
 	case "web_search":
@@ -352,18 +363,83 @@ func parseCodexResponseItem(payload json.RawMessage, parsed *codexParsed) {
 }
 
 func parseCodexTokenCount(payload json.RawMessage, parsed *codexParsed) {
-	// Codex token counts are cumulative snapshots.
+	// Codex token counts are cumulative snapshots. The model_context_window
+	// field reports the model's total context size when available.
 	var tc struct {
-		InputTokens       int `json:"input_tokens"`
-		CachedInputTokens int `json:"cached_input_tokens"`
-		OutputTokens      int `json:"output_tokens"`
-		TotalTokens       int `json:"total_tokens"`
+		InputTokens         int `json:"input_tokens"`
+		CachedInputTokens   int `json:"cached_input_tokens"`
+		OutputTokens        int `json:"output_tokens"`
+		TotalTokens         int `json:"total_tokens"`
+		ModelContextWindow  int `json:"model_context_window"`
 	}
 	if json.Unmarshal(payload, &tc) == nil {
-		// Use input_tokens as context window usage (similar to Claude's TotalContext).
 		parsed.tokensIn = tc.InputTokens
 		parsed.tokensOut = tc.OutputTokens
+		if tc.ModelContextWindow > 0 {
+			parsed.maxContextTokens = tc.ModelContextWindow
+		}
 	}
+}
+
+func parseCodexTurnStarted(payload json.RawMessage, parsed *codexParsed) {
+	var ts struct {
+		ModelContextWindow int `json:"model_context_window"`
+	}
+	if json.Unmarshal(payload, &ts) == nil && ts.ModelContextWindow > 0 {
+		parsed.maxContextTokens = ts.ModelContextWindow
+	}
+}
+
+func parseCodexToolCall(payload json.RawMessage, parsed *codexParsed) {
+	if parsed == nil {
+		return
+	}
+	var tool struct {
+		Name     string `json:"name"`
+		ToolName string `json:"tool_name"`
+		Tool     struct {
+			Name string `json:"name"`
+		} `json:"tool"`
+	}
+	if json.Unmarshal(payload, &tool) != nil {
+		return
+	}
+	parsed.toolCalls = 1
+	parsed.activity = "tool_use"
+	parsed.lastTool = tool.ToolName
+	if parsed.lastTool == "" {
+		parsed.lastTool = tool.Name
+	}
+	if parsed.lastTool == "" {
+		parsed.lastTool = tool.Tool.Name
+	}
+}
+
+func parseCodexModel(raw json.RawMessage) string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return ""
+	}
+	var model string
+	if json.Unmarshal(raw, &model) == nil {
+		return model
+	}
+	var obj struct {
+		Name  string `json:"name"`
+		ID    string `json:"id"`
+		Model string `json:"model"`
+	}
+	if json.Unmarshal(raw, &obj) == nil {
+		if obj.Name != "" {
+			return obj.Name
+		}
+		if obj.ID != "" {
+			return obj.ID
+		}
+		if obj.Model != "" {
+			return obj.Model
+		}
+	}
+	return ""
 }
 
 func mergeCodexParsed(update *SourceUpdate, parsed codexParsed) {
@@ -388,6 +464,9 @@ func mergeCodexParsed(update *SourceUpdate, parsed codexParsed) {
 	}
 	if parsed.tokensOut > 0 {
 		update.TokensOut = parsed.tokensOut
+	}
+	if parsed.maxContextTokens > 0 {
+		update.MaxContextTokens = parsed.maxContextTokens
 	}
 	// Messages and tool calls are deltas.
 	update.MessageCount += parsed.messages

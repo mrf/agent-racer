@@ -229,16 +229,82 @@ func parseGeminiSession(data []byte) SourceUpdate {
 		}
 	}
 
+	if update.Model == "" {
+		update.Model = extractGeminiModel(data)
+	}
+
+	if update.Model != "" {
+		update.MaxContextTokens = geminiContextWindow(update.Model)
+	}
+
 	return update
+}
+
+func extractGeminiModel(data []byte) string {
+	var root any
+	if err := json.Unmarshal(data, &root); err != nil {
+		return ""
+	}
+	return findGeminiModel(root, 3)
+}
+
+func findGeminiModel(value any, depth int) string {
+	if depth < 0 || value == nil {
+		return ""
+	}
+	switch v := value.(type) {
+	case map[string]any:
+		for key, val := range v {
+			switch key {
+			case "model", "modelName", "model_name", "modelId", "model_id":
+				if s, ok := val.(string); ok && s != "" {
+					return s
+				}
+			}
+		}
+		for _, val := range v {
+			if found := findGeminiModel(val, depth-1); found != "" {
+				return found
+			}
+		}
+	case []any:
+		for _, item := range v {
+			if found := findGeminiModel(item, depth-1); found != "" {
+				return found
+			}
+		}
+	}
+	return ""
+}
+
+// geminiContextWindow returns the known context window size for a Gemini
+// model. The Gemini CLI itself hardcodes 1,048,576 for all current models
+// (see packages/core/src/core/tokenLimits.ts). We mirror that here and
+// handle newer models as they appear.
+func geminiContextWindow(model string) int {
+	switch {
+	case strings.HasPrefix(model, "gemini-2.5-"),
+		strings.HasPrefix(model, "gemini-2.0-"):
+		return 1_048_576
+	case strings.HasPrefix(model, "gemini-3-"):
+		return 1_000_000
+	case strings.HasPrefix(model, "gemini-1.5-pro"):
+		return 2_097_152
+	case strings.HasPrefix(model, "gemini-1.5-flash"):
+		return 1_048_576
+	default:
+		// Match the Gemini CLI default.
+		return 1_048_576
+	}
 }
 
 // geminiMessage represents a message in a Gemini session JSON file.
 type geminiMessage struct {
-	Role    string             `json:"role"`
-	Type    string             `json:"type"`
-	Model   string             `json:"model,omitempty"`
-	Content geminiContent      `json:"content"`
-	UsageMetadata *geminiUsage `json:"usageMetadata,omitempty"`
+	Role          string        `json:"role"`
+	Type          string        `json:"type"`
+	Model         string        `json:"model,omitempty"`
+	Content       geminiContent `json:"content"`
+	UsageMetadata *geminiUsage  `json:"usageMetadata,omitempty"`
 }
 
 type geminiContent struct {
