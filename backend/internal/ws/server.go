@@ -8,11 +8,13 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/agent-racer/backend/internal/config"
 	"github.com/agent-racer/backend/internal/session"
 	"github.com/gorilla/websocket"
 )
 
 type Server struct {
+	config          *config.Config
 	store           *session.Store
 	broadcaster     *Broadcaster
 	frontendDir     string
@@ -23,8 +25,9 @@ type Server struct {
 	authToken       string
 }
 
-func NewServer(store *session.Store, broadcaster *Broadcaster, frontendDir string, dev bool, embeddedHandler http.Handler, allowedOrigins []string, authToken string) *Server {
+func NewServer(cfg *config.Config, store *session.Store, broadcaster *Broadcaster, frontendDir string, dev bool, embeddedHandler http.Handler, allowedOrigins []string, authToken string) *Server {
 	s := &Server{
+		config:          cfg,
 		store:           store,
 		broadcaster:     broadcaster,
 		frontendDir:     frontendDir,
@@ -52,6 +55,7 @@ func NewServer(store *session.Store, broadcaster *Broadcaster, frontendDir strin
 func (s *Server) SetupRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/ws", s.handleWS)
 	mux.HandleFunc("/api/sessions", s.handleSessions)
+	mux.HandleFunc("/api/config", s.handleConfig)
 
 	if s.dev {
 		log.Printf("Serving frontend from filesystem: %s", s.frontendDir)
@@ -104,6 +108,16 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	sessions := s.store.GetAll()
 	json.NewEncoder(w).Encode(sessions)
+}
+
+func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
+	if !s.authorize(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.config.Sound)
 }
 
 func (s *Server) authorize(r *http.Request) bool {

@@ -11,6 +11,13 @@ export class SoundEngine {
     this.impulseBuffer = null;
     this.ambientNodes = [];
     this.duckTimeout = null;
+    // Dynamic crowd excitement
+    this.crowdGain = null;
+    this.crowdLfoGain = null;
+    this.currentExcitement = 0;
+    this.targetExcitement = 0;
+    this.recentEvents = []; // {type: 'completion'|'crash', timestamp}
+    this.excitementUpdateInterval = null;
   }
 
   _ensureCtx() {
@@ -117,22 +124,26 @@ export class SoundEngine {
 
     // LFO on filter cutoff for organic murmur
     const lfo = this.ctx.createOscillator();
-    const lfoGain = this.ctx.createGain();
+    this.crowdLfoGain = this.ctx.createGain();
     lfo.frequency.value = 0.1;
-    lfoGain.gain.value = 300;
-    lfo.connect(lfoGain);
-    lfoGain.connect(bandpass.frequency);
+    this.crowdLfoGain.gain.value = 300;
+    lfo.connect(this.crowdLfoGain);
+    this.crowdLfoGain.connect(bandpass.frequency);
     lfo.start();
 
-    const gain = this.ctx.createGain();
-    gain.gain.value = 0.02;
+    // Start at minimal volume (low murmur)
+    this.crowdGain = this.ctx.createGain();
+    this.crowdGain.gain.value = 0.005;
 
     noise.connect(bandpass);
-    bandpass.connect(gain);
-    gain.connect(this.ambientBus);
+    bandpass.connect(this.crowdGain);
+    this.crowdGain.connect(this.ambientBus);
     noise.start();
 
-    this.ambientNodes.push({ noise, lfo, gain, bandpass });
+    this.ambientNodes.push({ noise, lfo, gain: this.crowdGain, bandpass });
+
+    // Start excitement update loop
+    this._startExcitementLoop();
   }
 
   _startWind() {
@@ -169,13 +180,118 @@ export class SoundEngine {
     }, delay);
   }
 
+  _startExcitementLoop() {
+    // Update excitement smoothly at 10Hz
+    this.excitementUpdateInterval = setInterval(() => {
+      if (!this.ambientRunning || !this.ctx || !this.crowdGain) return;
+
+      // Smoothly interpolate current excitement toward target
+      const smoothing = 0.05; // Lower = smoother transitions
+      this.currentExcitement += (this.targetExcitement - this.currentExcitement) * smoothing;
+
+      // Map excitement (0-1) to crowd volume (0.005 = low murmur, 0.08 = roaring)
+      const minVolume = 0.005;
+      const maxVolume = 0.08;
+      const targetVolume = minVolume + (maxVolume - minVolume) * this.currentExcitement;
+
+      // Update crowd gain smoothly
+      const now = this.ctx.currentTime;
+      this.crowdGain.gain.linearRampToValueAtTime(targetVolume, now + 0.1);
+
+      // Also modulate LFO intensity based on excitement (more wobble when exciting)
+      if (this.crowdLfoGain) {
+        const minLfo = 200;
+        const maxLfo = 500;
+        const targetLfo = minLfo + (maxLfo - minLfo) * this.currentExcitement;
+        this.crowdLfoGain.gain.linearRampToValueAtTime(targetLfo, now + 0.1);
+      }
+    }, 100);
+  }
+
+  /**
+   * Update excitement level based on current race state
+   * @param {Array} sessions - Array of session objects with activity, contextUtilization
+   */
+  updateExcitement(sessions) {
+    if (!this.ambientRunning) return;
+
+    // Clean up old events (older than 10 seconds)
+    const now = Date.now();
+    this.recentEvents = this.recentEvents.filter(e => now - e.timestamp < 10000);
+
+    // Count active sessions (thinking or tool_use)
+    const activeSessions = sessions.filter(s =>
+      s.activity === 'thinking' || s.activity === 'tool_use'
+    );
+    const activeCount = activeSessions.length;
+
+    // Count sessions near finish line (>80% context)
+    const nearFinish = sessions.filter(s =>
+      s.contextUtilization > 0.8 &&
+      !['complete', 'errored', 'lost'].includes(s.activity)
+    ).length;
+
+    // Count recent events (completions/crashes in last 10s)
+    const recentEventCount = this.recentEvents.length;
+
+    // Calculate excitement score (0-1 range)
+    let excitement = 0;
+
+    // Base excitement from active sessions (0-0.4 range)
+    // 1 active = 0.1, 2+ active = 0.2, 3+ active = 0.3, 4+ active = 0.4
+    if (activeCount >= 4) excitement += 0.4;
+    else if (activeCount === 3) excitement += 0.3;
+    else if (activeCount >= 2) excitement += 0.2;
+    else if (activeCount === 1) excitement += 0.1;
+
+    // Boost for sessions near finish (0-0.3 range)
+    // Each session near finish adds excitement
+    if (nearFinish >= 3) excitement += 0.3;
+    else if (nearFinish === 2) excitement += 0.2;
+    else if (nearFinish === 1) excitement += 0.1;
+
+    // Boost for recent events (0-0.3 range)
+    // Recent completion/crash adds temporary excitement
+    if (recentEventCount >= 3) excitement += 0.3;
+    else if (recentEventCount === 2) excitement += 0.2;
+    else if (recentEventCount === 1) excitement += 0.15;
+
+    // Clamp to 0-1
+    excitement = Math.max(0, Math.min(1, excitement));
+
+    this.targetExcitement = excitement;
+  }
+
+  /**
+   * Record a completion event for excitement tracking
+   */
+  recordCompletion() {
+    this.recentEvents.push({ type: 'completion', timestamp: Date.now() });
+  }
+
+  /**
+   * Record a crash event for excitement tracking
+   */
+  recordCrash() {
+    this.recentEvents.push({ type: 'crash', timestamp: Date.now() });
+  }
+
   stopAmbient() {
     this.ambientRunning = false;
+    if (this.excitementUpdateInterval) {
+      clearInterval(this.excitementUpdateInterval);
+      this.excitementUpdateInterval = null;
+    }
     for (const nodes of this.ambientNodes) {
       try { nodes.noise.stop(); } catch { /* ok */ }
       try { nodes.lfo?.stop(); } catch { /* ok */ }
     }
     this.ambientNodes = [];
+    this.crowdGain = null;
+    this.crowdLfoGain = null;
+    this.currentExcitement = 0;
+    this.targetExcitement = 0;
+    this.recentEvents = [];
   }
 
   // --- Per-racer engine hum ---

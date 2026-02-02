@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/agent-racer/backend/internal/config"
@@ -122,11 +123,9 @@ func (m *Monitor) poll() {
 				ts.lastDataTime = now
 			}
 
+			// Always use filename-based session ID to ensure session identity
+			// remains stable across model switches and JSONL sessionId changes
 			sessionID := h.SessionID
-			if update.SessionID != "" {
-				sessionID = update.SessionID
-			}
-
 			storeKey := trackingKey(h.Source, sessionID)
 			state, existed := m.store.Get(storeKey)
 			if existed && state.IsTerminal() {
@@ -197,7 +196,7 @@ func (m *Monitor) poll() {
 		}
 	}
 
-	// Mark stale sessions complete.
+	// Mark stale sessions as lost (disappeared without session end marker).
 	var toRemove []string
 	for key, ts := range m.tracked {
 		if activeKeys[key] {
@@ -214,7 +213,8 @@ func (m *Monitor) poll() {
 			if state.CompletedAt != nil {
 				completedAt = *state.CompletedAt
 			}
-			m.markComplete(state, completedAt)
+			// Sessions that disappear without session end marker are marked as Lost
+			m.markTerminal(state, session.Lost, completedAt)
 		}
 		toRemove = append(toRemove, key)
 	}
@@ -229,19 +229,25 @@ func (m *Monitor) poll() {
 	m.flushRemovals(now)
 }
 
-func (m *Monitor) markComplete(state *session.SessionState, completedAt time.Time) {
+// markTerminal marks a session with a terminal state (Complete, Errored, or Lost).
+func (m *Monitor) markTerminal(state *session.SessionState, activity session.Activity, completedAt time.Time) {
 	if state == nil {
 		return
 	}
-	wasComplete := state.Activity == session.Complete
-	state.Activity = session.Complete
+	wasTerminal := state.IsTerminal()
+	state.Activity = activity
 	state.CompletedAt = &completedAt
 	m.store.Update(state)
-	if !wasComplete {
-		m.broadcaster.QueueCompletion(state.ID, session.Complete, state.Name)
+	if !wasTerminal {
+		m.broadcaster.QueueCompletion(state.ID, activity, state.Name)
 	}
 	m.broadcaster.QueueUpdate([]*session.SessionState{state})
 	m.scheduleRemoval(state.ID, completedAt)
+}
+
+// markComplete marks a session as successfully completed.
+func (m *Monitor) markComplete(state *session.SessionState, completedAt time.Time) {
+	m.markTerminal(state, session.Complete, completedAt)
 }
 
 func (m *Monitor) scheduleRemoval(sessionID string, completedAt time.Time) {
@@ -345,7 +351,10 @@ func (m *Monitor) handleSessionEnd(marker sessionEndMarker, now time.Time) {
 			completedAt = parsed
 		}
 	}
-	m.markComplete(state, completedAt)
+
+	// Determine terminal activity based on reason field
+	activity := determineActivityFromReason(marker.Reason)
+	m.markTerminal(state, activity, completedAt)
 
 	// Clean up tracked session by matching on claude source.
 	for key := range m.tracked {
@@ -355,6 +364,30 @@ func (m *Monitor) handleSessionEnd(marker sessionEndMarker, now time.Time) {
 			break
 		}
 	}
+}
+
+// determineActivityFromReason inspects the reason field from a session end marker
+// and returns the appropriate terminal activity (Complete, Errored, or Lost).
+func determineActivityFromReason(reason string) session.Activity {
+	if reason == "" {
+		return session.Complete
+	}
+
+	// Check for error indicators in the reason string
+	lowerReason := strings.ToLower(reason)
+	errorIndicators := []string{
+		"error", "err", "failed", "failure", "crash", "crashed",
+		"panic", "exception", "abort", "aborted", "fatal",
+		"interrupted", "killed", "terminated",
+	}
+
+	for _, indicator := range errorIndicators {
+		if strings.Contains(lowerReason, indicator) {
+			return session.Errored
+		}
+	}
+
+	return session.Complete
 }
 
 // classifyActivityFromUpdate converts a SourceUpdate's activity string into

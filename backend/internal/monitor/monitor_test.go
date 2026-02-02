@@ -3,6 +3,8 @@ package monitor
 import (
 	"testing"
 	"time"
+
+	"github.com/agent-racer/backend/internal/session"
 )
 
 func TestTrackingKey(t *testing.T) {

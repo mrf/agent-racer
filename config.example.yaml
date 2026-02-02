@@ -1,0 +1,46 @@
+# Agent Racer Configuration Example
+# Copy this to ~/.config/agent-racer/config.yaml to customize settings
+
+server:
+  port: 8080
+  host: "127.0.0.1"
+  # Optional: CORS allowed origins (empty = same-origin only)
+  allowed_origins: []
+  # Optional: Authentication token (empty = no auth required)
+  auth_token: ""
+
+monitor:
+  # How often to poll agent sources for updates
+  poll_interval: 1s
+  # How often to take snapshot broadcasts
+  snapshot_interval: 5s
+  # Minimum time between broadcast updates
+  broadcast_throttle: 100ms
+  # When to mark a session as stale
+  session_stale_after: 2m
+  # When to remove completed sessions from display
+  completion_remove_after: 8s
+  # Directory to store session end markers (XDG_STATE_HOME/agent-racer/session-end by default)
+  session_end_dir: ""
+
+# Model context token limits
+models:
+  default: 200000
+  # Add model-specific overrides:
+  # opus-4: 200000
+  # sonnet-3.5: 200000
+
+# Sound settings
+sound:
+  # Master enable/disable for all sounds
+  enabled: true
+  # Master volume (0.0 - 1.0)
+  master_volume: 1.0
+  # Ambient sounds volume (crowd, wind, engine hums)
+  ambient_volume: 1.0
+  # Sound effects volume (gear shift, victory, crash, etc.)
+  sfx_volume: 1.0
+  # Enable/disable ambient sounds independently
+  enable_ambient: true
+  # Enable/disable sound effects independently
+  enable_sfx: true

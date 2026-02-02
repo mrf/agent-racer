@@ -22,11 +22,17 @@ import (
 func main() {
 	mockMode := flag.Bool("mock", false, "Use mock session data")
 	devMode := flag.Bool("dev", false, "Development mode (serve frontend from filesystem)")
-	configPath := flag.String("config", "config.yaml", "Path to config file")
+	configPath := flag.String("config", "", "Path to config file (defaults to ~/.config/agent-racer/config.yaml)")
 	port := flag.Int("port", 0, "Override server port")
 	flag.Parse()
 
-	cfg, err := config.Load(*configPath)
+	// Use XDG config directory if no config path specified
+	cfgPath := *configPath
+	if cfgPath == "" {
+		cfgPath = config.DefaultConfigPath()
+	}
+
+	cfg, err := config.LoadOrDefault(cfgPath)
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
@@ -64,7 +70,7 @@ func main() {
 		}
 	}
 
-	server := ws.NewServer(store, broadcaster, frontendDir, *devMode, embeddedHandler, cfg.Server.AllowedOrigins, cfg.Server.AuthToken)
+	server := ws.NewServer(cfg, store, broadcaster, frontendDir, *devMode, embeddedHandler, cfg.Server.AllowedOrigins, cfg.Server.AuthToken)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

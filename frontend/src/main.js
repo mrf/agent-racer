@@ -6,9 +6,9 @@ import { requestPermission, notifyCompletion } from './notifications.js';
 const debugPanel = document.getElementById('debug-panel');
 const debugLog = document.getElementById('debug-log');
 const debugClose = document.getElementById('debug-close');
-const detailPanel = document.getElementById('detail-panel');
-const detailContent = document.getElementById('detail-content');
-const detailClose = document.getElementById('detail-close');
+const detailFlyout = document.getElementById('detail-flyout');
+const flyoutContent = document.getElementById('flyout-content');
+const flyoutClose = document.getElementById('flyout-close');
 const statusDot = document.getElementById('connection-status');
 const sessionCount = document.getElementById('session-count');
 const canvas = document.getElementById('race-canvas');
@@ -83,18 +83,75 @@ function formatElapsed(startStr) {
   return `${mins}m ${secs}s`;
 }
 
-function showDetailPanel(state) {
+function showDetailFlyout(state, carX, carY) {
   selectedSessionId = state.id;
-  renderDetailPanel(state);
-  detailPanel.classList.remove('hidden');
+  renderDetailFlyout(state);
+  positionFlyout(carX, carY);
+  detailFlyout.classList.remove('hidden');
 }
 
-function renderDetailPanel(state) {
+function positionFlyout(carX, carY) {
+  const canvasRect = canvas.getBoundingClientRect();
+  const flyoutWidth = 380; // match CSS width
+  const flyoutMaxHeight = window.innerHeight * 0.8; // match CSS max-height
+  const margin = 20; // distance from car
+  const padding = 10; // padding from screen edges
+
+  // Calculate absolute position relative to viewport
+  const absoluteCarX = canvasRect.left + carX;
+  const absoluteCarY = canvasRect.top + carY;
+
+  let left, top;
+  let arrowClass = 'arrow-left';
+
+  // Try positioning to the right of the car first
+  if (absoluteCarX + margin + flyoutWidth + padding < window.innerWidth) {
+    left = absoluteCarX + margin;
+    arrowClass = 'arrow-left';
+  }
+  // If not enough space on right, try left
+  else if (absoluteCarX - margin - flyoutWidth > padding) {
+    left = absoluteCarX - margin - flyoutWidth;
+    arrowClass = 'arrow-right';
+  }
+  // If neither works, center it horizontally
+  else {
+    left = Math.max(padding, Math.min(
+      window.innerWidth - flyoutWidth - padding,
+      absoluteCarX - flyoutWidth / 2
+    ));
+    // Position above or below based on vertical space
+    if (absoluteCarY > window.innerHeight / 2) {
+      top = absoluteCarY - margin - flyoutMaxHeight;
+      arrowClass = 'arrow-down';
+    } else {
+      top = absoluteCarY + margin;
+      arrowClass = 'arrow-up';
+    }
+  }
+
+  // Calculate vertical position if not already set
+  if (top === undefined) {
+    top = Math.max(padding, Math.min(
+      window.innerHeight - flyoutMaxHeight - padding,
+      absoluteCarY - 30 // slight offset upward
+    ));
+  }
+
+  // Apply position
+  detailFlyout.style.left = `${left}px`;
+  detailFlyout.style.top = `${top}px`;
+
+  // Update arrow class
+  detailFlyout.className = detailFlyout.className.replace(/arrow-\w+/g, '').trim() + ` ${arrowClass}`;
+}
+
+function renderDetailFlyout(state) {
   const pct = (state.contextUtilization * 100).toFixed(1);
   const barColor = state.contextUtilization > 0.8 ? '#e94560' :
                    state.contextUtilization > 0.5 ? '#d97706' : '#22c55e';
 
-  detailContent.innerHTML = `
+  flyoutContent.innerHTML = `
     <div class="detail-row">
       <span class="label">Activity</span>
       <span class="value"><span class="detail-activity ${esc(state.activity)}">${esc(state.activity)}</span></span>
@@ -113,7 +170,15 @@ function renderDetailPanel(state) {
     </div>
     <div class="detail-row">
       <span class="label">Working Dir</span>
-      <span class="value" title="${esc(state.workingDir)}">${esc(state.workingDir) || '-'}</span>
+      <span class="value">${esc(state.workingDir) || '-'}</span>
+    </div>
+    <div class="detail-row">
+      <span class="label">Session ID</span>
+      <span class="value">${esc(state.id)}</span>
+    </div>
+    <div class="detail-row">
+      <span class="label">PID</span>
+      <span class="value">${state.pid || '-'}</span>
     </div>
     <div class="detail-row">
       <span class="label">Messages</span>
@@ -132,12 +197,12 @@ function renderDetailPanel(state) {
       <span class="value">${formatTime(state.startedAt)}</span>
     </div>
     <div class="detail-row">
-      <span class="label">Elapsed</span>
-      <span class="value">${formatElapsed(state.startedAt)}</span>
-    </div>
-    <div class="detail-row">
       <span class="label">Last Activity</span>
       <span class="value">${formatTime(state.lastActivityAt)}</span>
+    </div>
+    <div class="detail-row">
+      <span class="label">Elapsed</span>
+      <span class="value">${formatElapsed(state.startedAt)}</span>
     </div>
     ${state.completedAt ? `
     <div class="detail-row">
@@ -145,12 +210,16 @@ function renderDetailPanel(state) {
       <span class="value">${formatTime(state.completedAt)}</span>
     </div>` : ''}
     <div class="detail-row">
-      <span class="label">PID</span>
-      <span class="value">${state.pid || '-'}</span>
+      <span class="label">Input Tokens</span>
+      <span class="value">${formatTokens(state.tokensUsed)}</span>
     </div>
     <div class="detail-row">
-      <span class="label">Session ID</span>
-      <span class="value" title="${esc(state.id)}">${esc(state.id.substring(0, 12))}...</span>
+      <span class="label">Max Tokens</span>
+      <span class="value">${formatTokens(state.maxContextTokens)}</span>
+    </div>
+    <div class="detail-row">
+      <span class="label">Context %</span>
+      <span class="value">${pct}%</span>
     </div>
   `;
 }
@@ -182,9 +251,10 @@ function handleSnapshot(payload) {
   log(`Snapshot: ${payload.sessions.length} sessions`, 'info');
   raceCanvas.setAllRacers(payload.sessions);
 
-  // Update detail panel if open
+  // Update detail flyout if open
   if (selectedSessionId && sessions.has(selectedSessionId)) {
-    renderDetailPanel(sessions.get(selectedSessionId));
+    const state = sessions.get(selectedSessionId);
+    renderDetailFlyout(state);
   }
 }
 
@@ -228,9 +298,10 @@ function handleDelta(payload) {
   }
   updateSessionCount();
 
-  // Update detail panel if open
+  // Update detail flyout if open
   if (selectedSessionId && sessions.has(selectedSessionId)) {
-    renderDetailPanel(sessions.get(selectedSessionId));
+    const state = sessions.get(selectedSessionId);
+    renderDetailFlyout(state);
   }
 }
 
@@ -244,6 +315,9 @@ function handleCompletion(payload) {
   } else if (payload.activity === 'errored') {
     raceCanvas.onError(payload.sessionId);
     engine.playCrash();
+  } else if (payload.activity === 'lost') {
+    raceCanvas.onError(payload.sessionId);
+    engine.playCrash();
   }
 }
 
@@ -253,14 +327,17 @@ function handleStatus(status) {
   log(`Connection: ${status}`, status === 'connected' ? 'info' : 'error');
 }
 
-// Racer click -> detail panel
+// Racer click -> detail flyout
 raceCanvas.onRacerClick = (state) => {
-  showDetailPanel(state);
+  const racer = raceCanvas.racers.get(state.id);
+  if (racer) {
+    showDetailFlyout(state, racer.displayX, racer.displayY);
+  }
 };
 
-// Detail panel close
-detailClose.addEventListener('click', () => {
-  detailPanel.classList.add('hidden');
+// Detail flyout close
+flyoutClose.addEventListener('click', () => {
+  detailFlyout.classList.add('hidden');
   selectedSessionId = null;
 });
 
@@ -292,8 +369,8 @@ document.addEventListener('keydown', (e) => {
       }
       break;
     case 'escape':
-      if (!detailPanel.classList.contains('hidden')) {
-        detailPanel.classList.add('hidden');
+      if (!detailFlyout.classList.contains('hidden')) {
+        detailFlyout.classList.add('hidden');
         selectedSessionId = null;
       }
       break;
