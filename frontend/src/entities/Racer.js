@@ -713,22 +713,59 @@ export class Racer {
   drawInfo(ctx, x, y, color, activity) {
     const S = CAR_SCALE;
     const carY = y + this.springY;
-    const carRear = x - 17 * S;
 
-    // --- Session name: right-aligned behind the car, at body level ---
-    ctx.fillStyle = '#ccc';
-    ctx.font = 'bold 10px Courier New';
-    ctx.textAlign = 'right';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(this.state.name || '', carRear - 6, carY - 2);
+    // --- Directory pennant: banner on a pole from the rear spoiler ---
+    const dirName = this.state.workingDir
+      ? (this.state.workingDir.split('/').filter(Boolean).pop() || this.state.name || '')
+      : (this.state.name || '');
 
-    // --- Working dir basename: smaller, below session name ---
-    if (this.state.workingDir) {
-      const parts = this.state.workingDir.split('/');
-      const dir = parts[parts.length - 1] || parts[parts.length - 2] || '';
-      ctx.fillStyle = '#777';
-      ctx.font = '8px Courier New';
-      ctx.fillText(dir, carRear - 6, carY + 8);
+    if (dirName) {
+      ctx.font = 'bold 9px Courier New';
+      const textW = ctx.measureText(dirName).width;
+      const bannerH = 14;
+      const bannerW = textW + 12;
+      const bannerR = 3; // corner radius
+
+      // Pole anchors at rear spoiler top: original spoiler at ~(x-15, y-12), scaled
+      const poleBaseX = x - 15 * S;
+      const poleBaseY = carY - 12 * S;
+      const poleTopY = poleBaseY - 10;
+      const bannerY = poleTopY - bannerH / 2;
+      const bannerX = poleBaseX - bannerW + 2; // extends left from pole
+
+      // Pole
+      ctx.strokeStyle = '#888';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(poleBaseX, poleBaseY);
+      ctx.lineTo(poleBaseX, poleTopY);
+      ctx.stroke();
+
+      // Banner background (rounded rect)
+      ctx.fillStyle = 'rgba(20, 20, 35, 0.85)';
+      ctx.beginPath();
+      ctx.moveTo(bannerX + bannerR, bannerY);
+      ctx.lineTo(bannerX + bannerW - bannerR, bannerY);
+      ctx.quadraticCurveTo(bannerX + bannerW, bannerY, bannerX + bannerW, bannerY + bannerR);
+      ctx.lineTo(bannerX + bannerW, bannerY + bannerH - bannerR);
+      ctx.quadraticCurveTo(bannerX + bannerW, bannerY + bannerH, bannerX + bannerW - bannerR, bannerY + bannerH);
+      ctx.lineTo(bannerX + bannerR, bannerY + bannerH);
+      ctx.quadraticCurveTo(bannerX, bannerY + bannerH, bannerX, bannerY + bannerH - bannerR);
+      ctx.lineTo(bannerX, bannerY + bannerR);
+      ctx.quadraticCurveTo(bannerX, bannerY, bannerX + bannerR, bannerY);
+      ctx.closePath();
+      ctx.fill();
+
+      // Banner border accent
+      ctx.strokeStyle = color.main;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // Banner text
+      ctx.fillStyle = color.light;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(dirName, bannerX + bannerW / 2, bannerY + bannerH / 2);
     }
 
     // --- Model decal on car body (door panel area) ---
@@ -737,6 +774,7 @@ export class Racer {
     ctx.fillStyle = 'rgba(255,255,255,0.8)';
     ctx.font = 'bold 9px Courier New';
     ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
     ctx.fillText(color.name.toUpperCase(), panelX, panelY);
 
     ctx.textBaseline = 'alphabetic';
