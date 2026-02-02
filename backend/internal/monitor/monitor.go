@@ -164,11 +164,15 @@ func (m *Monitor) poll() {
 				state.Model = update.Model
 			}
 
-			modelForLookup := state.Model
-			if modelForLookup == "" {
-				modelForLookup = "unknown"
+			// Prefer source-reported context ceiling; fall back to config.
+			maxTokens := update.MaxContextTokens
+			if maxTokens == 0 {
+				modelForLookup := state.Model
+				if modelForLookup == "" {
+					modelForLookup = "unknown"
+				}
+				maxTokens = m.cfg.MaxContextTokens(modelForLookup)
 			}
-			maxTokens := m.cfg.MaxContextTokens(modelForLookup)
 
 			if update.LastTime.IsZero() {
 				state.LastActivityAt = now

@@ -113,6 +113,13 @@ type SourceUpdate struct {
 	// directory from log contents rather than from discovery. Empty
 	// means no new information.
 	WorkingDir string
+
+	// MaxContextTokens is the model's context window size if the
+	// source can determine it from session data (e.g. a model metadata
+	// field, API lookup, or configuration). Zero means unknown -- the
+	// monitor will fall back to the static config.yaml lookup.
+	// When non-zero, the monitor prefers this over the config value.
+	MaxContextTokens int
 }
 
 // HasData reports whether this update contains any meaningful data
@@ -127,5 +134,6 @@ func (u SourceUpdate) HasData() bool {
 		u.LastTool != "" ||
 		u.Activity != "" ||
 		!u.LastTime.IsZero() ||
-		u.WorkingDir != ""
+		u.WorkingDir != "" ||
+		u.MaxContextTokens > 0
 }

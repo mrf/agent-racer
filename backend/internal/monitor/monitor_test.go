@@ -92,6 +92,7 @@ func TestSourceUpdateHasData(t *testing.T) {
 		{"activity", SourceUpdate{Activity: "x"}, true},
 		{"last_time", SourceUpdate{LastTime: time.Now()}, true},
 		{"working_dir", SourceUpdate{WorkingDir: "x"}, true},
+		{"max_context_tokens", SourceUpdate{MaxContextTokens: 200000}, true},
 	}
 
 	for _, tt := range tests {
