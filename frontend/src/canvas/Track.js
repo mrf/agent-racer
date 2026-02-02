@@ -8,7 +8,7 @@ const PENNANT_COLORS = ['#a855f7', '#3b82f6', '#22c55e'];
 
 export class Track {
   constructor() {
-    this.trackPadding = { left: 140, right: 60, top: 60, bottom: 40 };
+    this.trackPadding = { left: 200, right: 60, top: 60, bottom: 40 };
     this.laneHeight = 80;
     this.time = 0;
     // Pre-rendered offscreen canvases

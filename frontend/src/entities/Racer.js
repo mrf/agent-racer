@@ -7,6 +7,8 @@ const MODEL_COLORS = {
 
 const DEFAULT_COLOR = { main: '#6b7280', dark: '#4b5563', light: '#9ca3af', name: '?' };
 
+const CAR_SCALE = 2.3;
+
 function shortModelName(model) {
   if (!model) return '?';
   const parts = model.split(/[-_]/).filter(Boolean);
@@ -181,11 +183,12 @@ export class Racer {
 
     const activity = this.state.activity;
 
+    const S = CAR_SCALE;
     switch (activity) {
       case 'thinking':
         this.targetGlow = 0.08;
         if (particles && speed > 0.5 && Math.random() > 0.5) {
-          particles.emit('exhaust', this.displayX - 19, this.displayY + 2, 1);
+          particles.emit('exhaust', this.displayX - 17 * S, this.displayY + 1 * S, 1);
         }
         break;
 
@@ -193,16 +196,16 @@ export class Racer {
         this.targetGlow = 0.12;
         this.colorBrightness = Math.min(40, this.colorBrightness + 2 * dtScale);
         if (particles && Math.random() > 0.5) {
-          particles.emit('exhaust', this.displayX - 19, this.displayY + 2, 1);
+          particles.emit('exhaust', this.displayX - 17 * S, this.displayY + 1 * S, 1);
         }
         if (particles && Math.random() > 0.6) {
-          particles.emit('sparks', this.displayX + 10, this.displayY + 8, 1);
+          particles.emit('sparks', this.displayX + 10 * S, this.displayY + 5 * S, 1);
         }
         // Speed lines for fast movement
         if (particles && speed > 1.5) {
           const color = getModelColor(this.state.model, this.state.source);
           const rgb = hexToRgb(color.main);
-          particles.emitWithColor('speedLines', this.displayX - 25, this.displayY, 1, rgb);
+          particles.emitWithColor('speedLines', this.displayX - 20 * S, this.displayY, 1, rgb);
         }
         break;
 
@@ -229,8 +232,8 @@ export class Racer {
           // Stage 0: skid marks
           this.errorStage = 0;
           if (!this.skidEmitted && particles) {
-            particles.emit('skidMarks', this.displayX - 11, this.displayY + 10, 8);
-            particles.emit('skidMarks', this.displayX + 12, this.displayY + 10, 8);
+            particles.emit('skidMarks', this.displayX - 11 * S, this.displayY + 5 * S + 5 * S, 8);
+            particles.emit('skidMarks', this.displayX + 12 * S, this.displayY + 5 * S + 5 * S, 8);
             this.skidEmitted = true;
           }
           this.spinAngle += 0.05 * dtScale;
@@ -296,20 +299,22 @@ export class Racer {
     }
 
     // Car shadow
+    const S = CAR_SCALE;
     ctx.fillStyle = 'rgba(0,0,0,0.2)';
     ctx.beginPath();
-    ctx.ellipse(x + 1, y + 12, 18, 3, 0, 0, Math.PI * 2);
+    ctx.ellipse(x + 2, y + 12 * S, 18 * S, 3 * S, 0, 0, Math.PI * 2);
     ctx.fill();
 
     // Glow aura
     if (this.glowIntensity > 0.01) {
       const glowColor = hexToRgb(color.main);
-      const glow = ctx.createRadialGradient(x, y + yOff, 0, x, y + yOff, 35);
+      const glowR = 35 * S;
+      const glow = ctx.createRadialGradient(x, y + yOff, 0, x, y + yOff, glowR);
       glow.addColorStop(0, `rgba(${glowColor.r},${glowColor.g},${glowColor.b},${this.glowIntensity})`);
       glow.addColorStop(1, `rgba(${glowColor.r},${glowColor.g},${glowColor.b},0)`);
       ctx.fillStyle = glow;
       ctx.beginPath();
-      ctx.arc(x, y + yOff, 35, 0, Math.PI * 2);
+      ctx.arc(x, y + yOff, glowR, 0, Math.PI * 2);
       ctx.fill();
     }
 
@@ -321,6 +326,11 @@ export class Racer {
   }
 
   drawCar(ctx, x, y, color, activity) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(CAR_SCALE, CAR_SCALE);
+    ctx.translate(-x, -y);
+
     // Determine car color (grayscale for errored stage 3, gold tint for complete)
     let bodyColor = color.main;
     if (activity === 'errored' && this.errorStage >= 3) {
@@ -446,6 +456,8 @@ export class Racer {
       ctx.lineTo(x - 14, y + 4);
       ctx.stroke();
     }
+
+    ctx.restore();
   }
 
   _drawWheel(ctx, cx, cy, r) {
@@ -496,9 +508,10 @@ export class Racer {
   }
 
   _drawThoughtBubble(ctx, x, y) {
+    const S = CAR_SCALE;
     // Rounded rect thought bubble with animated dots
-    const bx = x + 28;
-    const by = y - 16;
+    const bx = x + 22 * S + 4;
+    const by = y - 10 * S - 4;
     const bw = 24;
     const bh = 14;
     const br = 4;
@@ -519,10 +532,10 @@ export class Racer {
 
     // Tail circles
     ctx.beginPath();
-    ctx.arc(x + 25, y - 6, 3, 0, Math.PI * 2);
+    ctx.arc(x + 21 * S, y - 3 * S, 3, 0, Math.PI * 2);
     ctx.fill();
     ctx.beginPath();
-    ctx.arc(x + 23, y - 2, 2, 0, Math.PI * 2);
+    ctx.arc(x + 20 * S, y - 1 * S, 2, 0, Math.PI * 2);
     ctx.fill();
 
     // Animated dots "..."
@@ -536,45 +549,49 @@ export class Racer {
   }
 
   _drawHeadlight(ctx, x, y) {
+    const S = CAR_SCALE;
+    const hx = x + 21 * S;
     // Headlight point
     ctx.fillStyle = 'rgba(255,255,200,0.8)';
     ctx.beginPath();
-    ctx.arc(x + 21, y, 3, 0, Math.PI * 2);
+    ctx.arc(hx, y, 3, 0, Math.PI * 2);
     ctx.fill();
 
-    // Headlight beam cone (40px ahead)
+    // Headlight beam cone
     ctx.save();
-    const beam = ctx.createRadialGradient(x + 21, y, 2, x + 21, y, 40);
+    const beamLen = 40 * S;
+    const beam = ctx.createRadialGradient(hx, y, 2, hx, y, beamLen);
     beam.addColorStop(0, 'rgba(255,255,200,0.2)');
     beam.addColorStop(1, 'rgba(255,255,200,0)');
     ctx.fillStyle = beam;
     ctx.beginPath();
-    ctx.moveTo(x + 21, y - 2);
-    ctx.lineTo(x + 60, y - 10);
-    ctx.lineTo(x + 60, y + 10);
-    ctx.lineTo(x + 21, y + 2);
+    ctx.moveTo(hx, y - 3);
+    ctx.lineTo(hx + beamLen, y - 15);
+    ctx.lineTo(hx + beamLen, y + 15);
+    ctx.lineTo(hx, y + 3);
     ctx.closePath();
     ctx.fill();
     ctx.restore();
 
     // Small glow
-    const glow = ctx.createRadialGradient(x + 21, y, 0, x + 21, y, 15);
+    const glow = ctx.createRadialGradient(hx, y, 0, hx, y, 20);
     glow.addColorStop(0, 'rgba(255,255,200,0.3)');
     glow.addColorStop(1, 'rgba(255,255,200,0)');
     ctx.fillStyle = glow;
     ctx.beginPath();
-    ctx.arc(x + 21, y, 15, 0, Math.PI * 2);
+    ctx.arc(hx, y, 20, 0, Math.PI * 2);
     ctx.fill();
   }
 
   _drawToolBadge(ctx, x, y, color) {
     if (!this.state.currentTool) return;
 
+    const S = CAR_SCALE;
     const text = this.state.currentTool;
     ctx.font = '9px Courier New';
     const textW = ctx.measureText(text).width;
     const bx = x - textW / 2 - 5;
-    const by = y + 24;
+    const by = y + 10 * S + 6;
     const bw = textW + 10;
     const bh = 14;
 
@@ -601,10 +618,11 @@ export class Racer {
     const flash = Math.sin(this.hazardPhase) > 0;
     if (!flash) return;
 
+    const S = CAR_SCALE;
     // Hazard lights at front and rear (side view)
     const positions = [
-      [x + 20, y],        // front
-      [x - 17, y - 1],    // rear
+      [x + 20 * S, y],          // front
+      [x - 17 * S, y - 1 * S],  // rear
     ];
     for (const [hx, hy] of positions) {
       // Glow halo
@@ -625,19 +643,20 @@ export class Racer {
 
     // Pulsing amber glow around car
     const pulseAlpha = Math.abs(Math.sin(this.hazardPhase)) * 0.15;
-    const carGlow = ctx.createRadialGradient(x, y, 5, x, y, 30);
+    const glowR = 30 * S;
+    const carGlow = ctx.createRadialGradient(x, y, 8, x, y, glowR);
     carGlow.addColorStop(0, `rgba(255,170,0,${pulseAlpha})`);
     carGlow.addColorStop(1, 'rgba(255,170,0,0)');
     ctx.fillStyle = carGlow;
     ctx.beginPath();
-    ctx.arc(x, y, 30, 0, Math.PI * 2);
+    ctx.arc(x, y, glowR, 0, Math.PI * 2);
     ctx.fill();
   }
 
   _drawWarningTriangle(ctx, x, y) {
     // Small warning triangle above car
     const tx = x;
-    const ty = y - 22;
+    const ty = y - 9 * CAR_SCALE - 10;
 
     // Triangle
     ctx.fillStyle = '#ffaa00';
@@ -656,9 +675,10 @@ export class Racer {
   }
 
   _drawCheckerFlag(ctx, x, y) {
+    const S = CAR_SCALE;
     // Checkered flag waving above car
-    const flagX = x - 3;
-    const flagY = y - 24;
+    const flagX = x - 5;
+    const flagY = y - 9 * S - 14;
 
     // Pole
     ctx.strokeStyle = '#888';
@@ -680,42 +700,46 @@ export class Racer {
     }
 
     // Golden glow
-    const goldGlow = ctx.createRadialGradient(x, y, 5, x, y, 30);
+    const glowR = 30 * S;
+    const goldGlow = ctx.createRadialGradient(x, y, 5, x, y, glowR);
     goldGlow.addColorStop(0, `rgba(255,215,0,${this.goldFlash * 0.12})`);
     goldGlow.addColorStop(1, 'rgba(255,215,0,0)');
     ctx.fillStyle = goldGlow;
     ctx.beginPath();
-    ctx.arc(x, y, 30, 0, Math.PI * 2);
+    ctx.arc(x, y, glowR, 0, Math.PI * 2);
     ctx.fill();
   }
 
   drawInfo(ctx, x, y, color, activity) {
-    // Session name and model name above
-    ctx.fillStyle = '#ddd';
-    ctx.font = 'bold 11px Courier New';
-    ctx.textAlign = 'center';
-    const labelText = `${this.state.name} • ${color.name}`;
-    ctx.fillText(labelText, x, y - 22);
+    const S = CAR_SCALE;
+    const carY = y + this.springY;
+    const carRear = x - 17 * S;
 
-    // Model badge
-    ctx.fillStyle = color.dark;
-    const badgeText = color.name;
-    const badgeWidth = ctx.measureText(badgeText).width + 8;
-    ctx.fillRect(x - badgeWidth / 2, y - 38, badgeWidth, 14);
-    ctx.fillStyle = '#fff';
-    ctx.font = '9px Courier New';
-    ctx.fillText(badgeText, x, y - 27);
+    // --- Session name: right-aligned behind the car, at body level ---
+    ctx.fillStyle = '#ccc';
+    ctx.font = 'bold 10px Courier New';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(this.state.name || '', carRear - 6, carY - 2);
 
-    // Token count below (skip if tool badge will be shown)
-    const tokenText = `${formatTokens(this.state.tokensUsed)}/${formatTokens(this.state.maxContextTokens)}`;
-    ctx.fillStyle = '#999';
-    ctx.font = '10px Courier New';
-    ctx.textAlign = 'center';
-    if (activity === 'tool_use' && this.state.currentTool) {
-      // Token count higher up, tool badge below
-      ctx.fillText(tokenText, x, y + 22);
-    } else {
-      ctx.fillText(tokenText, x, y + 24);
+    // --- Working dir basename: smaller, below session name ---
+    if (this.state.workingDir) {
+      const parts = this.state.workingDir.split('/');
+      const dir = parts[parts.length - 1] || parts[parts.length - 2] || '';
+      ctx.fillStyle = '#777';
+      ctx.font = '8px Courier New';
+      ctx.fillText(dir, carRear - 6, carY + 8);
     }
+
+    // --- Model decal on car body (door panel area) ---
+    const panelX = x - 6 * S;
+    const panelY = carY - 3 * S;
+    ctx.fillStyle = 'rgba(255,255,255,0.8)';
+    ctx.font = 'bold 9px Courier New';
+    ctx.textAlign = 'center';
+    ctx.fillText(color.name.toUpperCase(), panelX, panelY);
+
+    ctx.textBaseline = 'alphabetic';
+    ctx.textAlign = 'center';
   }
 }

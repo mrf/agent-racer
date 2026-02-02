@@ -108,7 +108,7 @@ function positionFlyout(carX, carY) {
   const canvasRect = canvas.getBoundingClientRect();
   const flyoutWidth = 380; // match CSS width
   const flyoutMaxHeight = window.innerHeight * 0.8; // match CSS max-height
-  const margin = 20; // distance from car
+  const margin = 50; // distance from car (scaled up for larger cars)
   const padding = 10; // padding from screen edges
 
   // Calculate absolute position relative to viewport

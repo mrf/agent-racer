@@ -309,11 +309,11 @@ export class RaceCanvas {
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
-    // Find clicked racer (within 30px radius)
+    // Find clicked racer (within 45px radius for larger cars)
     for (const racer of this.racers.values()) {
       const dx = x - racer.displayX;
       const dy = y - racer.displayY;
-      if (Math.sqrt(dx * dx + dy * dy) < 30) {
+      if (Math.sqrt(dx * dx + dy * dy) < 45) {
         if (this.onRacerClick) {
           this.onRacerClick(racer.state);
         }
