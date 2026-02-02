@@ -296,6 +296,8 @@ agent-racer/
 
 **No build tools for the frontend.** Vanilla JS with ES modules, served directly. The backend is a single Go binary with two dependencies (`gorilla/websocket`, `yaml.v3`).
 
+**Frontend embedding:** The `frontend/` directory is the single source of truth. During builds (`make build`), it's copied to `backend/internal/frontend/static/` as a build artifact (git-ignored) for Go's embed directive.
+
 ## Make Targets
 
 | Target | Description |

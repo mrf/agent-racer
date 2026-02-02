@@ -1,3 +1,4 @@
 # Build artifacts
 agent-racer
 dist/
+backend/internal/frontend/static/
