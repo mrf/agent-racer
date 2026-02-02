@@ -203,6 +203,65 @@ func TestGeminiSourceParseEmpty(t *testing.T) {
 	}
 }
 
+func TestGeminiSourceParseConversationWrapper(t *testing.T) {
+	// Session file as a wrapper object with "conversation" field.
+	data := []byte(`{
+		"conversation": [
+			{"role": "user", "content": {"parts": [{"text": "hello"}]}},
+			{"role": "model", "content": {"parts": [{"text": "hi"}]}, "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 5, "totalTokenCount": 15}}
+		]
+	}`)
+
+	update := parseGeminiSession(data)
+
+	if update.MessageCount != 2 {
+		t.Errorf("MessageCount = %d, want 2", update.MessageCount)
+	}
+	if update.TokensIn != 10 {
+		t.Errorf("TokensIn = %d, want 10", update.TokensIn)
+	}
+}
+
+func TestGeminiSourceParseHistoryWrapper(t *testing.T) {
+	data := []byte(`{
+		"history": [
+			{"role": "user", "content": {"parts": [{"text": "test"}]}},
+			{"role": "model", "content": {"parts": [{"functionCall": {"name": "read_file", "args": {"path": "main.go"}}}]}}
+		]
+	}`)
+
+	update := parseGeminiSession(data)
+
+	if update.MessageCount != 2 {
+		t.Errorf("MessageCount = %d, want 2", update.MessageCount)
+	}
+	if update.ToolCalls != 1 {
+		t.Errorf("ToolCalls = %d, want 1", update.ToolCalls)
+	}
+	if update.LastTool != "read_file" {
+		t.Errorf("LastTool = %q, want %q", update.LastTool, "read_file")
+	}
+}
+
+func TestGeminiSourceParseInvalidJSON(t *testing.T) {
+	update := parseGeminiSession([]byte(`not json`))
+	if update.HasData() {
+		t.Error("expected no data from invalid JSON")
+	}
+}
+
+func TestGeminiSourceParseWithModelField(t *testing.T) {
+	data := []byte(`[
+		{"role": "user", "content": {"parts": [{"text": "hi"}]}},
+		{"role": "model", "model": "gemini-2.5-flash", "content": {"parts": [{"text": "hello"}]}}
+	]`)
+
+	update := parseGeminiSession(data)
+	if update.Model != "gemini-2.5-flash" {
+		t.Errorf("Model = %q, want %q", update.Model, "gemini-2.5-flash")
+	}
+}
+
 func TestIsGeminiProcess(t *testing.T) {
 	tests := []struct {
 		cmdline string

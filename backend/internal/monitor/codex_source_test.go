@@ -145,6 +145,84 @@ func TestCodexSourceParseOldFormat(t *testing.T) {
 	}
 }
 
+func TestCodexSourceParseAllToolTypes(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "rollout-tools.jsonl")
+
+	// Exercise all bare-format tool types and response_item envelope variants.
+	content := `{"session_id":"tools-test","model":"o3","timestamp":"2026-01-30T10:00:00.000Z"}
+{"type":"reasoning","text":"Let me think..."}
+{"type":"web_search","query":"golang testing"}
+{"type":"mcp_tool_call","tool_name":"database_query","name":"db"}
+{"type":"command_execution","command":"npm test"}
+{"type":"file_change","path":"src/index.ts"}
+{"type":"message","text":"Done"}
+`
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	src := NewCodexSource(10 * time.Minute)
+	handle := SessionHandle{SessionID: "tools-test", LogPath: path, Source: "codex"}
+
+	update, _, err := src.Parse(handle, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if update.ToolCalls != 4 {
+		t.Errorf("ToolCalls = %d, want 4 (web_search + mcp + command + file_change)", update.ToolCalls)
+	}
+	if update.MessageCount != 1 {
+		t.Errorf("MessageCount = %d, want 1", update.MessageCount)
+	}
+}
+
+func TestCodexSourceParseResponseItemEnvelope(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "rollout-ri.jsonl")
+
+	// Response items in new envelope format covering all variants.
+	content := `{"type":"session_meta","payload":{"session_id":"ri-test","model":"o3"}}
+{"type":"response_item","payload":{"type":"message","text":"hello"}}
+{"type":"response_item","payload":{"type":"reasoning","text":"thinking"}}
+{"type":"response_item","payload":{"type":"web_search","query":"test"}}
+{"type":"response_item","payload":{"type":"file_change","path":"a.go"}}
+{"type":"response_item","payload":{"type":"mcp_tool_call","tool_name":"slack_send","name":"slack"}}
+{"type":"event_msg","payload":{"type":"session_configured","payload":{"model":"o4-mini"}}}
+`
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	src := NewCodexSource(10 * time.Minute)
+	handle := SessionHandle{SessionID: "ri-test", LogPath: path, Source: "codex"}
+
+	update, _, err := src.Parse(handle, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if update.Model != "o4-mini" {
+		t.Errorf("Model = %q, want %q (session_configured should override)", update.Model, "o4-mini")
+	}
+	if update.ToolCalls != 3 {
+		t.Errorf("ToolCalls = %d, want 3 (web_search + file_change + mcp)", update.ToolCalls)
+	}
+	if update.MessageCount != 1 {
+		t.Errorf("MessageCount = %d, want 1", update.MessageCount)
+	}
+	if update.LastTool != "slack_send" {
+		t.Errorf("LastTool = %q, want %q", update.LastTool, "slack_send")
+	}
+}
+
+func TestCodexSessionIDFromFilenameFallback(t *testing.T) {
+	// Short filename that doesn't contain a full UUID.
+	got := codexSessionIDFromFilename("rollout-short.jsonl")
+	if got != "short" {
+		t.Errorf("codexSessionIDFromFilename(short) = %q, want %q", got, "short")
+	}
+}
+
 func TestCodexSourceDiscoverNoDir(t *testing.T) {
 	// When CODEX_HOME points to a non-existent directory, Discover returns nil.
 	t.Setenv("CODEX_HOME", filepath.Join(t.TempDir(), "nonexistent"))
