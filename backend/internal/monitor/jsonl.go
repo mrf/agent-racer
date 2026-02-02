@@ -105,17 +105,47 @@ func ParseSessionJSONL(path string, offset int64) (*ParseResult, int64, error) {
 	}
 
 	result := &ParseResult{}
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024) // 1MB buffer for large lines
+	reader := bufio.NewReader(f)
+	parsedOffset := offset // Track offset only after successfully parsing complete lines
 
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		offset += int64(len(line)) + 1 // +1 for newline
+	for {
+		line, err := reader.ReadBytes('\n')
 
-		var entry jsonlEntry
-		if err := json.Unmarshal(line, &entry); err != nil {
+		// Handle read errors (except EOF for last incomplete line)
+		if err != nil && err != io.EOF {
+			return result, parsedOffset, err
+		}
+
+		// Empty read means we've reached EOF with nothing left
+		if len(line) == 0 {
+			break
+		}
+
+		// Only process lines that end with newline (complete lines).
+		// Incomplete lines (no trailing newline) are preserved for next read.
+		if len(line) == 0 || line[len(line)-1] != '\n' {
+			// Line is incomplete - don't parse or advance offset
+			if err == io.EOF {
+				break
+			}
 			continue
 		}
+
+		// Trim the newline for JSON parsing
+		lineData := line[:len(line)-1]
+
+		var entry jsonlEntry
+		if err := json.Unmarshal(lineData, &entry); err != nil {
+			// Silently skip malformed lines but do advance offset
+			parsedOffset += int64(len(line))
+			if err == io.EOF {
+				break
+			}
+			continue
+		}
+
+		// Successfully parsed complete line, advance offset
+		parsedOffset += int64(len(line))
 
 		if entry.SessionID != "" && result.SessionID == "" {
 			result.SessionID = entry.SessionID
@@ -137,9 +167,13 @@ func ParseSessionJSONL(path string, offset int64) (*ParseResult, int64, error) {
 			result.MessageCount++
 			result.LastActivity = "waiting"
 		}
+
+		if err == io.EOF {
+			break
+		}
 	}
 
-	return result, offset, scanner.Err()
+	return result, parsedOffset, nil
 }
 
 func parseAssistantMessage(raw json.RawMessage, result *ParseResult) {

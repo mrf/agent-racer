@@ -107,26 +107,53 @@ func (c *CodexSource) Parse(handle SessionHandle, offset int64) (SourceUpdate, i
 	}
 
 	var update SourceUpdate
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+	reader := bufio.NewReader(f)
+	parsedOffset := offset // Track offset only after successfully parsing complete lines
+	isFirstLine := (offset == 0)
 
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		offset += int64(len(line)) + 1
+	for {
+		line, err := reader.ReadBytes('\n')
 
-		parsed := parseCodexLine(line, offset == int64(len(line))+1) // firstLine if offset was 0
+		// Handle read errors (except EOF for last incomplete line)
+		if err != nil && err != io.EOF {
+			return update, parsedOffset, err
+		}
+
+		// Empty read means we've reached EOF with nothing left
+		if len(line) == 0 {
+			break
+		}
+
+		// Only process lines that end with newline (complete lines).
+		// Incomplete lines (no trailing newline) are preserved for next read.
+		if line[len(line)-1] != '\n' {
+			// Line is incomplete - don't parse or advance offset
+			if err == io.EOF {
+				break
+			}
+			continue
+		}
+
+		// Trim the newline for JSON parsing
+		lineData := line[:len(line)-1]
+
+		parsed := parseCodexLine(lineData, isFirstLine)
 		mergeCodexParsed(&update, parsed)
+
+		// Successfully processed complete line, advance offset
+		parsedOffset += int64(len(line))
+		isFirstLine = false
+
+		if err == io.EOF {
+			break
+		}
 	}
 
-	if scanner.Err() != nil {
-		return update, offset, scanner.Err()
-	}
-
-	if offset > 0 && update.HasData() {
+	if parsedOffset > 0 && update.HasData() {
 		log.Printf("[codex] Parsed data from %s", handle.LogPath)
 	}
 
-	return update, offset, nil
+	return update, parsedOffset, nil
 }
 
 // codexParsed holds fields extracted from a single Codex JSONL line.

@@ -115,3 +115,136 @@ func TestSessionIDFromPath(t *testing.T) {
 		t.Errorf("SessionIDFromPath() = %q, want %q", id, "abc-123-def")
 	}
 }
+
+// TestParseSessionJSONLNoFinalNewline verifies that incomplete lines (no trailing newline) are NOT processed
+// until they receive a newline. This prevents data loss during partial writes.
+func TestParseSessionJSONLNoFinalNewline(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test-session.jsonl")
+
+	// Write JSONL without final newline - the second line is incomplete
+	content := `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"hello"}]},"sessionId":"test-123","timestamp":"2026-01-30T10:00:00.000Z"}
+{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":[{"type":"text","text":"hi"}],"usage":{"input_tokens":100,"output_tokens":50}},"sessionId":"test-123","timestamp":"2026-01-30T10:00:01.000Z"}`
+
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, offset, err := ParseSessionJSONL(path, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Should only parse the first complete line (with newline), not the incomplete second line
+	if result.MessageCount != 1 {
+		t.Errorf("expected 1 message (only complete lines), got %d", result.MessageCount)
+	}
+
+	// Now complete the file by adding a newline
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.WriteString("\n")
+	f.Close()
+
+	// Re-read from offset - should now parse the previously incomplete line
+	result2, offset2, err := ParseSessionJSONL(path, offset)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result2.MessageCount != 1 {
+		t.Errorf("expected 1 new message (now complete with newline), got %d", result2.MessageCount)
+	}
+	if offset2 == offset {
+		t.Errorf("expected offset to advance after line completion, got same offset %d", offset)
+	}
+}
+
+// TestParseSessionJSONLLargeLine verifies that lines larger than 1MB are handled correctly
+func TestParseSessionJSONLLargeLine(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test-session.jsonl")
+
+	// Create a line with content larger than 1MB
+	largeContent := make([]byte, 2*1024*1024)
+	for i := range largeContent {
+		largeContent[i] = 'x'
+	}
+
+	// Create a valid JSONL line with the large content field
+	line1 := `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"hello"}]},"sessionId":"test-123","timestamp":"2026-01-30T10:00:00.000Z"}` + "\n"
+	line2Prefix := `{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":"` + string(largeContent) + `","usage":{"input_tokens":100,"output_tokens":50}},"sessionId":"test-123","timestamp":"2026-01-30T10:00:01.000Z"}` + "\n"
+
+	content := line1 + line2Prefix
+
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// This should not panic or fail with buffer overflow
+	result, _, err := ParseSessionJSONL(path, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Should have parsed at least the first line
+	if result.MessageCount < 1 {
+		t.Errorf("expected at least 1 message, got %d", result.MessageCount)
+	}
+}
+
+// TestParseSessionJSONLPartialWrite simulates incremental writes without final newline
+func TestParseSessionJSONLPartialWrite(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test-session.jsonl")
+
+	// Write initial data with newline
+	content1 := `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"hello"}]},"sessionId":"test-123","timestamp":"2026-01-30T10:00:00.000Z"}` + "\n"
+	if err := os.WriteFile(path, []byte(content1), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result1, offset1, err := ParseSessionJSONL(path, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result1.MessageCount != 1 {
+		t.Errorf("expected 1 message, got %d", result1.MessageCount)
+	}
+
+	// Append partial line (no newline) - simulates mid-write
+	content2 := `{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":[{"type":"text","text":"hi"}],"usage":{"input_tokens":100,"output_tokens":50}},"sessionId":"test-123","timestamp":"2026-01-30T10:00:01.000Z"}`
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.WriteString(content2)
+	f.Close()
+
+	// Re-read from offset - should not parse incomplete line
+	result2, offset2, err := ParseSessionJSONL(path, offset1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result2.MessageCount != 0 {
+		t.Errorf("expected 0 messages (incomplete line), got %d", result2.MessageCount)
+	}
+
+	// Complete the line with newline
+	f, _ = os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0644)
+	f.WriteString("\n")
+	f.Close()
+
+	// Re-read from offset - should now parse the completed line
+	result3, offset3, err := ParseSessionJSONL(path, offset2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result3.MessageCount != 1 {
+		t.Errorf("expected 1 message (now complete), got %d", result3.MessageCount)
+	}
+	if offset3 == offset2 {
+		t.Errorf("expected offset to advance after completing line, got same offset %d", offset2)
+	}
+}
