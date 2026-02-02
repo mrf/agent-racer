@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/agent-racer/backend/internal/config"
 	"github.com/agent-racer/backend/internal/frontend"
@@ -74,7 +75,12 @@ func main() {
 		gen.Start(ctx)
 	} else {
 		log.Println("Starting in real mode (process monitoring)")
-		mon := monitor.NewMonitor(cfg, store, broadcaster)
+		sources := []monitor.Source{
+			monitor.NewClaudeSource(10 * time.Minute),
+			monitor.NewCodexSource(10 * time.Minute),
+			monitor.NewGeminiSource(10 * time.Minute),
+		}
+		mon := monitor.NewMonitor(cfg, store, broadcaster, sources)
 		go mon.Start(ctx)
 	}
 

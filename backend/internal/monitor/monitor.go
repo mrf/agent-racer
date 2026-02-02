@@ -13,11 +13,17 @@ import (
 	"github.com/agent-racer/backend/internal/ws"
 )
 
+// trackedSession holds per-session state used by the monitor between polls.
 type trackedSession struct {
-	sessionFile  string
+	handle       SessionHandle
 	fileOffset   int64
 	lastDataTime time.Time
-	workingDir   string
+}
+
+// trackingKey returns the composite key used to identify a tracked session.
+// Using source:sessionID avoids collisions across different agent sources.
+func trackingKey(source, sessionID string) string {
+	return source + ":" + sessionID
 }
 
 type sessionEndMarker struct {
@@ -32,15 +38,17 @@ type Monitor struct {
 	cfg            *config.Config
 	store          *session.Store
 	broadcaster    *ws.Broadcaster
-	tracked        map[string]*trackedSession // keyed by session file path
+	sources        []Source
+	tracked        map[string]*trackedSession // keyed by source:sessionID
 	pendingRemoval map[string]time.Time
 }
 
-func NewMonitor(cfg *config.Config, store *session.Store, broadcaster *ws.Broadcaster) *Monitor {
+func NewMonitor(cfg *config.Config, store *session.Store, broadcaster *ws.Broadcaster, sources []Source) *Monitor {
 	return &Monitor{
 		cfg:            cfg,
 		store:          store,
 		broadcaster:    broadcaster,
+		sources:        sources,
 		tracked:        make(map[string]*trackedSession),
 		pendingRemoval: make(map[string]time.Time),
 	}
@@ -50,7 +58,11 @@ func (m *Monitor) Start(ctx context.Context) {
 	ticker := time.NewTicker(m.cfg.Monitor.PollInterval)
 	defer ticker.Stop()
 
-	log.Println("Monitor started, polling for Claude sessions")
+	sourceNames := make([]string, len(m.sources))
+	for i, s := range m.sources {
+		sourceNames[i] = s.Name()
+	}
+	log.Printf("Monitor started with sources: %v", sourceNames)
 
 	// Initial poll
 	m.poll()
@@ -70,125 +82,140 @@ func (m *Monitor) poll() {
 	now := time.Now()
 	m.consumeSessionEndMarkers(now)
 
-	sessionFiles, err := FindRecentSessionFiles(10 * time.Minute)
-	if err != nil {
-		log.Printf("Session file discovery error: %v", err)
-		return
-	}
+	// Collect active session keys from all sources for stale detection.
+	activeKeys := make(map[string]bool)
 
-	activeFiles := make(map[string]bool)
-	for _, path := range sessionFiles {
-		activeFiles[path] = true
-	}
+	var updates []*session.SessionState
 
-	var toRemove []string
-	for path, ts := range m.tracked {
-		stale := !activeFiles[path]
-		if !stale && m.cfg.Monitor.SessionStaleAfter > 0 && now.Sub(ts.lastDataTime) > m.cfg.Monitor.SessionStaleAfter {
-			stale = true
-		}
-		if !stale {
+	for _, src := range m.sources {
+		handles, err := src.Discover()
+		if err != nil {
+			log.Printf("[%s] discovery error: %v", src.Name(), err)
 			continue
 		}
 
-		sessionID := SessionIDFromPath(path)
-		if state, ok := m.store.Get(sessionID); ok {
+		for _, h := range handles {
+			key := trackingKey(h.Source, h.SessionID)
+			activeKeys[key] = true
+		}
+
+		for _, h := range handles {
+			key := trackingKey(h.Source, h.SessionID)
+
+			ts, exists := m.tracked[key]
+			if !exists {
+				ts = &trackedSession{
+					handle: h,
+				}
+				m.tracked[key] = ts
+				log.Printf("[%s] Tracking new session: %s", src.Name(), h.SessionID)
+			}
+
+			oldOffset := ts.fileOffset
+			update, newOffset, err := src.Parse(ts.handle, ts.fileOffset)
+			if err != nil {
+				log.Printf("[%s] parse error for %s: %v", src.Name(), h.SessionID, err)
+				continue
+			}
+			ts.fileOffset = newOffset
+			if newOffset > oldOffset || update.HasData() {
+				ts.lastDataTime = now
+			}
+
+			sessionID := h.SessionID
+			if update.SessionID != "" {
+				sessionID = update.SessionID
+			}
+
+			storeKey := trackingKey(h.Source, sessionID)
+			state, existed := m.store.Get(storeKey)
+			if existed && state.IsTerminal() {
+				delete(m.tracked, key)
+				continue
+			}
+
+			if !existed {
+				startedAt := h.StartedAt
+				if startedAt.IsZero() {
+					startedAt = now
+				}
+				workingDir := h.WorkingDir
+				if workingDir == "" {
+					workingDir = update.WorkingDir
+				}
+				state = &session.SessionState{
+					ID:         storeKey,
+					Name:       nameFromPath(workingDir),
+					Source:     h.Source,
+					StartedAt:  startedAt,
+					WorkingDir: workingDir,
+				}
+			}
+
+			if update.WorkingDir != "" && state.WorkingDir == "" {
+				state.WorkingDir = update.WorkingDir
+				state.Name = nameFromPath(update.WorkingDir)
+			}
+
+			activity := classifyActivityFromUpdate(update)
+			state.Activity = activity
+
+			if update.Model != "" {
+				state.Model = update.Model
+			}
+
+			modelForLookup := state.Model
+			if modelForLookup == "" {
+				modelForLookup = "unknown"
+			}
+			maxTokens := m.cfg.MaxContextTokens(modelForLookup)
+
+			if update.LastTime.IsZero() {
+				state.LastActivityAt = now
+			} else {
+				state.LastActivityAt = update.LastTime
+			}
+
+			if update.TokensIn > 0 && update.TokensIn > state.TokensUsed {
+				state.TokensUsed = update.TokensIn
+			}
+			state.MaxContextTokens = maxTokens
+			state.UpdateUtilization()
+
+			state.MessageCount += update.MessageCount
+			state.ToolCallCount += update.ToolCalls
+			if update.LastTool != "" {
+				state.CurrentTool = update.LastTool
+			}
+
+			m.store.Update(state)
+			updates = append(updates, state)
+		}
+	}
+
+	// Mark stale sessions complete.
+	var toRemove []string
+	for key, ts := range m.tracked {
+		if activeKeys[key] {
+			// Still discovered, check time-based staleness.
+			if m.cfg.Monitor.SessionStaleAfter > 0 && now.Sub(ts.lastDataTime) > m.cfg.Monitor.SessionStaleAfter {
+				// Stale by time.
+			} else {
+				continue
+			}
+		}
+
+		if state, ok := m.store.Get(key); ok {
 			completedAt := now
 			if state.CompletedAt != nil {
 				completedAt = *state.CompletedAt
 			}
 			m.markComplete(state, completedAt)
 		}
-		toRemove = append(toRemove, path)
+		toRemove = append(toRemove, key)
 	}
-	for _, path := range toRemove {
-		delete(m.tracked, path)
-	}
-
-	var updates []*session.SessionState
-
-	for _, path := range sessionFiles {
-		ts, exists := m.tracked[path]
-		if !exists {
-			workingDir := workingDirFromFile(path)
-			ts = &trackedSession{
-				sessionFile: path,
-				workingDir:  workingDir,
-			}
-			m.tracked[path] = ts
-			log.Printf("Tracking new session file: %s", path)
-		}
-
-		oldOffset := ts.fileOffset
-		result, newOffset, err := ParseSessionJSONL(ts.sessionFile, ts.fileOffset)
-		if err != nil {
-			log.Printf("JSONL parse error for file %s: %v", ts.sessionFile, err)
-			continue
-		}
-		ts.fileOffset = newOffset
-		if newOffset > oldOffset {
-			ts.lastDataTime = now
-		}
-
-		sessionID := result.SessionID
-		if sessionID == "" {
-			sessionID = SessionIDFromPath(ts.sessionFile)
-		}
-
-		state, existed := m.store.Get(sessionID)
-		if existed && state.IsTerminal() {
-			delete(m.tracked, path)
-			continue
-		}
-
-		if !existed {
-			startedAt := now
-			if info, err := os.Stat(ts.sessionFile); err == nil {
-				startedAt = info.ModTime()
-			}
-			state = &session.SessionState{
-				ID:         sessionID,
-				Name:       nameFromPath(ts.workingDir),
-				StartedAt:  startedAt,
-				WorkingDir: ts.workingDir,
-			}
-		}
-
-		activity := classifyActivity(result, ts)
-		state.Activity = activity
-		if result.Model != "" {
-			state.Model = result.Model
-		}
-
-		modelForLookup := state.Model
-		if modelForLookup == "" {
-			modelForLookup = "unknown"
-		}
-		maxTokens := m.cfg.MaxContextTokens(modelForLookup)
-
-		if result.LastTime.IsZero() {
-			state.LastActivityAt = now
-		} else {
-			state.LastActivityAt = result.LastTime
-		}
-
-		if result.LatestUsage != nil {
-			tokensUsed := result.LatestUsage.TotalContext()
-			if tokensUsed > state.TokensUsed {
-				state.TokensUsed = tokensUsed
-			}
-		}
-		state.MaxContextTokens = maxTokens
-		state.UpdateUtilization()
-
-		state.MessageCount += result.MessageCount
-		state.ToolCallCount += result.ToolCalls
-		if result.LastTool != "" {
-			state.CurrentTool = result.LastTool
-		}
-
-		m.store.Update(state)
-		updates = append(updates, state)
+	for _, key := range toRemove {
+		delete(m.tracked, key)
 	}
 
 	if len(updates) > 0 {
@@ -241,6 +268,9 @@ func (m *Monitor) flushRemovals(now time.Time) {
 	}
 }
 
+// consumeSessionEndMarkers handles Claude-specific SessionEnd hook markers.
+// These are JSON files dropped into a directory by the Claude CLI when a
+// session ends. Other sources don't use this mechanism.
 func (m *Monitor) consumeSessionEndMarkers(now time.Time) {
 	dir := m.cfg.Monitor.SessionEndDir
 	if dir == "" {
@@ -287,15 +317,19 @@ func (m *Monitor) consumeSessionEndMarkers(now time.Time) {
 }
 
 func (m *Monitor) handleSessionEnd(marker sessionEndMarker, now time.Time) {
-	state, ok := m.store.Get(marker.SessionID)
+	// Session end markers use the claude source prefix.
+	storeKey := trackingKey("claude", marker.SessionID)
+
+	state, ok := m.store.Get(storeKey)
 	if !ok {
 		workingDir := marker.Cwd
 		if workingDir == "" && marker.TranscriptPath != "" {
 			workingDir = workingDirFromFile(marker.TranscriptPath)
 		}
 		state = &session.SessionState{
-			ID:         marker.SessionID,
+			ID:         storeKey,
 			Name:       nameFromPath(workingDir),
+			Source:     "claude",
 			WorkingDir: workingDir,
 			StartedAt:  now,
 		}
@@ -309,19 +343,20 @@ func (m *Monitor) handleSessionEnd(marker sessionEndMarker, now time.Time) {
 	}
 	m.markComplete(state, completedAt)
 
-	if marker.TranscriptPath != "" {
-		delete(m.tracked, marker.TranscriptPath)
-	} else {
-		for path := range m.tracked {
-			if SessionIDFromPath(path) == marker.SessionID {
-				delete(m.tracked, path)
-			}
+	// Clean up tracked session by matching on claude source.
+	for key := range m.tracked {
+		ts := m.tracked[key]
+		if ts.handle.Source == "claude" && ts.handle.SessionID == marker.SessionID {
+			delete(m.tracked, key)
+			break
 		}
 	}
 }
 
-func classifyActivity(result *ParseResult, ts *trackedSession) session.Activity {
-	switch result.LastActivity {
+// classifyActivityFromUpdate converts a SourceUpdate's activity string into
+// the session.Activity enum.
+func classifyActivityFromUpdate(update SourceUpdate) session.Activity {
+	switch update.Activity {
 	case "tool_use":
 		return session.ToolUse
 	case "thinking":
@@ -329,16 +364,17 @@ func classifyActivity(result *ParseResult, ts *trackedSession) session.Activity 
 	case "waiting":
 		return session.Waiting
 	default:
-		// No new entries — idle
-		if result.MessageCount == 0 {
+		if update.MessageCount == 0 && !update.HasData() {
 			return session.Idle
 		}
-		return session.Thinking
+		if update.MessageCount > 0 {
+			return session.Thinking
+		}
+		return session.Idle
 	}
 }
 
 func nameFromPath(path string) string {
-	// Use the last directory component as the session name
 	parts := splitPath(path)
 	if len(parts) > 0 {
 		return parts[len(parts)-1]

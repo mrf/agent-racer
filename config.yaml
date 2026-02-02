@@ -18,8 +18,19 @@ monitor:
   # session_end_dir: "/home/user/.local/state/agent-racer/session-end"
 
 models:
+  # Claude models
   claude-opus-4-5-20251101: 200000
   claude-sonnet-4-5-20250929: 200000
   claude-sonnet-4-20250514: 200000
   claude-haiku-3-5-20241022: 200000
+  # Codex (OpenAI) models
+  gpt-5-codex: 200000
+  codex-mini-latest: 200000
+  o4-mini: 200000
+  o3: 200000
+  # Gemini models
+  gemini-2.5-pro: 1048576
+  gemini-2.5-flash: 1048576
+  gemini-2.0-flash: 1048576
+  gemini-2.0-flash-exp: 1048576
   default: 200000
