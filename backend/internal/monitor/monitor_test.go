@@ -105,3 +105,38 @@ func TestSourceUpdateHasData(t *testing.T) {
 		})
 	}
 }
+func TestDetermineActivityFromReason(t *testing.T) {
+	tests := []struct {
+		name   string
+		reason string
+		want   session.Activity
+	}{
+		{"empty_reason", "", session.Complete},
+		{"success", "success", session.Complete},
+		{"normal_completion", "user closed session", session.Complete},
+		{"error", "error", session.Errored},
+		{"Error_capitalized", "Error occurred", session.Errored},
+		{"failed", "failed to connect", session.Errored},
+		{"crash", "crash detected", session.Errored},
+		{"crashed", "process crashed", session.Errored},
+		{"panic", "panic: runtime error", session.Errored},
+		{"exception", "exception thrown", session.Errored},
+		{"fatal", "fatal error", session.Errored},
+		{"abort", "abort", session.Errored},
+		{"aborted", "operation aborted", session.Errored},
+		{"interrupted", "interrupted by signal", session.Errored},
+		{"killed", "process killed", session.Errored},
+		{"terminated", "terminated unexpectedly", session.Errored},
+		{"mixed_case", "Session FAILED", session.Errored},
+		{"contains_error", "An error occurred during processing", session.Errored},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := determineActivityFromReason(tt.reason)
+			if got != tt.want {
+				t.Errorf("determineActivityFromReason(%q) = %v, want %v", tt.reason, got, tt.want)
+			}
+		})
+	}
+}
