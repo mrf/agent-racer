@@ -28,6 +28,20 @@ const raceCanvas = new RaceCanvas(canvas);
 raceCanvas.setEngine(engine);
 window.raceCanvas = raceCanvas;
 
+// Load sound configuration from backend
+async function loadSoundConfig() {
+  try {
+    const response = await fetch('/api/config');
+    if (response.ok) {
+      const config = await response.json();
+      engine.applyConfig(config);
+      log('Sound configuration loaded from server', 'info');
+    }
+  } catch (err) {
+    log(`Failed to load sound config: ${err.message}`, 'error');
+  }
+}
+
 // Start ambient audio on first user interaction (autoplay policy)
 function tryStartAmbient() {
   if (ambientStarted) return;
@@ -396,5 +410,6 @@ const conn = new RaceConnection({
 
 conn.connect();
 requestPermission();
+loadSoundConfig();
 log('Claude Racing Dashboard initialized', 'info');
 log('Shortcuts: D=debug, M=mute, F=fullscreen, Click racer=details', 'info');

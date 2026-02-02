@@ -151,7 +151,15 @@ Click on any car to open the **detail panel** with: activity, token progress bar
 
 ## Configuration
 
-Configuration is via `config.yaml`:
+Agent Racer follows the **XDG Base Directory Specification**. The default config location is:
+
+```
+~/.config/agent-racer/config.yaml
+```
+
+You can override this with `--config` or set `XDG_CONFIG_HOME` to use a custom config directory.
+
+See `config.example.yaml` for a complete example. Key configuration options:
 
 ```yaml
 server:
@@ -168,7 +176,7 @@ monitor:
   broadcast_throttle: 100ms # Minimum time between delta broadcasts
   session_stale_after: 2m   # Mark sessions complete after no new data
   completion_remove_after: 8s # Remove racers after completion animation
-  session_end_dir: "/home/user/.local/state/agent-racer/session-end" # SessionEnd markers
+  session_end_dir: ""       # Defaults to $XDG_STATE_HOME/agent-racer/session-end
 
 models:
   claude-opus-4-5-20251101: 200000
@@ -176,7 +184,17 @@ models:
   claude-sonnet-4-20250514: 200000
   claude-haiku-3-5-20241022: 200000
   default: 200000  # Fallback for unrecognized models
+
+sound:
+  enabled: true           # Master enable/disable
+  master_volume: 1.0      # 0.0 - 1.0
+  ambient_volume: 1.0     # Crowd, wind, engine hums
+  sfx_volume: 1.0         # Gear shifts, victory, crashes
+  enable_ambient: true
+  enable_sfx: true
 ```
+
+If no config file exists, agent-racer uses sensible defaults. See `docs/configuration.md` for detailed documentation.
 
 ## CLI Flags
 
@@ -185,7 +203,7 @@ Usage: agent-racer [flags]
 
   --mock            Use mock session data (demo mode)
   --dev             Serve frontend from filesystem (for development)
-  --config string   Path to config file (default "config.yaml")
+  --config string   Path to config file (default: ~/.config/agent-racer/config.yaml)
   --port int        Override server port
 ```
 
