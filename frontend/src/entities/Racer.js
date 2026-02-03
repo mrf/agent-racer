@@ -3,6 +3,7 @@ const MODEL_COLORS = {
   'claude-sonnet-4-20250514': { main: '#3b82f6', dark: '#2563eb', light: '#60a5fa', name: 'Sonnet' },
   'claude-sonnet-4-5-20250929': { main: '#06b6d4', dark: '#0891b2', light: '#22d3ee', name: 'Sonnet' },
   'claude-haiku-3-5-20241022': { main: '#22c55e', dark: '#16a34a', light: '#4ade80', name: 'Haiku' },
+  'claude-haiku-4-5-20251001': { main: '#22c55e', dark: '#16a34a', light: '#4ade80', name: 'Haiku' },
 };
 
 const DEFAULT_COLOR = { main: '#6b7280', dark: '#4b5563', light: '#9ca3af', name: '?' };
