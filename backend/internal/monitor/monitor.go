@@ -219,14 +219,17 @@ func (m *Monitor) poll() {
 		}
 	}
 
-	// Apply churning state to updated sessions. Churning only makes sense
-	// for sessions that would otherwise appear idle or starting -- not for
-	// sessions already producing output, waiting for input, or terminal.
+	// Apply churning state to non-terminal, non-waiting sessions.
+	// Terminal sessions are done; waiting means blocked on user input.
+	// For active states (starting, idle, thinking, tool_use) the backend
+	// sets the flag and lets the frontend decide visibility -- Racer.js
+	// suppresses churning visuals when thinking/tool_use animations are
+	// already playing.
 	cpuThreshold := m.cfg.Monitor.ChurningCPUThreshold
 	requireNetwork := m.cfg.Monitor.ChurningRequiresNetwork
 	for _, state := range updates {
 		churning := false
-		if state.Activity == session.Starting || state.Activity == session.Idle {
+		if !state.IsTerminal() && state.Activity != session.Waiting {
 			if pa, ok := activityByDir[state.WorkingDir]; ok {
 				churning = pa.IsChurning(cpuThreshold, requireNetwork)
 				if pa.PID > 0 && state.PID == 0 {
