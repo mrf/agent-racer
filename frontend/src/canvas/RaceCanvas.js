@@ -151,7 +151,7 @@ export class RaceCanvas {
         const activity = racer.state.activity;
         if (activity === 'thinking' || activity === 'tool_use') {
           this.engine.startEngine(racer.id, activity);
-        } else if (racer.state.isChurning) {
+        } else if (racer.state.isChurning && (activity === 'idle' || activity === 'starting')) {
           this.engine.startEngine(racer.id, 'idle');
         } else {
           this.engine.stopEngine(racer.id);

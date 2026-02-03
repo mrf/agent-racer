@@ -219,21 +219,24 @@ func (m *Monitor) poll() {
 		}
 	}
 
-	// Apply churning state to updated sessions.
+	// Apply churning state to updated sessions. Churning only makes sense
+	// for sessions that would otherwise appear idle or starting -- not for
+	// sessions already producing output, waiting for input, or terminal.
 	cpuThreshold := m.cfg.Monitor.ChurningCPUThreshold
 	requireNetwork := m.cfg.Monitor.ChurningRequiresNetwork
 	for _, state := range updates {
-		if pa, ok := activityByDir[state.WorkingDir]; ok {
-			state.IsChurning = pa.IsChurning(cpuThreshold, requireNetwork)
-			if pa.PID > 0 && state.PID == 0 {
-				state.PID = pa.PID
+		churning := false
+		if state.Activity == session.Starting || state.Activity == session.Idle {
+			if pa, ok := activityByDir[state.WorkingDir]; ok {
+				churning = pa.IsChurning(cpuThreshold, requireNetwork)
+				if pa.PID > 0 && state.PID == 0 {
+					state.PID = pa.PID
+				}
 			}
+		}
+		if state.IsChurning != churning {
+			state.IsChurning = churning
 			m.store.Update(state)
-		} else {
-			if state.IsChurning {
-				state.IsChurning = false
-				m.store.Update(state)
-			}
 		}
 	}
 
