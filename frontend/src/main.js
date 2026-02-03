@@ -170,6 +170,10 @@ function renderDetailFlyout(state) {
       <span class="label">Activity</span>
       <span class="value"><span class="detail-activity ${esc(state.activity)}">${esc(state.activity)}</span></span>
     </div>
+    ${state.isChurning ? `<div class="detail-row">
+      <span class="label">Process</span>
+      <span class="value"><span class="detail-activity thinking">churning</span></span>
+    </div>` : ''}
     <div class="detail-progress">
       <div class="detail-progress-bar" style="width:${pct}%;background:${barColor}"></div>
       <span class="detail-progress-label">${formatTokens(state.tokensUsed)} / ${formatTokens(state.maxContextTokens)} (${pct}%)</span>

@@ -36,22 +36,26 @@ type sessionEndMarker struct {
 }
 
 type Monitor struct {
-	cfg            *config.Config
-	store          *session.Store
-	broadcaster    *ws.Broadcaster
-	sources        []Source
-	tracked        map[string]*trackedSession // keyed by source:sessionID
-	pendingRemoval map[string]time.Time
+	cfg              *config.Config
+	store            *session.Store
+	broadcaster      *ws.Broadcaster
+	sources          []Source
+	tracked          map[string]*trackedSession // keyed by source:sessionID
+	pendingRemoval   map[string]time.Time
+	prevCPU          map[int]cpuSample
+	lastProcessPoll  time.Time
 }
 
 func NewMonitor(cfg *config.Config, store *session.Store, broadcaster *ws.Broadcaster, sources []Source) *Monitor {
 	return &Monitor{
-		cfg:            cfg,
-		store:          store,
-		broadcaster:    broadcaster,
-		sources:        sources,
-		tracked:        make(map[string]*trackedSession),
-		pendingRemoval: make(map[string]time.Time),
+		cfg:             cfg,
+		store:           store,
+		broadcaster:     broadcaster,
+		sources:         sources,
+		tracked:         make(map[string]*trackedSession),
+		pendingRemoval:  make(map[string]time.Time),
+		prevCPU:         make(map[int]cpuSample),
+		lastProcessPoll: time.Now(),
 	}
 }
 
@@ -193,6 +197,43 @@ func (m *Monitor) poll() {
 
 			m.store.Update(state)
 			updates = append(updates, state)
+		}
+	}
+
+	// Poll process activity for churning detection.
+	elapsed := now.Sub(m.lastProcessPoll)
+	activities, newCPU := DiscoverProcessActivity(m.prevCPU, elapsed)
+	m.prevCPU = newCPU
+	m.lastProcessPoll = now
+
+	// Build a lookup of process activity by working directory.
+	activityByDir := make(map[string]ProcessActivity, len(activities))
+	for _, a := range activities {
+		// If multiple processes share a CWD, keep the one with higher CPU.
+		if existing, ok := activityByDir[a.WorkingDir]; ok {
+			if a.CPU > existing.CPU {
+				activityByDir[a.WorkingDir] = a
+			}
+		} else {
+			activityByDir[a.WorkingDir] = a
+		}
+	}
+
+	// Apply churning state to updated sessions.
+	cpuThreshold := m.cfg.Monitor.ChurningCPUThreshold
+	requireNetwork := m.cfg.Monitor.ChurningRequiresNetwork
+	for _, state := range updates {
+		if pa, ok := activityByDir[state.WorkingDir]; ok {
+			state.IsChurning = pa.IsChurning(cpuThreshold, requireNetwork)
+			if pa.PID > 0 && state.PID == 0 {
+				state.PID = pa.PID
+			}
+			m.store.Update(state)
+		} else {
+			if state.IsChurning {
+				state.IsChurning = false
+				m.store.Update(state)
+			}
 		}
 	}
 

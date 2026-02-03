@@ -23,12 +23,14 @@ type ServerConfig struct {
 }
 
 type MonitorConfig struct {
-	PollInterval          time.Duration `yaml:"poll_interval"`
-	SnapshotInterval      time.Duration `yaml:"snapshot_interval"`
-	BroadcastThrottle     time.Duration `yaml:"broadcast_throttle"`
-	SessionStaleAfter     time.Duration `yaml:"session_stale_after"`
-	CompletionRemoveAfter time.Duration `yaml:"completion_remove_after"`
-	SessionEndDir         string        `yaml:"session_end_dir"`
+	PollInterval            time.Duration `yaml:"poll_interval"`
+	SnapshotInterval        time.Duration `yaml:"snapshot_interval"`
+	BroadcastThrottle       time.Duration `yaml:"broadcast_throttle"`
+	SessionStaleAfter       time.Duration `yaml:"session_stale_after"`
+	CompletionRemoveAfter   time.Duration `yaml:"completion_remove_after"`
+	SessionEndDir           string        `yaml:"session_end_dir"`
+	ChurningCPUThreshold    float64       `yaml:"churning_cpu_threshold"`
+	ChurningRequiresNetwork bool          `yaml:"churning_requires_network"`
 }
 
 type SoundConfig struct {
@@ -74,12 +76,14 @@ func defaultConfig() *Config {
 			Host: "127.0.0.1",
 		},
 		Monitor: MonitorConfig{
-			PollInterval:          time.Second,
-			SnapshotInterval:      5 * time.Second,
-			BroadcastThrottle:     100 * time.Millisecond,
-			SessionStaleAfter:     2 * time.Minute,
-			CompletionRemoveAfter: 8 * time.Second,
-			SessionEndDir:         filepath.Join(defaultStateDir(), "agent-racer", "session-end"),
+			PollInterval:            time.Second,
+			SnapshotInterval:        5 * time.Second,
+			BroadcastThrottle:       100 * time.Millisecond,
+			SessionStaleAfter:       2 * time.Minute,
+			CompletionRemoveAfter:   8 * time.Second,
+			SessionEndDir:           filepath.Join(defaultStateDir(), "agent-racer", "session-end"),
+			ChurningCPUThreshold:    15.0,
+			ChurningRequiresNetwork: false,
 		},
 		Models: map[string]int{
 			"default": 200000,

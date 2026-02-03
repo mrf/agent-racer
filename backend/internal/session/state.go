@@ -79,6 +79,7 @@ type SessionState struct {
 	MessageCount       int       `json:"messageCount"`
 	ToolCallCount      int       `json:"toolCallCount"`
 	PID                int       `json:"pid,omitempty"`
+	IsChurning         bool      `json:"isChurning,omitempty"`
 	Lane               int       `json:"lane"`
 }
 

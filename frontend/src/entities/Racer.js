@@ -109,7 +109,13 @@ export class Racer {
 
   update(state) {
     const oldActivity = this.state.activity;
+    const wasChurning = this.state.isChurning;
     this.state = state;
+
+    // Detect churning transition: add a subtle bounce when churning starts
+    if (state.isChurning && !wasChurning) {
+      this.springVel += 1.2;
+    }
 
     // Detect activity transition
     if (state.activity !== oldActivity) {
@@ -264,6 +270,18 @@ export class Racer {
       default:
         this.targetGlow = 0;
         this.colorBrightness = Math.max(0, this.colorBrightness - 1 * dtScale);
+    }
+
+    // Churning animation: subtle activity when process is working but no
+    // JSONL output yet. Only applies when car would otherwise be idle/starting.
+    if (this.state.isChurning && activity !== 'thinking' && activity !== 'tool_use') {
+      this.wheelAngle += 0.02 * dtScale;
+      if (particles && Math.random() > 0.95) {
+        const S = CAR_SCALE;
+        particles.emit('exhaust', this.displayX - 17 * S, this.displayY + 1 * S, 1);
+      }
+      this.springVel += (Math.random() - 0.5) * 0.3;
+      this.targetGlow = 0.04;
     }
   }
 
