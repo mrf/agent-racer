@@ -29,12 +29,26 @@ function shortModelName(model) {
 }
 
 function getModelColor(model, source) {
+  // Check exact model match first
   if (MODEL_COLORS[model]) {
     return MODEL_COLORS[model];
   }
+
+  // Fallback: check if model contains known tier names (opus, sonnet, haiku)
   if (model) {
+    const lowerModel = model.toLowerCase();
+    if (lowerModel.includes('opus')) {
+      return { ...MODEL_COLORS['claude-opus-4-5-20251101'], name: 'Opus' };
+    }
+    if (lowerModel.includes('sonnet')) {
+      return { ...MODEL_COLORS['claude-sonnet-4-5-20250929'], name: 'Sonnet' };
+    }
+    if (lowerModel.includes('haiku')) {
+      return { ...MODEL_COLORS['claude-haiku-4-5-20251001'], name: 'Haiku' };
+    }
     return { ...DEFAULT_COLOR, name: shortModelName(model) };
   }
+
   if (source) {
     return { ...DEFAULT_COLOR, name: source.toUpperCase() };
   }
