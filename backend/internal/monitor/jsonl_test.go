@@ -24,6 +24,44 @@ func TestEncodeProjectPath(t *testing.T) {
 	}
 }
 
+func TestDecodeProjectPath(t *testing.T) {
+	// Create temp directories for testing
+	tmpBase := t.TempDir()
+	testDirs := []string{
+		filepath.Join(tmpBase, "simple-project"),
+		filepath.Join(tmpBase, "multi-dash-project"),
+		filepath.Join(tmpBase, "no-dashes"),
+	}
+	for _, dir := range testDirs {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	tests := []struct {
+		name     string
+		encoded  string
+		expected string
+	}{
+		// Paths that exist on filesystem - should return full decoded path
+		{"existing simple-project", encodeProjectPath(testDirs[0]), testDirs[0]},
+		{"existing multi-dash-project", encodeProjectPath(testDirs[1]), testDirs[1]},
+		{"existing no-dashes", encodeProjectPath(testDirs[2]), testDirs[2]},
+		// Paths that don't exist - should return basename as fallback
+		{"non-existent with dashes", "-nonexistent-path-my-project", "my-project"},
+		{"non-existent single segment", "-foo", "foo"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := DecodeProjectPath(tt.encoded)
+			if got != tt.expected {
+				t.Errorf("DecodeProjectPath(%q) = %q, want %q", tt.encoded, got, tt.expected)
+			}
+		})
+	}
+}
+
 func TestParseSessionJSONL(t *testing.T) {
 	// Create a temp JSONL file with test data
 	dir := t.TempDir()

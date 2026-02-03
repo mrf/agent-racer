@@ -298,16 +298,47 @@ func DecodeProjectPath(encoded string) string {
 		decoded = encoded
 	}
 
-	// Try treating leading dash as /
+	// Try treating all dashes as path separators
 	if strings.HasPrefix(decoded, "-") {
 		candidate := strings.ReplaceAll(decoded, "-", "/")
 		if _, err := os.Stat(candidate); err == nil {
 			return candidate
 		}
+
+		// If that didn't work, try progressively: check multiple combinations
+		// by treating some dashes as path separators and others as literal dashes
+		parts := strings.Split(decoded[1:], "-") // skip leading dash
+
+		// Try replacing dashes from left to right, keeping last segments with dashes
+		for numSlashes := len(parts) - 1; numSlashes > 0; numSlashes-- {
+			// Join first numSlashes parts with /, rest with -
+			pathParts := make([]string, numSlashes)
+			for i := 0; i < numSlashes; i++ {
+				pathParts[i] = parts[i]
+			}
+			candidate := "/" + strings.Join(pathParts, "/")
+
+			if numSlashes < len(parts) {
+				remaining := strings.Join(parts[numSlashes:], "-")
+				candidate = candidate + "/" + remaining
+			}
+
+			if _, err := os.Stat(candidate); err == nil {
+				return candidate
+			}
+		}
 	}
 
-	// Fallback: just replace first dash with /
-	return strings.ReplaceAll(decoded, "-", "/")
+	// Fallback: return basename (best effort)
+	// Assume first 1-2 parts are directory path, rest is the basename
+	parts := strings.Split(strings.TrimPrefix(decoded, "-"), "-")
+	if len(parts) > 2 {
+		// Assume structure like /home/user/... or /tmp/... where first 2 are dir
+		return strings.Join(parts[2:], "-")
+	} else if len(parts) > 0 {
+		return parts[len(parts)-1]
+	}
+	return decoded
 }
 
 // FindSessionForProcess tries to find the most recent session file
