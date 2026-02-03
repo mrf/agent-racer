@@ -106,6 +106,11 @@ export class Racer {
 
     // New: dot animation for thought bubble
     this.dotPhase = 0;
+
+    // New: hammer animation for tool use
+    this.hammerSwing = 0; // 0-1 animation progress
+    this.hammerActive = false;
+    this.hammerImpactEmitted = false;
   }
 
   update(state) {
@@ -138,6 +143,12 @@ export class Racer {
         this.confettiEmitted = false;
         this.completionTimer = 0;
         this.goldFlash = 0;
+      }
+      if (state.activity === 'tool_use') {
+        // Trigger hammer animation on tool_use transition
+        this.hammerActive = true;
+        this.hammerSwing = 0;
+        this.hammerImpactEmitted = false;
       }
     }
   }
@@ -197,6 +208,7 @@ export class Racer {
         if (particles && speed > 0.5 && Math.random() > 0.5) {
           particles.emit('exhaust', this.displayX - 17 * S, this.displayY + 1 * S, 1);
         }
+        this.hammerActive = false; // Stop hammer animation
         break;
 
       case 'tool_use':
@@ -214,12 +226,29 @@ export class Racer {
           const rgb = hexToRgb(color.main);
           particles.emitWithColor('speedLines', this.displayX - 20 * S, this.displayY, 1, rgb);
         }
+        // Hammer animation
+        if (this.hammerActive) {
+          this.hammerSwing += 0.08 * dtScale; // Swing speed
+          // Impact point (when hammer hits hood)
+          if (this.hammerSwing >= 0.5 && this.hammerSwing < 0.6 && !this.hammerImpactEmitted && particles) {
+            particles.emit('sparks', this.displayX + 12 * S, this.displayY - 8 * S, 3);
+            this.hammerImpactEmitted = true;
+            // Add bounce to suspension on impact
+            this.springVel += 1.8;
+          }
+          // Reset for continuous animation
+          if (this.hammerSwing >= 1.0) {
+            this.hammerSwing = 0;
+            this.hammerImpactEmitted = false;
+          }
+        }
         break;
 
       case 'waiting':
         this.hazardPhase += 0.1 * dtScale;
         this.targetGlow = 0.05;
         this.colorBrightness = Math.max(0, this.colorBrightness - 1 * dtScale);
+        this.hammerActive = false; // Stop hammer animation
         break;
 
       case 'complete':
@@ -271,6 +300,7 @@ export class Racer {
       default:
         this.targetGlow = 0;
         this.colorBrightness = Math.max(0, this.colorBrightness - 1 * dtScale);
+        this.hammerActive = false; // Stop hammer animation
     }
 
     // Churning animation: subtle activity when process is working but no
@@ -513,6 +543,9 @@ export class Racer {
       case 'tool_use':
         this._drawHeadlight(ctx, x, y);
         this._drawToolBadge(ctx, x, y, color);
+        if (this.hammerActive) {
+          this._drawHammer(ctx, x, y);
+        }
         break;
 
       case 'waiting':
@@ -727,6 +760,68 @@ export class Racer {
     ctx.beginPath();
     ctx.arc(x, y, glowR, 0, Math.PI * 2);
     ctx.fill();
+  }
+
+  _drawHammer(ctx, x, y) {
+    const S = CAR_SCALE;
+    // Hammer positioned above hood, swinging down
+    // Hood is around x+12 to x+15, y-9 to y-3
+
+    // Calculate swing angle: -70deg (raised) -> 0deg (impact) -> -70deg
+    // Use easeInOutQuad for smooth motion
+    let t = this.hammerSwing;
+    // Ease function for natural swing
+    const easeInOutQuad = (t) => t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+    const swingProgress = easeInOutQuad(t);
+    const angle = -70 * (1 - swingProgress) * (Math.PI / 180); // -70deg to 0deg
+
+    // Pivot point (where hammer rotates from) - above and to the side of hood
+    const pivotX = x + 10 * S;
+    const pivotY = y - 18 * S;
+
+    ctx.save();
+    ctx.translate(pivotX, pivotY);
+    ctx.rotate(angle);
+
+    // Handle (wooden)
+    const handleLength = 16;
+    const handleWidth = 2;
+    ctx.fillStyle = '#8B4513'; // Brown
+    ctx.fillRect(-handleWidth / 2, 0, handleWidth, handleLength);
+
+    // Hammer head (metallic gray)
+    const hammerHeadWidth = 8;
+    const hammerHeadHeight = 6;
+    ctx.fillStyle = '#888';
+    ctx.fillRect(-hammerHeadWidth / 2, handleLength - 1, hammerHeadWidth, hammerHeadHeight);
+
+    // Metallic highlight on hammer head
+    ctx.fillStyle = '#aaa';
+    ctx.fillRect(-hammerHeadWidth / 2, handleLength - 1, hammerHeadWidth, 2);
+
+    // Handle grip (darker bands)
+    ctx.strokeStyle = '#5C3317';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 3; i++) {
+      const gripY = 4 + i * 4;
+      ctx.beginPath();
+      ctx.moveTo(-handleWidth / 2 - 0.5, gripY);
+      ctx.lineTo(handleWidth / 2 + 0.5, gripY);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+
+    // Optional: Motion blur effect during fast swing (around impact point)
+    if (t > 0.4 && t < 0.6) {
+      ctx.save();
+      ctx.globalAlpha = 0.2;
+      ctx.translate(pivotX, pivotY);
+      ctx.rotate(angle - 0.1);
+      ctx.fillStyle = '#888';
+      ctx.fillRect(-hammerHeadWidth / 2, handleLength - 1, hammerHeadWidth, hammerHeadHeight);
+      ctx.restore();
+    }
   }
 
   drawInfo(ctx, x, y, color, activity) {
