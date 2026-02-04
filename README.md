@@ -137,9 +137,12 @@ Each session is rendered as a car with:
 | **Tool Use** | Sparks flying + tool name displayed |
 | **Waiting** | Hazard lights flashing (amber blinkers) |
 | **Idle** | Car stationary, no effects |
+| **Churning** | Subtle wheel rotation + occasional exhaust puff (active processing, no output yet) |
 | **Complete** | Trophy icon + confetti explosion + victory fanfare |
 | **Errored** | Spin-out animation + smoke particles + error sound |
 | **Lost** | Car fades to transparent |
+
+*Note: "Starting" state is used only in mock mode for demo purposes.*
 
 ### Track
 
@@ -186,19 +189,23 @@ sources:
   gemini: false       # Google Gemini CLI monitoring (default: false, pre-alpha)
 
 monitor:
-  poll_interval: 1s         # How often to scan for processes and read JSONL
-  snapshot_interval: 5s     # Full state broadcast interval
-  broadcast_throttle: 100ms # Minimum time between delta broadcasts
-  session_stale_after: 2m   # Mark sessions complete after no new data
-  completion_remove_after: 8s # Remove racers after completion animation
-  session_end_dir: ""       # Defaults to $XDG_STATE_HOME/agent-racer/session-end
+  poll_interval: 1s                # How often to scan for processes and read JSONL
+  snapshot_interval: 5s            # Full state broadcast interval
+  broadcast_throttle: 100ms        # Minimum time between delta broadcasts
+  session_stale_after: 2m          # Mark sessions complete after no new data
+  completion_remove_after: 8s      # Remove racers after completion animation
+  session_end_dir: ""              # Defaults to $XDG_STATE_HOME/agent-racer/session-end
+  churning_cpu_threshold: 15.0     # CPU% for detecting active processing
+  churning_requires_network: false # Require TCP connections for churning state
 
 models:
   claude-opus-4-5-20251101: 200000
   claude-sonnet-4-5-20250929: 200000
   claude-sonnet-4-20250514: 200000
   claude-haiku-3-5-20241022: 200000
-  default: 200000  # Fallback for unrecognized models
+  gpt-5-codex: 272000              # Codex models
+  gemini-2.5-pro: 1048576          # Gemini models (1M tokens)
+  default: 200000                  # Fallback for unrecognized models
 
 sound:
   enabled: true           # Master enable/disable
@@ -357,7 +364,7 @@ cp agent-racer /usr/local/bin/
 ## Requirements
 
 - **Go 1.22+** for building
-- **Linux** for real mode (reads Claude Code session files in `~/.claude/projects`)
+- **Linux** for real mode (process discovery uses `/proc` filesystem; future macOS support planned)
 - Mock mode works on any platform
 - Modern browser with Canvas support
 
