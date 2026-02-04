@@ -129,12 +129,21 @@ Each session is rendered as a car with:
 
 *Note: "Starting" state is used only in mock mode for demo purposes.*
 
+### Pit Lane
+
+Idle, waiting, and starting sessions (that aren't churning) automatically roll off the main track into a **pit area** below. This keeps the active racing lanes uncluttered while giving visual persistence to sessions that are still alive but not actively working.
+
+- Cars smoothly animate between track and pit with opacity/scale dimming
+- When a session becomes active again (thinking, tool use, or churning), the car drives back onto the track
+- Terminal states (complete, errored, lost) stay on track for their exit animations
+
 ### Track
 
 - Dark asphalt surface with lane dividers
 - Checkerboard start line (0 tokens) and red checkerboard finish line (200K tokens)
 - Dotted markers at 50K, 100K, and 150K tokens
-- Each session gets its own lane
+- Active sessions get their own lane on the main track
+- Pit area below the track holds idle sessions
 
 ## Keyboard Shortcuts
 
@@ -296,9 +305,12 @@ agent-racer/
 │       │   └── server.go         # HTTP/WS handlers
 │       ├── monitor/
 │       │   ├── source.go         # Unified Source interface for multi-agent support
-│       │   ├── process.go        # File-based session discovery
+│       │   ├── claude_source.go  # Claude Code session discovery
+│       │   ├── codex_source.go   # OpenAI Codex CLI session discovery
+│       │   ├── gemini_source.go  # Google Gemini CLI session discovery
+│       │   ├── process.go        # Process scanning via /proc
 │       │   ├── jsonl.go          # Incremental JSONL parser
-│       │   └── monitor.go        # Main poll loop
+│       │   └── monitor.go        # Main poll loop + churning detection
 │       ├── mock/
 │       │   └── generator.go      # 5 simulated sessions
 │       └── frontend/
