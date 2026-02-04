@@ -474,11 +474,10 @@ func splitPath(path string) []string {
 			parts = append([]string{file}, parts...)
 		}
 		path = dir
-		if path != "/" {
-			path = path[:len(path)-1]
-		} else {
+		if path == "" || path == "/" {
 			break
 		}
+		path = path[:len(path)-1]
 	}
 	return parts
 }
