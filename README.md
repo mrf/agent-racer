@@ -106,6 +106,16 @@ Completion markers are written to `~/.local/state/agent-racer/session-end/` by d
 
 No wrappers, hooks, or environment variables needed. Just run `claude` anywhere and it shows up.
 
+### Multi-Agent Support (Pre-Alpha)
+
+Agent Racer has early support for monitoring OpenAI Codex CLI and Google Gemini CLI sessions alongside Claude Code. This support is **pre-alpha** -- expect bugs with progress tracking, model labels, and session lifecycle. Both sources are disabled by default. To opt in, enable them in your config:
+
+```yaml
+sources:
+  codex: true
+  gemini: true
+```
+
 ## Visualization
 
 ### Cars
@@ -169,6 +179,11 @@ server:
   #   - "http://localhost:8080"
   #   - "http://127.0.0.1:8080"
   # auth_token: ""    # Optional: require token for API/WS
+
+sources:
+  claude: true        # Claude Code session monitoring (default: true)
+  codex: false        # OpenAI Codex CLI monitoring (default: false, pre-alpha)
+  gemini: false       # Google Gemini CLI monitoring (default: false, pre-alpha)
 
 monitor:
   poll_interval: 1s         # How often to scan for processes and read JSONL
