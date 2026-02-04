@@ -398,7 +398,6 @@ func (m *Monitor) handleSessionEnd(marker sessionEndMarker, now time.Time) {
 	// based ID derived from the transcript path.  The monitor tracks
 	// sessions by filename-based IDs so the two may differ.
 	storeKey := trackingKey("claude", marker.SessionID)
-
 	state, ok := m.store.Get(storeKey)
 	if !ok && marker.TranscriptPath != "" {
 		filenameID := SessionIDFromPath(marker.TranscriptPath)
