@@ -27,18 +27,9 @@ session_id = payload.get("session_id") or payload.get("sessionId")
 if not session_id:
     sys.exit(0)
 
-# Also extract session ID from transcript_path as a fallback identifier.
-# The monitor tracks sessions by JSONL filename, which may differ from
-# the session_id field in the hook payload.
-transcript_path = payload.get("transcript_path") or ""
-transcript_id = ""
-if transcript_path.endswith(".jsonl"):
-    transcript_id = os.path.basename(transcript_path)[:-6]  # strip .jsonl
-
 marker = {
     "session_id": session_id,
-    "transcript_id": transcript_id,
-    "transcript_path": transcript_path,
+    "transcript_path": payload.get("transcript_path") or "",
     "cwd": payload.get("cwd"),
     "reason": payload.get("reason"),
     "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
