@@ -19,6 +19,11 @@ export class Track {
     this._lastLaneCount = 0;
   }
 
+  getRequiredHeight(laneCount) {
+    const maxLanes = Math.max(laneCount, 1);
+    return maxLanes * this.laneHeight + this.trackPadding.top + this.trackPadding.bottom;
+  }
+
   getTrackBounds(canvasWidth, canvasHeight, laneCount) {
     const maxLanes = Math.max(laneCount, 1);
     const trackHeight = maxLanes * this.laneHeight;

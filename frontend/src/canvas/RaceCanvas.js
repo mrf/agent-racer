@@ -30,6 +30,9 @@ export class RaceCanvas {
     // Flash effect state
     this.flashAlpha = 0;
 
+    // Track lane count for dynamic canvas resizing
+    this._laneCount = 1;
+
     this.resize();
     this._resizeHandler = () => this.resize();
     window.addEventListener('resize', this._resizeHandler);
@@ -44,15 +47,23 @@ export class RaceCanvas {
   resize() {
     const dpr = window.devicePixelRatio || 1;
     const rect = this.canvas.parentElement.getBoundingClientRect();
-    this.canvas.width = rect.width * dpr;
-    this.canvas.height = rect.height * dpr;
+    const viewportWidth = rect.width;
+    const viewportHeight = rect.height;
+
+    // Canvas height grows to fit all lanes, minimum is viewport height
+    const requiredHeight = this.track.getRequiredHeight(this._laneCount);
+    const height = Math.max(viewportHeight, requiredHeight);
+
+    this.canvas.style.height = height + 'px';
+    this.canvas.width = viewportWidth * dpr;
+    this.canvas.height = height * dpr;
     this.ctx.scale(dpr, dpr);
-    this.width = rect.width;
-    this.height = rect.height;
+    this.width = viewportWidth;
+    this.height = height;
 
     // Resize glow canvas to match (at reduced resolution for blur)
-    this.glowCanvas.width = Math.ceil(rect.width / 4);
-    this.glowCanvas.height = Math.ceil(rect.height / 4);
+    this.glowCanvas.width = Math.ceil(viewportWidth / 4);
+    this.glowCanvas.height = Math.ceil(height / 4);
   }
 
   setConnected(connected) {
@@ -134,6 +145,13 @@ export class RaceCanvas {
   update() {
     const dt = this.dt;
     const laneCount = this.racers.size || 1;
+
+    // Resize canvas when lane count changes
+    if (laneCount !== this._laneCount) {
+      this._laneCount = laneCount;
+      this.resize();
+    }
+
     const bounds = this.track.getTrackBounds(this.width, this.height, laneCount);
 
     // Sort racers by lane for consistent ordering
