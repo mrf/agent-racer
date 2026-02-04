@@ -6,6 +6,11 @@ const TOKEN_MARKERS = [
 
 const PENNANT_COLORS = ['#a855f7', '#3b82f6', '#22c55e'];
 
+const PIT_LANE_HEIGHT = 50;
+const PIT_GAP = 30;
+const PIT_PADDING_LEFT = 40;
+const PIT_BOTTOM_PADDING = 40;
+
 export class Track {
   constructor() {
     this.trackPadding = { left: 200, right: 60, top: 60, bottom: 40 };
@@ -19,9 +24,15 @@ export class Track {
     this._lastLaneCount = 0;
   }
 
-  getRequiredHeight(laneCount) {
+  getRequiredHeight(laneCount, pitLaneCount = 0) {
     const maxLanes = Math.max(laneCount, 1);
-    return maxLanes * this.laneHeight + this.trackPadding.top + this.trackPadding.bottom;
+    const trackHeight = maxLanes * this.laneHeight + this.trackPadding.top + this.trackPadding.bottom;
+    return trackHeight + this.getRequiredPitHeight(pitLaneCount);
+  }
+
+  getRequiredPitHeight(pitLaneCount) {
+    if (pitLaneCount <= 0) return 0;
+    return PIT_GAP + pitLaneCount * PIT_LANE_HEIGHT + PIT_BOTTOM_PADDING;
   }
 
   getTrackBounds(canvasWidth, canvasHeight, laneCount) {
@@ -46,6 +57,30 @@ export class Track {
 
   getPositionX(bounds, utilization) {
     return bounds.x + utilization * bounds.width;
+  }
+
+  getPitBounds(canvasWidth, canvasHeight, activeLaneCount, pitLaneCount) {
+    if (pitLaneCount <= 0) return null;
+    const trackBounds = this.getTrackBounds(canvasWidth, canvasHeight, activeLaneCount);
+    const pitTop = trackBounds.y + trackBounds.height + PIT_GAP;
+    const pitX = trackBounds.x + PIT_PADDING_LEFT;
+    const pitWidth = trackBounds.width - PIT_PADDING_LEFT;
+    const pitHeight = pitLaneCount * PIT_LANE_HEIGHT;
+    return {
+      x: pitX,
+      y: pitTop,
+      width: pitWidth,
+      height: pitHeight,
+      laneHeight: PIT_LANE_HEIGHT,
+    };
+  }
+
+  getPitLaneY(pitBounds, index) {
+    return pitBounds.y + index * pitBounds.laneHeight + pitBounds.laneHeight / 2;
+  }
+
+  getPitPositionX(pitBounds, utilization) {
+    return pitBounds.x + utilization * pitBounds.width;
   }
 
   _needsPrerender(canvasWidth, canvasHeight, laneCount) {
@@ -103,7 +138,7 @@ export class Track {
     }
   }
 
-  draw(ctx, canvasWidth, canvasHeight, laneCount, maxTokens = 200000) {
+  draw(ctx, canvasWidth, canvasHeight, laneCount, maxTokens = 200000, crowdYOverride = null) {
     const bounds = this.getTrackBounds(canvasWidth, canvasHeight, laneCount);
     this.time += 0.016; // ~60fps tick
 
@@ -186,9 +221,69 @@ export class Track {
     this._drawPennants(ctx, bounds);
 
     // Crowd silhouettes along bottom (with bobbing animation)
-    this._drawCrowd(ctx, bounds);
+    this._drawCrowd(ctx, bounds, crowdYOverride);
 
     return bounds;
+  }
+
+  drawPit(ctx, canvasWidth, canvasHeight, activeLaneCount, pitLaneCount) {
+    if (pitLaneCount <= 0) return null;
+    const pitBounds = this.getPitBounds(canvasWidth, canvasHeight, activeLaneCount, pitLaneCount);
+    const trackBounds = this.getTrackBounds(canvasWidth, canvasHeight, activeLaneCount);
+
+    // Ramp hints in the gap between track and pit
+    const rampY = trackBounds.y + trackBounds.height + PIT_GAP / 2;
+    ctx.strokeStyle = 'rgba(80,80,100,0.3)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 8]);
+    ctx.beginPath();
+    ctx.moveTo(pitBounds.x, rampY);
+    ctx.lineTo(pitBounds.x + pitBounds.width, rampY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Darker pit surface background
+    ctx.fillStyle = '#1e1e2e';
+    ctx.fillRect(pitBounds.x - 5, pitBounds.y - 5, pitBounds.width + 10, pitBounds.height + 10);
+
+    // Pit surface gradient
+    const pitGrad = ctx.createLinearGradient(pitBounds.x, pitBounds.y, pitBounds.x, pitBounds.y + pitBounds.height);
+    pitGrad.addColorStop(0, '#282838');
+    pitGrad.addColorStop(0.5, '#222232');
+    pitGrad.addColorStop(1, '#282838');
+    ctx.fillStyle = pitGrad;
+    ctx.fillRect(pitBounds.x, pitBounds.y, pitBounds.width, pitBounds.height);
+
+    // Dashed border
+    ctx.strokeStyle = '#555';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([8, 6]);
+    ctx.strokeRect(pitBounds.x, pitBounds.y, pitBounds.width, pitBounds.height);
+    ctx.setLineDash([]);
+
+    // "PIT" label
+    ctx.fillStyle = '#555';
+    ctx.font = 'bold 14px Courier New';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('PIT', pitBounds.x - 10, pitBounds.y + pitBounds.height / 2);
+    ctx.textBaseline = 'alphabetic';
+    ctx.textAlign = 'center';
+
+    // Subtle lane dividers
+    ctx.strokeStyle = '#333350';
+    ctx.lineWidth = 0.5;
+    ctx.setLineDash([6, 8]);
+    for (let i = 1; i < pitLaneCount; i++) {
+      const y = pitBounds.y + i * PIT_LANE_HEIGHT;
+      ctx.beginPath();
+      ctx.moveTo(pitBounds.x, y);
+      ctx.lineTo(pitBounds.x + pitBounds.width, y);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+
+    return pitBounds;
   }
 
   _drawStartLine(ctx, bounds) {
@@ -345,9 +440,9 @@ export class Track {
     }
   }
 
-  _drawCrowd(ctx, bounds) {
+  _drawCrowd(ctx, bounds, yOverride) {
     if (!this._crowdHeads) return;
-    const crowdY = bounds.y + bounds.height + 8;
+    const crowdY = yOverride != null ? yOverride : bounds.y + bounds.height + 8;
 
     for (let i = 0; i < this._crowdHeads.length; i++) {
       const head = this._crowdHeads[i];

@@ -2,6 +2,21 @@ import { ParticleSystem } from './Particles.js';
 import { Track } from './Track.js';
 import { Racer } from '../entities/Racer.js';
 
+function isActiveRacer(state) {
+  const { activity, isChurning } = state;
+  if (activity === 'thinking' || activity === 'tool_use') return true;
+  if ((activity === 'idle' || activity === 'starting') && isChurning) return true;
+  return false;
+}
+
+function isPitRacer(state) {
+  const { activity, isChurning } = state;
+  if (activity === 'idle' || activity === 'waiting' || activity === 'starting') {
+    return !isChurning;
+  }
+  return false;
+}
+
 export class RaceCanvas {
   constructor(canvas, engine = null) {
     this.canvas = canvas;
@@ -30,8 +45,9 @@ export class RaceCanvas {
     // Flash effect state
     this.flashAlpha = 0;
 
-    // Track lane count for dynamic canvas resizing
-    this._laneCount = 1;
+    // Track lane counts for dynamic canvas resizing
+    this._activeLaneCount = 1;
+    this._pitLaneCount = 0;
 
     this.resize();
     this._resizeHandler = () => this.resize();
@@ -50,8 +66,8 @@ export class RaceCanvas {
     const viewportWidth = rect.width;
     const viewportHeight = rect.height;
 
-    // Canvas height grows to fit all lanes, minimum is viewport height
-    const requiredHeight = this.track.getRequiredHeight(this._laneCount);
+    // Canvas height grows to fit all lanes + pit, minimum is viewport height
+    const requiredHeight = this.track.getRequiredHeight(this._activeLaneCount, this._pitLaneCount);
     const height = Math.max(viewportHeight, requiredHeight);
 
     this.canvas.style.height = height + 'px';
@@ -144,24 +160,41 @@ export class RaceCanvas {
 
   update() {
     const dt = this.dt;
-    const laneCount = this.racers.size || 1;
 
-    // Resize canvas when lane count changes
-    if (laneCount !== this._laneCount) {
-      this._laneCount = laneCount;
+    // Partition racers into track (active + terminal) and pit groups
+    const trackRacers = [];
+    const pitRacers = [];
+
+    for (const racer of this.racers.values()) {
+      if (isPitRacer(racer.state)) {
+        pitRacers.push(racer);
+      } else {
+        // Active, terminal (complete/errored/lost), and churning go on track
+        trackRacers.push(racer);
+      }
+    }
+
+    const activeLaneCount = trackRacers.length || 1;
+    const pitLaneCount = pitRacers.length;
+
+    // Resize canvas when lane counts change
+    if (activeLaneCount !== this._activeLaneCount || pitLaneCount !== this._pitLaneCount) {
+      this._activeLaneCount = activeLaneCount;
+      this._pitLaneCount = pitLaneCount;
       this.resize();
     }
 
-    const bounds = this.track.getTrackBounds(this.width, this.height, laneCount);
+    // Position track racers
+    const bounds = this.track.getTrackBounds(this.width, this.height, activeLaneCount);
+    const sortedTrack = trackRacers.sort((a, b) => a.state.lane - b.state.lane);
 
-    // Sort racers by lane for consistent ordering
-    const sorted = [...this.racers.values()].sort((a, b) => a.state.lane - b.state.lane);
-
-    for (let i = 0; i < sorted.length; i++) {
-      const racer = sorted[i];
+    for (let i = 0; i < sortedTrack.length; i++) {
+      const racer = sortedTrack[i];
       const targetX = this.track.getPositionX(bounds, racer.state.contextUtilization);
       const targetY = this.track.getLaneY(bounds, i);
       racer.setTarget(targetX, targetY);
+      racer.inPit = false;
+      racer.pitDimTarget = 0;
       racer.animate(this.particles, dt);
 
       // Sync engine audio
@@ -172,6 +205,27 @@ export class RaceCanvas {
         } else if (racer.state.isChurning && (activity === 'idle' || activity === 'starting')) {
           this.engine.startEngine(racer.id, 'idle');
         } else {
+          this.engine.stopEngine(racer.id);
+        }
+      }
+    }
+
+    // Position pit racers
+    if (pitLaneCount > 0) {
+      const pitBounds = this.track.getPitBounds(this.width, this.height, activeLaneCount, pitLaneCount);
+      const sortedPit = pitRacers.sort((a, b) => a.state.lane - b.state.lane);
+
+      for (let i = 0; i < sortedPit.length; i++) {
+        const racer = sortedPit[i];
+        const targetX = this.track.getPitPositionX(pitBounds, racer.state.contextUtilization);
+        const targetY = this.track.getPitLaneY(pitBounds, i);
+        racer.setTarget(targetX, targetY);
+        racer.inPit = true;
+        racer.pitDimTarget = 1;
+        racer.animate(this.particles, dt);
+
+        // Stop engine audio for pit racers
+        if (this.engine) {
           this.engine.stopEngine(racer.id);
         }
       }
@@ -211,14 +265,28 @@ export class RaceCanvas {
     ctx.fillStyle = '#1a1a2e';
     ctx.fillRect(-10, -10, this.width + 20, this.height + 20);
 
-    const laneCount = this.racers.size || 1;
-    this.track.draw(ctx, this.width, this.height, laneCount);
+    const activeLaneCount = this._activeLaneCount || 1;
+    const pitLaneCount = this._pitLaneCount || 0;
+
+    // Compute crowd Y override when pit is present
+    let crowdYOverride = null;
+    if (pitLaneCount > 0) {
+      const pitBounds = this.track.getPitBounds(this.width, this.height, activeLaneCount, pitLaneCount);
+      crowdYOverride = pitBounds.y + pitBounds.height + 8;
+    }
+
+    this.track.draw(ctx, this.width, this.height, activeLaneCount, 200000, crowdYOverride);
+
+    // Draw pit area when there are pit racers
+    if (pitLaneCount > 0) {
+      this.track.drawPit(ctx, this.width, this.height, activeLaneCount, pitLaneCount);
+    }
 
     // Draw particles behind racers
     this.particles.drawBehind(ctx);
 
-    // Draw car shadows first (under all cars)
-    const sorted = [...this.racers.values()].sort((a, b) => a.state.lane - b.state.lane);
+    // Draw all racers sorted by Y for correct layering
+    const sorted = [...this.racers.values()].sort((a, b) => a.displayY - b.displayY);
 
     // Draw racers
     for (const racer of sorted) {

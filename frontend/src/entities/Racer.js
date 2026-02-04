@@ -125,6 +125,11 @@ export class Racer {
     this.hammerSwing = 0; // 0-1 animation progress
     this.hammerActive = false;
     this.hammerImpactEmitted = false;
+
+    // Pit lane state
+    this.inPit = false;
+    this.pitDim = 0;       // current dimming (0=normal, 1=fully dimmed)
+    this.pitDimTarget = 0;
   }
 
   update(state) {
@@ -205,6 +210,9 @@ export class Racer {
 
     // Glow interpolation
     this.glowIntensity += (this.targetGlow - this.glowIntensity) * 0.1 * dtScale;
+
+    // Pit dimming transition
+    this.pitDim += (this.pitDimTarget - this.pitDim) * 0.08 * dtScale;
 
     this.thoughtBubblePhase += 0.06 * dtScale;
     this.dotPhase += 0.04 * dtScale;
@@ -328,6 +336,11 @@ export class Racer {
       this.springVel += (Math.random() - 0.5) * 0.3;
       this.targetGlow = 0.04;
     }
+
+    // Suppress effects when in pit
+    if (this.inPit) {
+      this.targetGlow = Math.min(this.targetGlow, 0.02);
+    }
   }
 
   draw(ctx) {
@@ -337,7 +350,17 @@ export class Racer {
     const activity = this.state.activity;
 
     ctx.save();
-    ctx.globalAlpha = this.opacity;
+
+    // Pit dimming: reduce opacity and scale
+    const pitAlpha = 1 - this.pitDim * 0.4;
+    ctx.globalAlpha = this.opacity * pitAlpha;
+
+    if (this.pitDim > 0.01) {
+      const pitScale = 1 - this.pitDim * 0.15;
+      ctx.translate(x, y);
+      ctx.scale(pitScale, pitScale);
+      ctx.translate(-x, -y);
+    }
 
     // Apply spin for errored
     if (activity === 'errored') {
