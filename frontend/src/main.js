@@ -144,11 +144,21 @@ function positionFlyout(carX, carY) {
     }
   }
 
-  // Calculate vertical position if not already set
+  // Calculate vertical position if not already set (for left/right positioning)
   if (top === undefined) {
+    // Check if there's enough space below the car
+    const spaceBelow = window.innerHeight - padding - absoluteCarY;
+    if (spaceBelow >= margin + flyoutMaxHeight) {
+      // Position below the car
+      top = absoluteCarY + margin;
+    } else {
+      // Position above the car
+      top = absoluteCarY - margin - flyoutMaxHeight;
+    }
+    // Clamp to viewport bounds
     top = Math.max(padding, Math.min(
       window.innerHeight - flyoutMaxHeight - padding,
-      absoluteCarY - 30 // slight offset upward
+      top
     ));
   }
 
