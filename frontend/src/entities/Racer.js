@@ -526,17 +526,6 @@ export class Racer {
     ctx.lineWidth = 0.5;
     ctx.stroke();
 
-    // Rear spoiler
-    ctx.fillStyle = color.dark;
-    ctx.fillRect(x - 16, y - 12, 2, 5);
-    ctx.beginPath();
-    ctx.moveTo(x - 19, y - 13);
-    ctx.lineTo(x - 11, y - 13);
-    ctx.lineTo(x - 12, y - 11);
-    ctx.lineTo(x - 18, y - 11);
-    ctx.closePath();
-    ctx.fill();
-
     // Headlight
     ctx.fillStyle = 'rgba(255,255,220,0.7)';
     ctx.beginPath();
