@@ -10,6 +10,7 @@ const PIT_LANE_HEIGHT = 50;
 const PIT_GAP = 30;
 const PIT_PADDING_LEFT = 40;
 const PIT_BOTTOM_PADDING = 40;
+const PIT_ENTRY_OFFSET = 60;
 
 export class Track {
   constructor() {
@@ -81,6 +82,10 @@ export class Track {
 
   getPitPositionX(pitBounds, utilization) {
     return pitBounds.x + utilization * pitBounds.width;
+  }
+
+  getPitEntryX(trackBounds) {
+    return trackBounds.x + PIT_ENTRY_OFFSET;
   }
 
   _needsPrerender(canvasWidth, canvasHeight, laneCount) {
@@ -231,16 +236,44 @@ export class Track {
     const pitBounds = this.getPitBounds(canvasWidth, canvasHeight, activeLaneCount, pitLaneCount);
     const trackBounds = this.getTrackBounds(canvasWidth, canvasHeight, activeLaneCount);
 
-    // Ramp hints in the gap between track and pit
-    const rampY = trackBounds.y + trackBounds.height + PIT_GAP / 2;
-    ctx.strokeStyle = 'rgba(80,80,100,0.3)';
+    // Connecting lane between track and pit at the entry point
+    const entryX = this.getPitEntryX(trackBounds);
+    const laneWidth = 40;
+    const laneLeft = entryX - laneWidth / 2;
+    const gapTop = trackBounds.y + trackBounds.height;
+    const gapBottom = pitBounds.y;
+    const gapHeight = gapBottom - gapTop;
+
+    // Dark surface fill
+    ctx.fillStyle = '#252535';
+    ctx.fillRect(laneLeft, gapTop, laneWidth, gapHeight);
+
+    // Dashed side borders
+    ctx.strokeStyle = 'rgba(100,100,120,0.5)';
     ctx.lineWidth = 1;
-    ctx.setLineDash([4, 8]);
+    ctx.setLineDash([4, 6]);
     ctx.beginPath();
-    ctx.moveTo(pitBounds.x, rampY);
-    ctx.lineTo(pitBounds.x + pitBounds.width, rampY);
+    ctx.moveTo(laneLeft, gapTop);
+    ctx.lineTo(laneLeft, gapBottom);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(laneLeft + laneWidth, gapTop);
+    ctx.lineTo(laneLeft + laneWidth, gapBottom);
     ctx.stroke();
     ctx.setLineDash([]);
+
+    // Down-chevron arrows inside the lane
+    const chevronCount = Math.max(1, Math.floor(gapHeight / 14));
+    ctx.strokeStyle = 'rgba(100,100,120,0.4)';
+    ctx.lineWidth = 1.5;
+    for (let i = 0; i < chevronCount; i++) {
+      const cy = gapTop + 8 + i * (gapHeight / chevronCount);
+      ctx.beginPath();
+      ctx.moveTo(entryX - 6, cy - 3);
+      ctx.lineTo(entryX, cy + 3);
+      ctx.lineTo(entryX + 6, cy - 3);
+      ctx.stroke();
+    }
 
     // Darker pit surface background
     ctx.fillStyle = '#1e1e2e';

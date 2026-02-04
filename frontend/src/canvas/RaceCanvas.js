@@ -188,10 +188,23 @@ export class RaceCanvas {
     const bounds = this.track.getTrackBounds(this.width, this.height, activeLaneCount);
     const sortedTrack = trackRacers.sort((a, b) => a.state.lane - b.state.lane);
 
+    const entryX = this.track.getPitEntryX(bounds);
+
     for (let i = 0; i < sortedTrack.length; i++) {
       const racer = sortedTrack[i];
       const targetX = this.track.getPositionX(bounds, racer.state.contextUtilization);
       const targetY = this.track.getLaneY(bounds, i);
+
+      // Detect leaving pit → track transition
+      if (racer.inPit && racer.initialized) {
+        const trackBottom = bounds.y + bounds.height;
+        racer.startPitTransition([
+          { x: entryX, y: racer.displayY },  // drive left to entry column
+          { x: entryX, y: trackBottom },      // drive up through connecting lane
+          { x: targetX, y: targetY },         // drive right to track position
+        ]);
+      }
+
       racer.setTarget(targetX, targetY);
       racer.inPit = false;
       racer.pitDimTarget = 0;
@@ -219,6 +232,17 @@ export class RaceCanvas {
         const racer = sortedPit[i];
         const targetX = this.track.getPitPositionX(pitBounds, racer.state.contextUtilization);
         const targetY = this.track.getPitLaneY(pitBounds, i);
+
+        // Detect entering pit from track
+        if (!racer.inPit && racer.initialized) {
+          const trackBottom = bounds.y + bounds.height;
+          racer.startPitTransition([
+            { x: entryX, y: trackBottom },      // drive left to entry column at track edge
+            { x: entryX, y: pitBounds.y },       // drive down through connecting lane
+            { x: targetX, y: targetY },          // drive right to pit position
+          ]);
+        }
+
         racer.setTarget(targetX, targetY);
         racer.inPit = true;
         racer.pitDimTarget = 1;

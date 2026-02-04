@@ -130,6 +130,10 @@ export class Racer {
     this.inPit = false;
     this.pitDim = 0;       // current dimming (0=normal, 1=fully dimmed)
     this.pitDimTarget = 0;
+
+    // Pit transition waypoints
+    this.pitWaypoints = null;
+    this.waypointIndex = 0;
   }
 
   update(state) {
@@ -182,11 +186,33 @@ export class Racer {
     }
   }
 
+  startPitTransition(waypoints) {
+    this.pitWaypoints = waypoints;
+    this.waypointIndex = 0;
+  }
+
   animate(particles, dt) {
     const dtScale = dt ? dt / (1 / 60) : 1;
 
+    // Pit transition waypoint pathing
+    let lerpSpeed = 0.08;
+    if (this.pitWaypoints) {
+      const wp = this.pitWaypoints[this.waypointIndex];
+      this.targetX = wp.x;
+      this.targetY = wp.y;
+      lerpSpeed = 0.12;
+      const dx = this.displayX - wp.x;
+      const dy = this.displayY - wp.y;
+      if (Math.sqrt(dx * dx + dy * dy) < 10) {
+        this.waypointIndex++;
+        if (this.waypointIndex >= this.pitWaypoints.length) {
+          this.pitWaypoints = null;
+          this.waypointIndex = 0;
+        }
+      }
+    }
+
     // Smooth lerp toward target
-    const lerpSpeed = 0.08;
     const prevX = this.displayX;
     this.displayX += (this.targetX - this.displayX) * lerpSpeed * dtScale;
     this.displayY += (this.targetY - this.displayY) * lerpSpeed * dtScale;
