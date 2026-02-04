@@ -29,6 +29,7 @@ func trackingKey(source, sessionID string) string {
 
 type sessionEndMarker struct {
 	SessionID      string `json:"session_id"`
+	TranscriptID   string `json:"transcript_id"`
 	TranscriptPath string `json:"transcript_path"`
 	Cwd            string `json:"cwd"`
 	Reason         string `json:"reason"`
@@ -375,9 +376,23 @@ func (m *Monitor) consumeSessionEndMarkers(now time.Time) {
 
 func (m *Monitor) handleSessionEnd(marker sessionEndMarker, now time.Time) {
 	// Session end markers use the claude source prefix.
+	// Try the session_id first, then fall back to transcript_id (derived
+	// from the JSONL filename) since the monitor tracks sessions by
+	// filename-based IDs which may differ from the hook's session_id.
 	storeKey := trackingKey("claude", marker.SessionID)
-
 	state, ok := m.store.Get(storeKey)
+
+	// If not found by session_id, try transcript_id (JSONL filename).
+	if !ok && marker.TranscriptID != "" && marker.TranscriptID != marker.SessionID {
+		altKey := trackingKey("claude", marker.TranscriptID)
+		if altState, found := m.store.Get(altKey); found {
+			state = altState
+			storeKey = altKey
+			ok = true
+			log.Printf("Session end: matched by transcript_id %s (session_id %s not found)", marker.TranscriptID, marker.SessionID)
+		}
+	}
+
 	if !ok {
 		workingDir := marker.Cwd
 		if workingDir == "" && marker.TranscriptPath != "" {
@@ -404,9 +419,12 @@ func (m *Monitor) handleSessionEnd(marker sessionEndMarker, now time.Time) {
 	m.markTerminal(state, activity, completedAt)
 
 	// Clean up tracked session by matching on claude source.
+	// Check both session_id and transcript_id for cleanup.
 	for key := range m.tracked {
 		ts := m.tracked[key]
-		if ts.handle.Source == "claude" && ts.handle.SessionID == marker.SessionID {
+		if ts.handle.Source == "claude" &&
+			(ts.handle.SessionID == marker.SessionID ||
+				(marker.TranscriptID != "" && ts.handle.SessionID == marker.TranscriptID)) {
 			delete(m.tracked, key)
 			break
 		}
