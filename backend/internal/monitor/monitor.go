@@ -42,6 +42,7 @@ type Monitor struct {
 	sources          []Source
 	tracked          map[string]*trackedSession // keyed by source:sessionID
 	pendingRemoval   map[string]time.Time
+	removedKeys      map[string]bool // keys removed from store; prevents re-creation while file is still discovered
 	prevCPU          map[int]cpuSample
 	lastProcessPoll  time.Time
 }
@@ -54,6 +55,7 @@ func NewMonitor(cfg *config.Config, store *session.Store, broadcaster *ws.Broadc
 		sources:         sources,
 		tracked:         make(map[string]*trackedSession),
 		pendingRemoval:  make(map[string]time.Time),
+		removedKeys:     make(map[string]bool),
 		prevCPU:         make(map[int]cpuSample),
 		lastProcessPoll: time.Now(),
 	}
@@ -106,6 +108,13 @@ func (m *Monitor) poll() {
 
 		for _, h := range handles {
 			key := trackingKey(h.Source, h.SessionID)
+
+			// Skip sessions that were already terminal and removed from the
+			// store.  Without this check the file (still within the discover
+			// window) would be re-created as a zombie on the next poll.
+			if m.removedKeys[key] {
+				continue
+			}
 
 			ts, exists := m.tracked[key]
 			if !exists {
@@ -269,6 +278,15 @@ func (m *Monitor) poll() {
 		delete(m.tracked, key)
 	}
 
+	// Purge removedKeys entries for sessions whose files have fallen
+	// outside the discover window.  Once the file is no longer discovered
+	// there is no risk of zombie re-creation.
+	for key := range m.removedKeys {
+		if !activeKeys[key] {
+			delete(m.removedKeys, key)
+		}
+	}
+
 	if len(updates) > 0 {
 		m.broadcaster.QueueUpdate(updates)
 	}
@@ -318,6 +336,7 @@ func (m *Monitor) flushRemovals(now time.Time) {
 			removeIDs = append(removeIDs, id)
 			delete(m.pendingRemoval, id)
 			m.store.Remove(id)
+			m.removedKeys[id] = true
 		}
 	}
 	if len(removeIDs) > 0 {
@@ -375,9 +394,22 @@ func (m *Monitor) consumeSessionEndMarkers(now time.Time) {
 
 func (m *Monitor) handleSessionEnd(marker sessionEndMarker, now time.Time) {
 	// Session end markers use the claude source prefix.
+	// Try the marker's session_id first, then fall back to the filename-
+	// based ID derived from the transcript path.  The monitor tracks
+	// sessions by filename-based IDs so the two may differ.
 	storeKey := trackingKey("claude", marker.SessionID)
 
 	state, ok := m.store.Get(storeKey)
+	if !ok && marker.TranscriptPath != "" {
+		filenameID := SessionIDFromPath(marker.TranscriptPath)
+		altKey := trackingKey("claude", filenameID)
+		if altState, found := m.store.Get(altKey); found {
+			storeKey = altKey
+			state = altState
+			ok = true
+		}
+	}
+
 	if !ok {
 		workingDir := marker.Cwd
 		if workingDir == "" && marker.TranscriptPath != "" {
@@ -404,11 +436,18 @@ func (m *Monitor) handleSessionEnd(marker sessionEndMarker, now time.Time) {
 	m.markTerminal(state, activity, completedAt)
 
 	// Clean up tracked session by matching on claude source.
+	// Try both session ID and transcript path to handle ID mismatches.
 	for key := range m.tracked {
 		ts := m.tracked[key]
-		if ts.handle.Source == "claude" && ts.handle.SessionID == marker.SessionID {
-			delete(m.tracked, key)
-			break
+		if ts.handle.Source == "claude" {
+			if ts.handle.SessionID == marker.SessionID {
+				delete(m.tracked, key)
+				break
+			}
+			if marker.TranscriptPath != "" && ts.handle.LogPath == marker.TranscriptPath {
+				delete(m.tracked, key)
+				break
+			}
 		}
 	}
 }
