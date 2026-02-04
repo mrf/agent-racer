@@ -1,5 +1,6 @@
 # Build artifacts
 agent-racer
+backend/server
 dist/
 backend/internal/frontend/static/
 .playwright-mcp

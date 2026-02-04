@@ -2,22 +2,7 @@
 
 A real-time racing visualization of all active Claude Code sessions on your machine. Each session is a car on a racetrack, and its position is driven by context window utilization -- as a conversation consumes more tokens, the car advances toward the finish line.
 
-```
-  opus-refactor  [Opus]   142K/200K
-  =======>------------------------------ 71%  Thinking
-
-  sonnet-tests   [Sonnet] 89K/200K
-  ====>--------------------------------- 44%  Bash
-
-  opus-debug     [Opus]   64K/200K
-  ==>----------------------------------- 32%  Waiting (hazard lights)
-
-  sonnet-feature [Sonnet] ERRORED at 60%
-  =====X
-
-  opus-review    [Opus]   48K/200K
-  ==>----------------------------------- 24%  LSP
-```
+![Agent Racer dashboard showing multiple Claude sessions racing on a track](docs/screenshot.png)
 
 Sessions are discovered automatically via process scanning. State is read directly from Claude Code's JSONL session files. No configuration, wrappers, or hooks required -- just start Claude Code sessions anywhere on your machine and watch them race.
 
