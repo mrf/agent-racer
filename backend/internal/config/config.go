@@ -11,8 +11,15 @@ import (
 type Config struct {
 	Server  ServerConfig   `yaml:"server"`
 	Monitor MonitorConfig  `yaml:"monitor"`
+	Sources SourcesConfig  `yaml:"sources"`
 	Models  map[string]int `yaml:"models"`
 	Sound   SoundConfig    `yaml:"sound"`
+}
+
+type SourcesConfig struct {
+	Claude bool `yaml:"claude"`
+	Codex  bool `yaml:"codex"`
+	Gemini bool `yaml:"gemini"`
 }
 
 type ServerConfig struct {
@@ -84,6 +91,11 @@ func defaultConfig() *Config {
 			SessionEndDir:           filepath.Join(defaultStateDir(), "agent-racer", "session-end"),
 			ChurningCPUThreshold:    15.0,
 			ChurningRequiresNetwork: false,
+		},
+		Sources: SourcesConfig{
+			Claude: true,
+			Codex:  false,
+			Gemini: false,
 		},
 		Models: map[string]int{
 			"default": 200000,

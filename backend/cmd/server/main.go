@@ -81,10 +81,15 @@ func main() {
 		gen.Start(ctx)
 	} else {
 		log.Println("Starting in real mode (process monitoring)")
-		sources := []monitor.Source{
-			monitor.NewClaudeSource(10 * time.Minute),
-			monitor.NewCodexSource(10 * time.Minute),
-			monitor.NewGeminiSource(10 * time.Minute),
+		var sources []monitor.Source
+		if cfg.Sources.Claude {
+			sources = append(sources, monitor.NewClaudeSource(10*time.Minute))
+		}
+		if cfg.Sources.Codex {
+			sources = append(sources, monitor.NewCodexSource(10*time.Minute))
+		}
+		if cfg.Sources.Gemini {
+			sources = append(sources, monitor.NewGeminiSource(10*time.Minute))
 		}
 		mon := monitor.NewMonitor(cfg, store, broadcaster, sources)
 		go mon.Start(ctx)

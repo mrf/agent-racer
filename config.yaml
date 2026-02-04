@@ -8,6 +8,11 @@ server:
   # Optional: require an auth token for API/WS access
   # auth_token: ""
 
+sources:
+  claude: true
+  codex: false    # Set to true to enable Codex (OpenAI) session monitoring
+  gemini: false   # Set to true to enable Gemini CLI session monitoring
+
 monitor:
   poll_interval: 1s
   snapshot_interval: 5s
