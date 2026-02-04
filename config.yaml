@@ -22,7 +22,7 @@ monitor:
   # Optional override for Claude SessionEnd hook markers
   # session_end_dir: "/home/user/.local/state/agent-racer/session-end"
   # CPU threshold (%) for detecting active processing (churning state)
-  churning_cpu_threshold: 15.0
+  churning_cpu_threshold: 25.0
   # If true, only consider churning when both CPU and TCP connections are active
   churning_requires_network: false
 
