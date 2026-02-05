@@ -109,15 +109,13 @@ func (m *Monitor) poll() {
 		for _, h := range handles {
 			key := trackingKey(h.Source, h.SessionID)
 
-			// Skip sessions that were already terminal and removed from the
-			// store.  Without this check the file (still within the discover
-			// window) would be re-created as a zombie on the next poll.
-			if m.removedKeys[key] {
-				continue
-			}
-
 			ts, exists := m.tracked[key]
 			if !exists {
+				// Skip removed sessions when we have no prior offset to
+				// distinguish new data from old. Prevents zombie re-creation.
+				if m.removedKeys[key] {
+					continue
+				}
 				ts = &trackedSession{
 					handle: h,
 				}
@@ -132,7 +130,8 @@ func (m *Monitor) poll() {
 				continue
 			}
 			ts.fileOffset = newOffset
-			if newOffset > oldOffset || update.HasData() {
+			hasNewData := newOffset > oldOffset || update.HasData()
+			if hasNewData {
 				ts.lastDataTime = now
 			}
 
@@ -140,10 +139,25 @@ func (m *Monitor) poll() {
 			// remains stable across model switches and JSONL sessionId changes
 			sessionID := h.SessionID
 			storeKey := trackingKey(h.Source, sessionID)
+
+			// Check for resumed sessions that were already removed from store.
+			if m.removedKeys[key] {
+				if !hasNewData {
+					continue
+				}
+				delete(m.removedKeys, key)
+				log.Printf("[%s] Session resumed after removal: %s", src.Name(), h.SessionID)
+			}
+
 			state, existed := m.store.Get(storeKey)
 			if existed && state.IsTerminal() {
-				delete(m.tracked, key)
-				continue
+				if !hasNewData {
+					continue
+				}
+				// New JSONL data on a terminal session — it's being resumed.
+				state.CompletedAt = nil
+				delete(m.pendingRemoval, storeKey)
+				log.Printf("[%s] Session resumed from %s: %s", src.Name(), state.Activity, h.SessionID)
 			}
 
 			if !existed {
@@ -268,15 +282,24 @@ func (m *Monitor) poll() {
 	var toRemove []string
 	for key, ts := range m.tracked {
 		if activeKeys[key] {
-			// Still discovered, check time-based staleness.
-			if m.cfg.Monitor.SessionStaleAfter > 0 && now.Sub(ts.lastDataTime) > m.cfg.Monitor.SessionStaleAfter {
-				// Stale by time.
-			} else {
+			// Terminal sessions stay tracked for resume detection;
+			// skip stale marking for them.
+			if state, ok := m.store.Get(key); ok && state.IsTerminal() {
+				continue
+			}
+			// Still discovered and not stale by time — skip.
+			isStale := m.cfg.Monitor.SessionStaleAfter > 0 && now.Sub(ts.lastDataTime) > m.cfg.Monitor.SessionStaleAfter
+			if !isStale {
 				continue
 			}
 		}
 
 		if state, ok := m.store.Get(key); ok {
+			if state.IsTerminal() {
+				// Already terminal and file disappeared — just clean up tracking.
+				toRemove = append(toRemove, key)
+				continue
+			}
 			completedAt := now
 			if state.CompletedAt != nil {
 				completedAt = *state.CompletedAt
@@ -446,21 +469,9 @@ func (m *Monitor) handleSessionEnd(marker sessionEndMarker, now time.Time) {
 	activity := determineActivityFromReason(marker.Reason)
 	m.markTerminal(state, activity, completedAt)
 
-	// Clean up tracked session by matching on claude source.
-	// Try both session ID and transcript path to handle ID mismatches.
-	for key := range m.tracked {
-		ts := m.tracked[key]
-		if ts.handle.Source == "claude" {
-			if ts.handle.SessionID == marker.SessionID {
-				delete(m.tracked, key)
-				break
-			}
-			if marker.TranscriptPath != "" && ts.handle.LogPath == marker.TranscriptPath {
-				delete(m.tracked, key)
-				break
-			}
-		}
-	}
+	// Note: tracked sessions are intentionally kept after session end to
+	// maintain file offset for resume detection. They are cleaned up when
+	// the file falls outside the discover window (stale detection).
 }
 
 // determineActivityFromReason inspects the reason field from a session end marker

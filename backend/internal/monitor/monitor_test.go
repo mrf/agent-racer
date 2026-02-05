@@ -275,9 +275,11 @@ func TestHandleSessionEndFallsBackToTranscriptPath(t *testing.T) {
 		t.Errorf("session should be terminal, got activity=%s", state.Activity)
 	}
 
-	// The tracked entry should have been cleaned up.
-	if _, exists := m.tracked[filenameKey]; exists {
-		t.Error("tracked session should have been deleted")
+	// The tracked entry is intentionally kept to maintain file offset
+	// for resume detection. It is cleaned up when the file disappears
+	// from the discover window.
+	if _, exists := m.tracked[filenameKey]; !exists {
+		t.Error("tracked session should be kept for resume detection")
 	}
 }
 

@@ -2,24 +2,21 @@ import { ParticleSystem } from './Particles.js';
 import { Track } from './Track.js';
 import { Racer } from '../entities/Racer.js';
 
+const TERMINAL_ACTIVITIES = new Set(['complete', 'errored', 'lost']);
+const HIT_RADIUS = 45;
+
 function isParkingLotRacer(state) {
-  return state.activity === 'complete' ||
-         state.activity === 'errored' ||
-         state.activity === 'lost';
+  return TERMINAL_ACTIVITIES.has(state.activity);
 }
 
 function isPitRacer(state) {
   const { activity, isChurning } = state;
-  // Terminal sessions go to parking lot, not pit
   if (isParkingLotRacer(state)) return false;
   if (activity === 'idle' || activity === 'waiting' || activity === 'starting') {
     return !isChurning;
   }
   return false;
 }
-
-const TERMINAL_ACTIVITIES = new Set(['complete', 'errored', 'lost']);
-const HIT_RADIUS = 45;
 
 export class RaceCanvas {
   constructor(canvas, engine = null) {
@@ -209,8 +206,8 @@ export class RaceCanvas {
       const targetX = this.track.getPositionX(bounds, racer.state.contextUtilization);
       const targetY = this.track.getLaneY(bounds, i);
 
-      // Detect leaving pit → track transition
-      if (racer.inPit && racer.initialized) {
+      // Detect leaving pit or parking lot -> track transition
+      if ((racer.inPit || racer.inParkingLot) && racer.initialized) {
         const trackBottom = bounds.y + bounds.height;
         racer.startZoneTransition([
           { x: entryX, y: racer.displayY },  // drive left to entry column
@@ -249,14 +246,24 @@ export class RaceCanvas {
         const targetX = this.track.getPositionX(pitBounds, racer.state.contextUtilization);
         const targetY = this.track.getLaneY(pitBounds, i);
 
-        // Detect entering pit from track
+        // Detect entering pit from track or parking lot
         if (!racer.inPit && racer.initialized) {
-          const trackBottom = bounds.y + bounds.height;
-          racer.startZoneTransition([
-            { x: entryX, y: trackBottom },      // drive left to entry column at track edge
-            { x: entryX, y: pitBounds.y },       // drive down through connecting lane
-            { x: targetX, y: targetY },          // drive right to pit position
-          ]);
+          if (racer.inParkingLot) {
+            // Coming from parking lot (session resumed to idle/waiting)
+            racer.startZoneTransition([
+              { x: entryX, y: racer.displayY },  // drive left to entry column in parking lot
+              { x: entryX, y: targetY },          // drive up to pit lane
+              { x: targetX, y: targetY },         // drive right to pit position
+            ]);
+          } else {
+            // Coming from track
+            const trackBottom = bounds.y + bounds.height;
+            racer.startZoneTransition([
+              { x: entryX, y: trackBottom },      // drive left to entry column at track edge
+              { x: entryX, y: pitBounds.y },       // drive down through connecting lane
+              { x: targetX, y: targetY },          // drive right to pit position
+            ]);
+          }
         }
 
         racer.setTarget(targetX, targetY);
