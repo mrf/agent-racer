@@ -140,6 +140,9 @@ export class Racer {
     // Pit transition waypoints
     this.pitWaypoints = null;
     this.waypointIndex = 0;
+
+    // Flag flutter animation
+    this.flagPhase = Math.random() * Math.PI * 2;
   }
 
   update(state) {
@@ -248,6 +251,7 @@ export class Racer {
 
     this.thoughtBubblePhase += 0.06 * dtScale;
     this.dotPhase += 0.04 * dtScale;
+    this.flagPhase += 0.05 * dtScale;
 
     // Store position history for ghost trail
     this.posHistory.push({ x: this.displayX, y: this.displayY });
@@ -886,7 +890,7 @@ export class Racer {
     const S = CAR_SCALE;
     const carY = y + this.springY;
 
-    // --- Directory pennant: banner on a pole from the rear spoiler ---
+    // --- Directory flag: pennant on a pole from the rear spoiler ---
     const dirName = this.state.workingDir
       ? (this.state.workingDir.split('/').filter(Boolean).pop() || this.state.name || '')
       : (this.state.name || '');
@@ -894,50 +898,66 @@ export class Racer {
     if (dirName) {
       ctx.font = 'bold 9px Courier New';
       const textW = ctx.measureText(dirName).width;
-      const bannerH = 14;
-      const bannerW = textW + 12;
-      const bannerR = 3; // corner radius
+      const flagH = 13;
+      const flagW = textW + 16;
+      const notchDepth = 5;
 
-      // Pole anchors at rear spoiler top: original spoiler at ~(x-15, y-12), scaled
+      // Pole anchors at rear spoiler
       const poleBaseX = x - 15 * S;
       const poleBaseY = carY - 12 * S;
-      const poleTopY = poleBaseY - 10;
-      const bannerY = poleTopY - bannerH / 2;
-      const bannerX = poleBaseX - bannerW + 2; // extends left from pole
+      const poleTopY = poleBaseY - 20;
 
-      // Pole
-      ctx.strokeStyle = '#888';
+      // Flag streams left from pole top (trailing behind moving car)
+      const flagRight = poleBaseX;
+      const flagLeft = flagRight - flagW;
+      const flagTop = poleTopY;
+      const flagBottom = flagTop + flagH;
+
+      // Trailing-edge flutter: two phase-offset sine waves for natural motion
+      const waveAngle = this.flagPhase * 3;
+      const waveX = Math.sin(waveAngle) * 1.5;
+      const waveY = Math.sin(waveAngle + 1.2);
+
+      // Flagpole
+      ctx.strokeStyle = '#aaa';
       ctx.lineWidth = 1.5;
       ctx.beginPath();
       ctx.moveTo(poleBaseX, poleBaseY);
-      ctx.lineTo(poleBaseX, poleTopY);
+      ctx.lineTo(poleBaseX, poleTopY - 1);
       ctx.stroke();
 
-      // Banner background (rounded rect)
-      ctx.fillStyle = 'rgba(20, 20, 35, 0.85)';
+      // Pole cap
+      ctx.fillStyle = '#ccc';
       ctx.beginPath();
-      ctx.moveTo(bannerX + bannerR, bannerY);
-      ctx.lineTo(bannerX + bannerW - bannerR, bannerY);
-      ctx.quadraticCurveTo(bannerX + bannerW, bannerY, bannerX + bannerW, bannerY + bannerR);
-      ctx.lineTo(bannerX + bannerW, bannerY + bannerH - bannerR);
-      ctx.quadraticCurveTo(bannerX + bannerW, bannerY + bannerH, bannerX + bannerW - bannerR, bannerY + bannerH);
-      ctx.lineTo(bannerX + bannerR, bannerY + bannerH);
-      ctx.quadraticCurveTo(bannerX, bannerY + bannerH, bannerX, bannerY + bannerH - bannerR);
-      ctx.lineTo(bannerX, bannerY + bannerR);
-      ctx.quadraticCurveTo(bannerX, bannerY, bannerX + bannerR, bannerY);
+      ctx.arc(poleBaseX, poleTopY - 2, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Flag shape: swallowtail pennant
+      ctx.fillStyle = color.dark;
+      ctx.beginPath();
+      ctx.moveTo(flagRight, flagTop);
+      ctx.lineTo(flagLeft + waveX, flagTop + waveY);
+      ctx.lineTo(flagLeft + notchDepth + waveX * 0.6, flagTop + flagH / 2 + waveY * 0.5);
+      ctx.lineTo(flagLeft + waveX, flagBottom + waveY);
+      ctx.lineTo(flagRight, flagBottom);
       ctx.closePath();
       ctx.fill();
 
-      // Banner border accent
+      // Top edge accent stripe
       ctx.strokeStyle = color.main;
       ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(flagRight, flagTop);
+      ctx.lineTo(flagLeft + waveX, flagTop + waveY);
       ctx.stroke();
 
-      // Banner text
-      ctx.fillStyle = color.light;
+      // Flag text (offset right by half notch to center within swallowtail shape)
+      ctx.fillStyle = '#fff';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(dirName, bannerX + bannerW / 2, bannerY + bannerH / 2);
+      const textCenterX = flagRight - flagW / 2 + notchDepth / 2 + waveX * 0.3;
+      const textCenterY = flagTop + flagH / 2 + waveY * 0.3;
+      ctx.fillText(dirName, textCenterX, textCenterY);
     }
 
     // --- Model decal on car body (door panel area) ---
