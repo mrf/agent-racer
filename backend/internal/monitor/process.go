@@ -15,6 +15,7 @@ type ProcessInfo struct {
 	WorkingDir string
 	StartTime  time.Time
 	CmdLine    string
+	TmuxTarget string
 }
 
 func DiscoverSessions() ([]ProcessInfo, error) {

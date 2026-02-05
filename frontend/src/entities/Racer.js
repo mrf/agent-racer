@@ -134,12 +134,17 @@ export class Racer {
     // Pit transition waypoints
     this.pitWaypoints = null;
     this.waypointIndex = 0;
+
+    // Tmux focus state
+    this.hovered = false;
+    this.hasTmux = !!state.tmuxTarget;
   }
 
   update(state) {
     const oldActivity = this.state.activity;
     const wasChurning = this.state.isChurning;
     this.state = state;
+    this.hasTmux = !!state.tmuxTarget;
 
     // Detect churning transition: add a subtle bounce when churning starts
     if (state.isChurning && !wasChurning) {
@@ -431,6 +436,17 @@ export class Racer {
     }
 
     this.drawCar(ctx, x, y + yOff, color, activity);
+
+    // Hover highlight for tmux-focusable sessions
+    if (this.hovered && this.hasTmux) {
+      const rgb = hexToRgb(color.light);
+      ctx.strokeStyle = `rgba(${rgb.r},${rgb.g},${rgb.b},0.5)`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.roundRect(x - 18 * S, (y + yOff) - 10 * S, 40 * S, 18 * S, 4);
+      ctx.stroke();
+    }
+
     this.drawActivityEffects(ctx, x, y + yOff, color, activity);
     this.drawInfo(ctx, x, y, color, activity);
 

@@ -252,6 +252,20 @@ func (m *Monitor) poll() {
 		}
 	}
 
+	// Resolve tmux targets for tracked sessions (after PID population).
+	resolver := NewTmuxResolver() // nil if tmux unavailable
+	for _, state := range updates {
+		if state.PID == 0 {
+			continue
+		}
+		target, ok := resolver.Resolve(state.PID)
+		if !ok || state.TmuxTarget == target {
+			continue
+		}
+		state.TmuxTarget = target
+		m.store.Update(state)
+	}
+
 	// Mark stale sessions as lost (disappeared without session end marker).
 	var toRemove []string
 	for key, ts := range m.tracked {
