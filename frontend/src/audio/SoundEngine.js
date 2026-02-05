@@ -1,3 +1,29 @@
+// Crowd noise tuning constants
+const CROWD_SMOOTHING = 0.15;
+const CROWD_VOLUME_MIN = 0.01;
+const CROWD_VOLUME_MAX = 0.2;
+const CROWD_LFO_MIN = 150;
+const CROWD_LFO_MAX = 600;
+
+// Excitement contribution thresholds: [count, contribution]
+// Each array is checked top-down; first match wins.
+const ACTIVE_SESSION_TIERS = [[4, 0.7], [3, 0.55], [2, 0.4], [1, 0.2]];
+const NEAR_FINISH_TIERS = [[3, 0.3], [2, 0.2], [1, 0.1]];
+const RECENT_EVENT_TIERS = [[3, 0.3], [2, 0.2], [1, 0.15]];
+
+const EVENT_WINDOW_MS = 10000;
+
+function lerp(min, max, t) {
+  return min + (max - min) * t;
+}
+
+function tieredScore(count, tiers) {
+  for (const [threshold, score] of tiers) {
+    if (count >= threshold) return score;
+  }
+  return 0;
+}
+
 export class SoundEngine {
   constructor() {
     this.ctx = null;
@@ -185,25 +211,16 @@ export class SoundEngine {
     this.excitementUpdateInterval = setInterval(() => {
       if (!this.ambientRunning || !this.ctx || !this.crowdGain) return;
 
-      // Smoothly interpolate current excitement toward target
-      const smoothing = 0.05; // Lower = smoother transitions
-      this.currentExcitement += (this.targetExcitement - this.currentExcitement) * smoothing;
+      this.currentExcitement += (this.targetExcitement - this.currentExcitement) * CROWD_SMOOTHING;
 
-      // Map excitement (0-1) to crowd volume (0.005 = low murmur, 0.08 = roaring)
-      const minVolume = 0.005;
-      const maxVolume = 0.08;
-      const targetVolume = minVolume + (maxVolume - minVolume) * this.currentExcitement;
-
-      // Update crowd gain smoothly
       const now = this.ctx.currentTime;
-      this.crowdGain.gain.linearRampToValueAtTime(targetVolume, now + 0.1);
+      const volume = lerp(CROWD_VOLUME_MIN, CROWD_VOLUME_MAX, this.currentExcitement);
+      this.crowdGain.gain.linearRampToValueAtTime(volume, now + 0.1);
 
-      // Also modulate LFO intensity based on excitement (more wobble when exciting)
+      // More LFO wobble at higher excitement
       if (this.crowdLfoGain) {
-        const minLfo = 200;
-        const maxLfo = 500;
-        const targetLfo = minLfo + (maxLfo - minLfo) * this.currentExcitement;
-        this.crowdLfoGain.gain.linearRampToValueAtTime(targetLfo, now + 0.1);
+        const lfo = lerp(CROWD_LFO_MIN, CROWD_LFO_MAX, this.currentExcitement);
+        this.crowdLfoGain.gain.linearRampToValueAtTime(lfo, now + 0.1);
       }
     }, 100);
   }
@@ -215,51 +232,25 @@ export class SoundEngine {
   updateExcitement(sessions) {
     if (!this.ambientRunning) return;
 
-    // Clean up old events (older than 10 seconds)
+    // Discard events older than the event window
     const now = Date.now();
-    this.recentEvents = this.recentEvents.filter(e => now - e.timestamp < 10000);
+    this.recentEvents = this.recentEvents.filter(e => now - e.timestamp < EVENT_WINDOW_MS);
 
-    // Count active sessions (thinking or tool_use)
-    const activeSessions = sessions.filter(s =>
+    const activeCount = sessions.filter(s =>
       s.activity === 'thinking' || s.activity === 'tool_use'
-    );
-    const activeCount = activeSessions.length;
+    ).length;
 
-    // Count sessions near finish line (>80% context)
-    const nearFinish = sessions.filter(s =>
+    const nearFinishCount = sessions.filter(s =>
       s.contextUtilization > 0.8 &&
       !['complete', 'errored', 'lost'].includes(s.activity)
     ).length;
 
-    // Count recent events (completions/crashes in last 10s)
-    const recentEventCount = this.recentEvents.length;
+    const excitement =
+      tieredScore(activeCount, ACTIVE_SESSION_TIERS) +
+      tieredScore(nearFinishCount, NEAR_FINISH_TIERS) +
+      tieredScore(this.recentEvents.length, RECENT_EVENT_TIERS);
 
-    // Calculate excitement score (0-1 range)
-    let excitement = 0;
-
-    // Base excitement from active sessions (0-0.4 range)
-    // 1 active = 0.1, 2+ active = 0.2, 3+ active = 0.3, 4+ active = 0.4
-    if (activeCount >= 4) excitement += 0.4;
-    else if (activeCount === 3) excitement += 0.3;
-    else if (activeCount >= 2) excitement += 0.2;
-    else if (activeCount === 1) excitement += 0.1;
-
-    // Boost for sessions near finish (0-0.3 range)
-    // Each session near finish adds excitement
-    if (nearFinish >= 3) excitement += 0.3;
-    else if (nearFinish === 2) excitement += 0.2;
-    else if (nearFinish === 1) excitement += 0.1;
-
-    // Boost for recent events (0-0.3 range)
-    // Recent completion/crash adds temporary excitement
-    if (recentEventCount >= 3) excitement += 0.3;
-    else if (recentEventCount === 2) excitement += 0.2;
-    else if (recentEventCount === 1) excitement += 0.15;
-
-    // Clamp to 0-1
-    excitement = Math.max(0, Math.min(1, excitement));
-
-    this.targetExcitement = excitement;
+    this.targetExcitement = Math.min(1, excitement);
   }
 
   /**
