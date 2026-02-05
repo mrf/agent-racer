@@ -17,6 +17,7 @@ const SOURCE_COLORS = {
 const DEFAULT_SOURCE = { bg: '#6b7280', label: '?' };
 
 const CAR_SCALE = 2.3;
+const FLAG_COLORS = { bg: '#ffffff', text: '#000', stripe: '#cccccc', pole: '#aaa', cap: '#ccc' };
 
 function shortModelName(model) {
   if (!model) return '?';
@@ -928,7 +929,7 @@ export class Racer {
 
       // Pole anchors at rear spoiler
       const poleBaseX = x - 15 * S;
-      const poleBaseY = carY - 12 * S;
+      const poleBaseY = carY - 5 * S;
       const poleTopY = poleBaseY - 20;
 
       // Flag streams left from pole top (trailing behind moving car)
@@ -943,7 +944,7 @@ export class Racer {
       const waveY = Math.sin(waveAngle + 1.2);
 
       // Flagpole
-      ctx.strokeStyle = '#aaa';
+      ctx.strokeStyle = FLAG_COLORS.pole;
       ctx.lineWidth = 1.5;
       ctx.beginPath();
       ctx.moveTo(poleBaseX, poleBaseY);
@@ -951,13 +952,13 @@ export class Racer {
       ctx.stroke();
 
       // Pole cap
-      ctx.fillStyle = '#ccc';
+      ctx.fillStyle = FLAG_COLORS.cap;
       ctx.beginPath();
       ctx.arc(poleBaseX, poleTopY - 2, 1.5, 0, Math.PI * 2);
       ctx.fill();
 
       // Flag shape: swallowtail pennant
-      ctx.fillStyle = color.dark;
+      ctx.fillStyle = FLAG_COLORS.bg;
       ctx.beginPath();
       ctx.moveTo(flagRight, flagTop);
       ctx.lineTo(flagLeft + waveX, flagTop + waveY);
@@ -968,7 +969,7 @@ export class Racer {
       ctx.fill();
 
       // Top edge accent stripe
-      ctx.strokeStyle = color.main;
+      ctx.strokeStyle = FLAG_COLORS.stripe;
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(flagRight, flagTop);
@@ -976,7 +977,7 @@ export class Racer {
       ctx.stroke();
 
       // Flag text (offset right by half notch to center within swallowtail shape)
-      ctx.fillStyle = '#fff';
+      ctx.fillStyle = FLAG_COLORS.text;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       const textCenterX = flagRight - flagW / 2 + notchDepth / 2 + waveX * 0.3;
