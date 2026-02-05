@@ -470,7 +470,7 @@ export class Track {
       if (marker.tokens >= maxTokens) continue;
       const markerX = this.getPositionX(bounds, marker.tokens / maxTokens);
 
-      // Dashed line
+      // Dashed line across track
       ctx.strokeStyle = '#444460';
       ctx.lineWidth = 1;
       ctx.setLineDash([4, 6]);
@@ -480,22 +480,11 @@ export class Track {
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // Mile-marker flag icon
-      ctx.fillStyle = '#555570';
-      ctx.fillRect(markerX - 1, bounds.y - 14, 2, 10); // pole
-      // Triangle flag
-      ctx.beginPath();
-      ctx.moveTo(markerX + 1, bounds.y - 14);
-      ctx.lineTo(markerX + 8, bounds.y - 11);
-      ctx.lineTo(markerX + 1, bounds.y - 8);
-      ctx.closePath();
-      ctx.fill();
-
-      // Label
-      ctx.fillStyle = '#aaa';
-      ctx.font = 'bold 11px Courier New';
+      // Label on track surface (top area)
+      ctx.fillStyle = '#888';
+      ctx.font = 'bold 12px Courier New';
       ctx.textAlign = 'center';
-      ctx.fillText(marker.label, markerX, bounds.y - 18);
+      ctx.fillText(marker.label, markerX, bounds.y + 16);
     }
   }
 
