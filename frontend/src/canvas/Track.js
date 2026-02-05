@@ -11,6 +11,7 @@ const PIT_GAP = 30;
 const PIT_PADDING_LEFT = 40;
 const PIT_BOTTOM_PADDING = 40;
 const PIT_ENTRY_OFFSET = 60;
+const PIT_ENTRY_WIDTH = 40;
 
 export class Track {
   constructor() {
@@ -32,8 +33,8 @@ export class Track {
   }
 
   getRequiredPitHeight(pitLaneCount) {
-    if (pitLaneCount <= 0) return 0;
-    return PIT_GAP + pitLaneCount * PIT_LANE_HEIGHT + PIT_BOTTOM_PADDING;
+    const lanes = Math.max(pitLaneCount, 1);
+    return PIT_GAP + lanes * PIT_LANE_HEIGHT + PIT_BOTTOM_PADDING;
   }
 
   getTrackBounds(canvasWidth, canvasHeight, laneCount) {
@@ -61,12 +62,12 @@ export class Track {
   }
 
   getPitBounds(canvasWidth, canvasHeight, activeLaneCount, pitLaneCount) {
-    if (pitLaneCount <= 0) return null;
+    const lanes = Math.max(pitLaneCount, 1);
     const trackBounds = this.getTrackBounds(canvasWidth, canvasHeight, activeLaneCount);
     const pitTop = trackBounds.y + trackBounds.height + PIT_GAP;
     const pitX = trackBounds.x + PIT_PADDING_LEFT;
     const pitWidth = trackBounds.width - PIT_PADDING_LEFT;
-    const pitHeight = pitLaneCount * PIT_LANE_HEIGHT;
+    const pitHeight = lanes * PIT_LANE_HEIGHT;
     return {
       x: pitX,
       y: pitTop,
@@ -232,21 +233,19 @@ export class Track {
   }
 
   drawPit(ctx, canvasWidth, canvasHeight, activeLaneCount, pitLaneCount) {
-    if (pitLaneCount <= 0) return null;
     const pitBounds = this.getPitBounds(canvasWidth, canvasHeight, activeLaneCount, pitLaneCount);
     const trackBounds = this.getTrackBounds(canvasWidth, canvasHeight, activeLaneCount);
 
     // Connecting lane between track and pit at the entry point
     const entryX = this.getPitEntryX(trackBounds);
-    const laneWidth = 40;
-    const laneLeft = entryX - laneWidth / 2;
+    const laneLeft = entryX - PIT_ENTRY_WIDTH / 2;
     const gapTop = trackBounds.y + trackBounds.height;
     const gapBottom = pitBounds.y;
     const gapHeight = gapBottom - gapTop;
 
     // Dark surface fill
     ctx.fillStyle = '#252535';
-    ctx.fillRect(laneLeft, gapTop, laneWidth, gapHeight);
+    ctx.fillRect(laneLeft, gapTop, PIT_ENTRY_WIDTH, gapHeight);
 
     // Dashed side borders
     ctx.strokeStyle = 'rgba(100,100,120,0.5)';
@@ -257,8 +256,8 @@ export class Track {
     ctx.lineTo(laneLeft, gapBottom);
     ctx.stroke();
     ctx.beginPath();
-    ctx.moveTo(laneLeft + laneWidth, gapTop);
-    ctx.lineTo(laneLeft + laneWidth, gapBottom);
+    ctx.moveTo(laneLeft + PIT_ENTRY_WIDTH, gapTop);
+    ctx.lineTo(laneLeft + PIT_ENTRY_WIDTH, gapBottom);
     ctx.stroke();
     ctx.setLineDash([]);
 

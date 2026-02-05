@@ -289,22 +289,17 @@ export class RaceCanvas {
     ctx.fillStyle = '#1a1a2e';
     ctx.fillRect(-10, -10, this.width + 20, this.height + 20);
 
-    const activeLaneCount = this._activeLaneCount || 1;
-    const pitLaneCount = this._pitLaneCount || 0;
+    const activeLaneCount = this._activeLaneCount;
+    const pitLaneCount = this._pitLaneCount;
 
-    // Compute crowd Y override when pit is present
-    let crowdYOverride = null;
-    if (pitLaneCount > 0) {
-      const pitBounds = this.track.getPitBounds(this.width, this.height, activeLaneCount, pitLaneCount);
-      crowdYOverride = pitBounds.y + pitBounds.height + 8;
-    }
+    // Compute crowd Y override (pit is always visible)
+    const pitBounds = this.track.getPitBounds(this.width, this.height, activeLaneCount, pitLaneCount);
+    const crowdYOverride = pitBounds.y + pitBounds.height + 8;
 
     this.track.draw(ctx, this.width, this.height, activeLaneCount, 200000, crowdYOverride);
 
-    // Draw pit area when there are pit racers
-    if (pitLaneCount > 0) {
-      this.track.drawPit(ctx, this.width, this.height, activeLaneCount, pitLaneCount);
-    }
+    // Draw pit area (always visible, even when empty)
+    this.track.drawPit(ctx, this.width, this.height, activeLaneCount, pitLaneCount);
 
     // Draw particles behind racers
     this.particles.drawBehind(ctx);
