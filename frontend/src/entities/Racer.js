@@ -233,8 +233,10 @@ export class Racer {
     // Speed for wheel rotation and effects
     const speed = Math.abs(this.displayX - prevX);
 
-    // Wheel rotation
-    this.wheelAngle += speed * 0.3 * dtScale;
+    // Wheel rotation (disabled for parked cars)
+    if (!this.inParkingLot) {
+      this.wheelAngle += speed * 0.3 * dtScale;
+    }
 
     // Spring-based suspension
     const springForce = -this.springStiffness * this.springY;
@@ -370,7 +372,8 @@ export class Racer {
 
     // Churning animation: subtle activity when process is working but no
     // JSONL output yet. Only applies when car would otherwise be idle/starting.
-    if (this.state.isChurning && activity !== 'thinking' && activity !== 'tool_use') {
+    // Disabled for parked cars (terminal states in the parking lot).
+    if (this.state.isChurning && !this.inParkingLot && activity !== 'thinking' && activity !== 'tool_use') {
       this.wheelAngle += 0.02 * dtScale;
       if (particles && Math.random() > 0.95) {
         const S = CAR_SCALE;
