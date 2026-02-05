@@ -6,12 +6,28 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os/exec"
 	"strings"
 
 	"github.com/agent-racer/backend/internal/config"
 	"github.com/agent-racer/backend/internal/session"
 	"github.com/gorilla/websocket"
 )
+
+// tmuxFocusSession switches to the tmux pane identified by target (e.g. "main:2.0").
+func tmuxFocusSession(target string) error {
+	tmuxPath, err := exec.LookPath("tmux")
+	if err != nil {
+		return fmt.Errorf("tmux not found: %w", err)
+	}
+	if err := exec.Command(tmuxPath, "select-window", "-t", target).Run(); err != nil {
+		return fmt.Errorf("select-window: %w", err)
+	}
+	if err := exec.Command(tmuxPath, "select-pane", "-t", target).Run(); err != nil {
+		return fmt.Errorf("select-pane: %w", err)
+	}
+	return nil
+}
 
 type Server struct {
 	config          *config.Config
@@ -55,6 +71,7 @@ func NewServer(cfg *config.Config, store *session.Store, broadcaster *Broadcaste
 func (s *Server) SetupRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/ws", s.handleWS)
 	mux.HandleFunc("/api/sessions", s.handleSessions)
+	mux.HandleFunc("/api/sessions/", s.handleSessionRoutes)
 	mux.HandleFunc("/api/config", s.handleConfig)
 
 	if s.dev {
@@ -118,6 +135,52 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s.config.Sound)
+}
+
+func (s *Server) handleSessionRoutes(w http.ResponseWriter, r *http.Request) {
+	if !s.authorize(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Parse: /api/sessions/{id}/focus
+	path := strings.TrimPrefix(r.URL.Path, "/api/sessions/")
+	parts := strings.SplitN(path, "/", 2)
+	if len(parts) != 2 || parts[1] != "focus" {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+
+	sessionID, err := url.PathUnescape(parts[0])
+	if err != nil {
+		http.Error(w, "invalid session id", http.StatusBadRequest)
+		return
+	}
+	s.handleFocus(w, r, sessionID)
+}
+
+func (s *Server) handleFocus(w http.ResponseWriter, r *http.Request, sessionID string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	state, ok := s.store.Get(sessionID)
+	if !ok {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+	if state.TmuxTarget == "" {
+		http.Error(w, "session has no tmux pane", http.StatusConflict)
+		return
+	}
+
+	if err := tmuxFocusSession(state.TmuxTarget); err != nil {
+		http.Error(w, fmt.Sprintf("tmux focus failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) authorize(r *http.Request) bool {

@@ -17,6 +17,9 @@ function isPitRacer(state) {
   return false;
 }
 
+const TERMINAL_ACTIVITIES = new Set(['complete', 'errored', 'lost']);
+const HIT_RADIUS = 45;
+
 export class RaceCanvas {
   constructor(canvas, engine = null) {
     this.canvas = canvas;
@@ -53,6 +56,7 @@ export class RaceCanvas {
     this._resizeHandler = () => this.resize();
     window.addEventListener('resize', this._resizeHandler);
     this.canvas.addEventListener('click', (e) => this.handleClick(e));
+    this.canvas.addEventListener('mousemove', (e) => this.handleMouseMove(e));
     this.startLoop();
   }
 
@@ -412,20 +416,59 @@ export class RaceCanvas {
   }
 
   handleClick(e) {
-    const rect = this.canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const racer = this._hitTest(e);
+    if (!racer) return;
 
-    // Find clicked racer (within 45px radius for larger cars)
+    if (this.onRacerClick) {
+      this.onRacerClick(racer.state);
+    }
+    // Focus tmux pane for non-terminal sessions with a tmux target
+    if (racer.hasTmux && !TERMINAL_ACTIVITIES.has(racer.state.activity)) {
+      this.focusSession(racer.state.id);
+    }
+  }
+
+  handleMouseMove(e) {
+    const rect = this.canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+
+    let hoveredAny = false;
     for (const racer of this.racers.values()) {
-      const dx = x - racer.displayX;
-      const dy = y - racer.displayY;
-      if (Math.sqrt(dx * dx + dy * dy) < 45) {
-        if (this.onRacerClick) {
-          this.onRacerClick(racer.state);
-        }
-        return;
+      const dx = mx - racer.displayX;
+      const dy = my - racer.displayY;
+      racer.hovered = Math.sqrt(dx * dx + dy * dy) < HIT_RADIUS;
+      if (racer.hovered && racer.hasTmux) hoveredAny = true;
+    }
+    this.canvas.style.cursor = hoveredAny ? 'pointer' : 'default';
+  }
+
+  _hitTest(e) {
+    const rect = this.canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+
+    for (const racer of this.racers.values()) {
+      const dx = mx - racer.displayX;
+      const dy = my - racer.displayY;
+      if (Math.sqrt(dx * dx + dy * dy) < HIT_RADIUS) {
+        return racer;
       }
+    }
+    return null;
+  }
+
+  async focusSession(sessionId) {
+    try {
+      const resp = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/focus`, {
+        method: 'POST',
+      });
+      if (!resp.ok) {
+        const text = await resp.text();
+        console.warn(`Focus failed: ${text}`);
+      }
+    } catch (err) {
+      console.warn('Focus request failed:', err);
     }
   }
 

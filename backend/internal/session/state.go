@@ -81,6 +81,7 @@ type SessionState struct {
 	ToolCallCount      int        `json:"toolCallCount"`
 	PID                int        `json:"pid,omitempty"`
 	IsChurning         bool       `json:"isChurning,omitempty"`
+	TmuxTarget         string     `json:"tmuxTarget,omitempty"`
 	Lane               int        `json:"lane"`
 }
 
