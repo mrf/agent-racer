@@ -73,6 +73,37 @@ func TestUpdateUtilization(t *testing.T) {
 	}
 }
 
+func TestTokenEstimatedJSON(t *testing.T) {
+	s := &SessionState{
+		ID:             "test:1",
+		TokensUsed:     10000,
+		TokenEstimated: true,
+	}
+
+	data, err := json.Marshal(s)
+	if err != nil {
+		t.Fatalf("Marshal error: %v", err)
+	}
+
+	var decoded SessionState
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal error: %v", err)
+	}
+
+	if !decoded.TokenEstimated {
+		t.Error("TokenEstimated should be true after round-trip")
+	}
+
+	// Verify the JSON field name is correct.
+	var raw map[string]interface{}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("Unmarshal to map error: %v", err)
+	}
+	if _, ok := raw["tokenEstimated"]; !ok {
+		t.Error("JSON should contain 'tokenEstimated' field")
+	}
+}
+
 func TestIsTerminal(t *testing.T) {
 	tests := []struct {
 		activity Activity

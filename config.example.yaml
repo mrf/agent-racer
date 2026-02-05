@@ -51,6 +51,26 @@ models:
   # Default fallback
   default: 200000
 
+# Token normalization strategy per agent source
+# Controls how context utilization is derived when a source may not
+# report real token counts. The "tokenEstimated" field on each session
+# tells frontends whether the value is actual or heuristic.
+token_normalization:
+  # Per-source strategy: "usage", "estimate", or "message_count"
+  #   usage         - use real token counts from the source (default for known agents)
+  #   estimate      - estimate tokens from message count * tokens_per_message
+  #   message_count - same as estimate (message-count heuristic)
+  # The "default" key applies to any source not listed explicitly.
+  strategies:
+    claude: usage
+    codex: usage
+    gemini: usage
+    default: estimate
+  # Estimated token cost per message (user or assistant). Used by the
+  # estimate/message_count strategies, and as a fallback for "usage"
+  # sources that have not yet reported token data.
+  tokens_per_message: 2000
+
 # Sound settings
 sound:
   # Master enable/disable for all sounds

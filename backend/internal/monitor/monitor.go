@@ -192,17 +192,15 @@ func (m *Monitor) poll() {
 				state.LastActivityAt = update.LastTime
 			}
 
-			if update.TokensIn > 0 && update.TokensIn > state.TokensUsed {
-				state.TokensUsed = update.TokensIn
-			}
-			state.MaxContextTokens = maxTokens
-			state.UpdateUtilization()
-
+			// Accumulate message/tool deltas before token resolution so
+			// that estimation strategies can use the updated counts.
 			state.MessageCount += update.MessageCount
 			state.ToolCallCount += update.ToolCalls
 			if update.LastTool != "" {
 				state.CurrentTool = update.LastTool
 			}
+
+			m.resolveTokens(state, update, maxTokens)
 
 			m.store.Update(state)
 			updates = append(updates, state)
@@ -494,6 +492,60 @@ func classifyActivityFromUpdate(update SourceUpdate) session.Activity {
 		}
 		return session.Idle
 	}
+}
+
+// resolveTokens applies the configured token normalization strategy for the
+// session's source. For "usage" it prefers real token data and falls back to
+// estimation when unavailable. For "estimate" and "message_count" it always
+// derives tokens from the accumulated message count.
+//
+// This method sets TokensUsed, TokenEstimated, MaxContextTokens, and
+// ContextUtilization on the session state.
+func (m *Monitor) resolveTokens(state *session.SessionState, update SourceUpdate, maxTokens int) {
+	strategy := m.cfg.TokenStrategy(state.Source)
+	tokensPerMsg := m.cfg.TokenNorm.TokensPerMessage
+	if tokensPerMsg <= 0 {
+		tokensPerMsg = 2000
+	}
+
+	switch strategy {
+	case "usage":
+		if update.TokensIn > 0 {
+			// Real token data always wins. When transitioning from
+			// estimated to actual, accept the real value even if lower.
+			if state.TokenEstimated || update.TokensIn > state.TokensUsed {
+				state.TokensUsed = update.TokensIn
+				state.TokenEstimated = false
+			}
+		} else if state.TokenEstimated || state.TokensUsed == 0 {
+			// No real data yet -- fall back to estimation.
+			if state.MessageCount > 0 {
+				estimated := state.MessageCount * tokensPerMsg
+				if estimated > state.TokensUsed {
+					state.TokensUsed = estimated
+					state.TokenEstimated = true
+				}
+			}
+		}
+
+	case "estimate", "message_count":
+		if state.MessageCount > 0 {
+			estimated := state.MessageCount * tokensPerMsg
+			if estimated > state.TokensUsed {
+				state.TokensUsed = estimated
+			}
+			state.TokenEstimated = true
+		}
+
+	default:
+		// Unknown strategy: use real data only, no estimation.
+		if update.TokensIn > 0 && update.TokensIn > state.TokensUsed {
+			state.TokensUsed = update.TokensIn
+		}
+	}
+
+	state.MaxContextTokens = maxTokens
+	state.UpdateUtilization()
 }
 
 func nameFromPath(path string) string {

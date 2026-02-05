@@ -9,11 +9,30 @@ import (
 )
 
 type Config struct {
-	Server  ServerConfig   `yaml:"server"`
-	Monitor MonitorConfig  `yaml:"monitor"`
-	Sources SourcesConfig  `yaml:"sources"`
-	Models  map[string]int `yaml:"models"`
-	Sound   SoundConfig    `yaml:"sound"`
+	Server    ServerConfig    `yaml:"server"`
+	Monitor   MonitorConfig   `yaml:"monitor"`
+	Sources   SourcesConfig   `yaml:"sources"`
+	Models    map[string]int  `yaml:"models"`
+	Sound     SoundConfig     `yaml:"sound"`
+	TokenNorm TokenNormConfig `yaml:"token_normalization"`
+}
+
+// TokenNormConfig controls how token counts are resolved for each agent
+// source. Sources that report real usage data can use "usage" (the default
+// for Claude, Codex, and Gemini). Sources without reliable token counts
+// use "estimate" or "message_count" to derive progress from message counts.
+type TokenNormConfig struct {
+	// Strategies maps source names to their token strategy:
+	//   "usage"         -- use real token counts from the source
+	//   "estimate"      -- estimate tokens from message count
+	//   "message_count" -- same as estimate (message-count heuristic)
+	// A "default" key provides the fallback for unlisted sources.
+	Strategies map[string]string `yaml:"strategies"`
+
+	// TokensPerMessage is the estimated token cost per message for the
+	// "estimate" and "message_count" strategies. Also used as a fallback
+	// when a "usage" source has not yet reported token data.
+	TokensPerMessage int `yaml:"tokens_per_message"`
 }
 
 type SourcesConfig struct {
@@ -108,6 +127,15 @@ func defaultConfig() *Config {
 			EnableAmbient: true,
 			EnableSfx:     true,
 		},
+		TokenNorm: TokenNormConfig{
+			Strategies: map[string]string{
+				"claude":  "usage",
+				"codex":   "usage",
+				"gemini":  "usage",
+				"default": "estimate",
+			},
+			TokensPerMessage: 2000,
+		},
 	}
 }
 
@@ -119,6 +147,19 @@ func (c *Config) MaxContextTokens(model string) int {
 		return n
 	}
 	return 200000
+}
+
+// TokenStrategy returns the configured token normalization strategy for the
+// given source name. It checks the per-source strategies map first, then
+// the "default" key, and falls back to "estimate" if neither is configured.
+func (c *Config) TokenStrategy(source string) string {
+	if s, ok := c.TokenNorm.Strategies[source]; ok {
+		return s
+	}
+	if s, ok := c.TokenNorm.Strategies["default"]; ok {
+		return s
+	}
+	return "estimate"
 }
 
 func defaultStateDir() string {
