@@ -35,7 +35,7 @@ Currently these terminal sessions stay on track briefly (8s) then get removed. W
 - Add parking lot constants: `PARKING_LOT_LANE_HEIGHT`, `PARKING_LOT_GAP`, etc.
 - Add `getRequiredParkingLotHeight(parkingLotLaneCount)`
 - Add `getParkingLotBounds(canvasWidth, canvasHeight, activeLaneCount, pitLaneCount, parkingLotLaneCount)`
-- Add `getParkingLotLaneY()`, `getParkingLotPositionX()`
+- Reuse existing `getLaneY()`, `getPositionX()` (bounds carry `laneHeight`)
 - Add `drawParkingLot()` method with distinct visual style
 
 **`frontend/src/entities/Racer.js`**
@@ -101,7 +101,7 @@ const PARKING_LOT_BOTTOM_PADDING = 40;
 New methods:
 - `getRequiredParkingLotHeight(count)`
 - `getParkingLotBounds(...)` - positioned below pit
-- `getParkingLotLaneY()`, `getParkingLotPositionX()`
+- Reuses `getLaneY()`, `getPositionX()` (generic, bounds-driven)
 - `drawParkingLot()` - darker background, "PARKED" label, no chevrons
 
 Visual style:

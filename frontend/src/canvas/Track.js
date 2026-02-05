@@ -12,6 +12,11 @@ const PIT_PADDING_LEFT = 40;
 const PIT_BOTTOM_PADDING = 40;
 const PIT_ENTRY_OFFSET = 60;
 
+const PARKING_LOT_LANE_HEIGHT = 45;
+const PARKING_LOT_GAP = 20;
+const PARKING_LOT_PADDING_LEFT = 40;
+const PARKING_LOT_BOTTOM_PADDING = 40;
+
 export class Track {
   constructor() {
     this.trackPadding = { left: 200, right: 60, top: 60, bottom: 40 };
@@ -25,10 +30,10 @@ export class Track {
     this._lastLaneCount = 0;
   }
 
-  getRequiredHeight(laneCount, pitLaneCount = 0) {
+  getRequiredHeight(laneCount, pitLaneCount = 0, parkingLotLaneCount = 0) {
     const maxLanes = Math.max(laneCount, 1);
     const trackHeight = maxLanes * this.laneHeight + this.trackPadding.top + this.trackPadding.bottom;
-    return trackHeight + this.getRequiredPitHeight(pitLaneCount);
+    return trackHeight + this.getRequiredPitHeight(pitLaneCount) + this.getRequiredParkingLotHeight(parkingLotLaneCount);
   }
 
   getRequiredPitHeight(pitLaneCount) {
@@ -76,16 +81,30 @@ export class Track {
     };
   }
 
-  getPitLaneY(pitBounds, index) {
-    return pitBounds.y + index * pitBounds.laneHeight + pitBounds.laneHeight / 2;
-  }
-
-  getPitPositionX(pitBounds, utilization) {
-    return pitBounds.x + utilization * pitBounds.width;
-  }
-
   getPitEntryX(trackBounds) {
     return trackBounds.x + PIT_ENTRY_OFFSET;
+  }
+
+  getRequiredParkingLotHeight(parkingLotLaneCount) {
+    if (parkingLotLaneCount <= 0) return 0;
+    return PARKING_LOT_GAP + parkingLotLaneCount * PARKING_LOT_LANE_HEIGHT + PARKING_LOT_BOTTOM_PADDING;
+  }
+
+  getParkingLotBounds(canvasWidth, canvasHeight, activeLaneCount, pitLaneCount, parkingLotLaneCount) {
+    if (parkingLotLaneCount <= 0) return null;
+    const trackBounds = this.getTrackBounds(canvasWidth, canvasHeight, activeLaneCount);
+    const pitHeight = this.getRequiredPitHeight(pitLaneCount);
+    const lotTop = trackBounds.y + trackBounds.height + pitHeight + PARKING_LOT_GAP;
+    const lotX = trackBounds.x + PARKING_LOT_PADDING_LEFT;
+    const lotWidth = trackBounds.width - PARKING_LOT_PADDING_LEFT;
+    const lotHeight = parkingLotLaneCount * PARKING_LOT_LANE_HEIGHT;
+    return {
+      x: lotX,
+      y: lotTop,
+      width: lotWidth,
+      height: lotHeight,
+      laneHeight: PARKING_LOT_LANE_HEIGHT,
+    };
   }
 
   _needsPrerender(canvasWidth, canvasHeight, laneCount) {
@@ -275,48 +294,81 @@ export class Track {
       ctx.stroke();
     }
 
-    // Darker pit surface background
-    ctx.fillStyle = '#1e1e2e';
-    ctx.fillRect(pitBounds.x - 5, pitBounds.y - 5, pitBounds.width + 10, pitBounds.height + 10);
+    this._drawAreaSurface(ctx, pitBounds, pitLaneCount, {
+      bg: '#1e1e2e',
+      gradientEdge: '#282838',
+      gradientMid: '#222232',
+      border: '#555',
+      borderDash: [8, 6],
+      label: 'PIT',
+      labelColor: '#555',
+      divider: '#333350',
+    });
 
-    // Pit surface gradient
-    const pitGrad = ctx.createLinearGradient(pitBounds.x, pitBounds.y, pitBounds.x, pitBounds.y + pitBounds.height);
-    pitGrad.addColorStop(0, '#282838');
-    pitGrad.addColorStop(0.5, '#222232');
-    pitGrad.addColorStop(1, '#282838');
-    ctx.fillStyle = pitGrad;
-    ctx.fillRect(pitBounds.x, pitBounds.y, pitBounds.width, pitBounds.height);
+    return pitBounds;
+  }
+
+  drawParkingLot(ctx, canvasWidth, canvasHeight, activeLaneCount, pitLaneCount, parkingLotLaneCount) {
+    if (parkingLotLaneCount <= 0) return null;
+    const lotBounds = this.getParkingLotBounds(canvasWidth, canvasHeight, activeLaneCount, pitLaneCount, parkingLotLaneCount);
+
+    this._drawAreaSurface(ctx, lotBounds, parkingLotLaneCount, {
+      bg: '#161624',
+      gradientEdge: '#1e1e2c',
+      gradientMid: '#1a1a28',
+      border: '#444',
+      borderDash: [6, 8],
+      label: 'PARKED',
+      labelColor: '#444',
+      divider: '#282840',
+    });
+
+    return lotBounds;
+  }
+
+  _drawAreaSurface(ctx, bounds, laneCount, style) {
+    // Surface background
+    ctx.fillStyle = style.bg;
+    ctx.fillRect(bounds.x - 5, bounds.y - 5, bounds.width + 10, bounds.height + 10);
+
+    // Surface gradient
+    const grad = ctx.createLinearGradient(bounds.x, bounds.y, bounds.x, bounds.y + bounds.height);
+    grad.addColorStop(0, style.gradientEdge);
+    grad.addColorStop(0.5, style.gradientMid);
+    grad.addColorStop(1, style.gradientEdge);
+    ctx.fillStyle = grad;
+    ctx.fillRect(bounds.x, bounds.y, bounds.width, bounds.height);
 
     // Dashed border
-    ctx.strokeStyle = '#555';
+    ctx.strokeStyle = style.border;
     ctx.lineWidth = 1;
-    ctx.setLineDash([8, 6]);
-    ctx.strokeRect(pitBounds.x, pitBounds.y, pitBounds.width, pitBounds.height);
+    ctx.setLineDash(style.borderDash);
+    ctx.strokeRect(bounds.x, bounds.y, bounds.width, bounds.height);
     ctx.setLineDash([]);
 
-    // "PIT" label
-    ctx.fillStyle = '#555';
+    // Label
+    ctx.fillStyle = style.labelColor;
     ctx.font = 'bold 14px Courier New';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
-    ctx.fillText('PIT', pitBounds.x - 10, pitBounds.y + pitBounds.height / 2);
+    ctx.fillText(style.label, bounds.x - 10, bounds.y + bounds.height / 2);
     ctx.textBaseline = 'alphabetic';
     ctx.textAlign = 'center';
 
-    // Subtle lane dividers
-    ctx.strokeStyle = '#333350';
-    ctx.lineWidth = 0.5;
-    ctx.setLineDash([6, 8]);
-    for (let i = 1; i < pitLaneCount; i++) {
-      const y = pitBounds.y + i * PIT_LANE_HEIGHT;
-      ctx.beginPath();
-      ctx.moveTo(pitBounds.x, y);
-      ctx.lineTo(pitBounds.x + pitBounds.width, y);
-      ctx.stroke();
+    // Lane dividers
+    if (laneCount > 1) {
+      ctx.strokeStyle = style.divider;
+      ctx.lineWidth = 0.5;
+      ctx.setLineDash([6, 8]);
+      for (let i = 1; i < laneCount; i++) {
+        const y = bounds.y + i * bounds.laneHeight;
+        ctx.beginPath();
+        ctx.moveTo(bounds.x, y);
+        ctx.lineTo(bounds.x + bounds.width, y);
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
     }
-    ctx.setLineDash([]);
-
-    return pitBounds;
   }
 
   _drawStartLine(ctx, bounds) {
