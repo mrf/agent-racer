@@ -8,6 +8,14 @@ const MODEL_COLORS = {
 
 const DEFAULT_COLOR = { main: '#6b7280', dark: '#4b5563', light: '#9ca3af', name: '?' };
 
+const SOURCE_COLORS = {
+  claude: { bg: '#a855f7', label: 'C' },
+  codex: { bg: '#10b981', label: 'X' },
+  gemini: { bg: '#4285f4', label: 'G' },
+};
+
+const DEFAULT_SOURCE = { bg: '#6b7280', label: '?' };
+
 const CAR_SCALE = 2.3;
 
 function shortModelName(model) {
@@ -29,21 +37,19 @@ function shortModelName(model) {
 }
 
 function getModelColor(model, source) {
-  // Check exact model match first
   if (MODEL_COLORS[model]) {
     return MODEL_COLORS[model];
   }
 
-  // Fallback: check if model contains known tier names (opus, sonnet, haiku)
   if (model) {
-    const lowerModel = model.toLowerCase();
-    if (lowerModel.includes('opus')) {
+    const lower = model.toLowerCase();
+    if (lower.includes('opus')) {
       return { ...MODEL_COLORS['claude-opus-4-5-20251101'], name: 'Opus' };
     }
-    if (lowerModel.includes('sonnet')) {
+    if (lower.includes('sonnet')) {
       return { ...MODEL_COLORS['claude-sonnet-4-5-20250929'], name: 'Sonnet' };
     }
-    if (lowerModel.includes('haiku')) {
+    if (lower.includes('haiku')) {
       return { ...MODEL_COLORS['claude-haiku-4-5-20251001'], name: 'Haiku' };
     }
     return { ...DEFAULT_COLOR, name: shortModelName(model) };
@@ -943,7 +949,37 @@ export class Racer {
     ctx.textBaseline = 'middle';
     ctx.fillText(color.name.toUpperCase(), panelX, panelY);
 
+    // --- Source badge on hood ---
+    this._drawSourceBadge(ctx, x, carY);
+
     ctx.textBaseline = 'alphabetic';
     ctx.textAlign = 'center';
+  }
+
+  _drawSourceBadge(ctx, x, y) {
+    const source = this.state.source;
+    if (!source) return;
+
+    const sc = SOURCE_COLORS[source] || DEFAULT_SOURCE;
+    const S = CAR_SCALE;
+
+    const cx = x + 14 * S;
+    const cy = y - 4 * S;
+    const r = 6;
+
+    ctx.fillStyle = sc.bg;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 8px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(sc.label, cx, cy);
   }
 }

@@ -194,7 +194,7 @@ function renderDetailFlyout(state) {
     </div>
     <div class="detail-row">
       <span class="label">Source</span>
-      <span class="value">${esc(state.source) || 'unknown'}</span>
+      <span class="value"><span class="source-badge${state.source ? ` source-${esc(state.source)}` : ''}">${esc(state.source) || 'unknown'}</span></span>
     </div>
     <div class="detail-row">
       <span class="label">Working Dir</span>
