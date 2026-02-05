@@ -44,7 +44,7 @@ func (g *MockGenerator) Start(ctx context.Context) {
 		{
 			state: &session.SessionState{
 				ID: "mock-opus-refactor", Name: "opus-refactor",
-				Model: "claude-opus-4-5-20251101", WorkingDir: "/home/user/myproject",
+				Source: "claude", Model: "claude-opus-4-5-20251101", WorkingDir: "/home/user/myproject",
 				MaxContextTokens: 200000, StartedAt: now, LastActivityAt: now,
 				Activity: session.Starting,
 			},
@@ -54,7 +54,7 @@ func (g *MockGenerator) Start(ctx context.Context) {
 		{
 			state: &session.SessionState{
 				ID: "mock-sonnet-tests", Name: "sonnet-tests",
-				Model: "claude-sonnet-4-20250514", WorkingDir: "/home/user/webapp",
+				Source: "claude", Model: "claude-sonnet-4-20250514", WorkingDir: "/home/user/webapp",
 				MaxContextTokens: 200000, StartedAt: now, LastActivityAt: now,
 				Activity: session.Starting,
 			},
@@ -64,7 +64,7 @@ func (g *MockGenerator) Start(ctx context.Context) {
 		{
 			state: &session.SessionState{
 				ID: "mock-opus-debug", Name: "opus-debug",
-				Model: "claude-opus-4-5-20251101", WorkingDir: "/home/user/api-server",
+				Source: "claude", Model: "claude-opus-4-5-20251101", WorkingDir: "/home/user/api-server",
 				MaxContextTokens: 200000, StartedAt: now, LastActivityAt: now,
 				Activity: session.Starting,
 			},
@@ -74,7 +74,7 @@ func (g *MockGenerator) Start(ctx context.Context) {
 		{
 			state: &session.SessionState{
 				ID: "mock-sonnet-feature", Name: "sonnet-feature",
-				Model: "claude-sonnet-4-5-20250929", WorkingDir: "/home/user/frontend",
+				Source: "claude", Model: "claude-sonnet-4-5-20250929", WorkingDir: "/home/user/frontend",
 				MaxContextTokens: 200000, StartedAt: now, LastActivityAt: now,
 				Activity: session.Starting,
 			},
@@ -84,12 +84,32 @@ func (g *MockGenerator) Start(ctx context.Context) {
 		{
 			state: &session.SessionState{
 				ID: "mock-opus-review", Name: "opus-review",
-				Model: "claude-opus-4-5-20251101", WorkingDir: "/home/user/library",
+				Source: "claude", Model: "claude-opus-4-5-20251101", WorkingDir: "/home/user/library",
 				MaxContextTokens: 200000, StartedAt: now, LastActivityAt: now,
 				Activity: session.Starting,
 			},
 			tokensPerTick: 600, pattern: "methodical", maxTokens: 160000,
 			tools: []string{"Read", "LSP", "Read", "Grep", "Read", "LSP", "Read", "Task"},
+		},
+		{
+			state: &session.SessionState{
+				ID: "mock-codex-migrate", Name: "codex-migrate",
+				Source: "codex", Model: "o3", WorkingDir: "/home/user/database",
+				MaxContextTokens: 200000, StartedAt: now, LastActivityAt: now,
+				Activity: session.Starting,
+			},
+			tokensPerTick: 2000, pattern: "burst", maxTokens: 150000,
+			tools: []string{"Read", "Write", "Bash", "Read", "Write", "Bash"},
+		},
+		{
+			state: &session.SessionState{
+				ID: "mock-gemini-analyze", Name: "gemini-analyze",
+				Source: "gemini", Model: "gemini-2.5-pro", WorkingDir: "/home/user/analytics",
+				MaxContextTokens: 1048576, StartedAt: now, LastActivityAt: now,
+				Activity: session.Starting,
+			},
+			tokensPerTick: 1500, pattern: "methodical", maxTokens: 800000,
+			tools: []string{"Read", "Read", "Bash", "Read", "Read", "Bash", "Read", "Read"},
 		},
 	}
 
