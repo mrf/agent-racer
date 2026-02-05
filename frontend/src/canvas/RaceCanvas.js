@@ -292,14 +292,8 @@ export class RaceCanvas {
     const activeLaneCount = this._activeLaneCount || 1;
     const pitLaneCount = this._pitLaneCount || 0;
 
-    // Compute crowd Y override when pit is present
-    let crowdYOverride = null;
-    if (pitLaneCount > 0) {
-      const pitBounds = this.track.getPitBounds(this.width, this.height, activeLaneCount, pitLaneCount);
-      crowdYOverride = pitBounds.y + pitBounds.height + 8;
-    }
-
-    this.track.draw(ctx, this.width, this.height, activeLaneCount, 200000, crowdYOverride);
+    const excitement = this.engine ? this.engine.currentExcitement : 0;
+    this.track.draw(ctx, this.width, this.height, activeLaneCount, 200000, excitement);
 
     // Draw pit area when there are pit racers
     if (pitLaneCount > 0) {

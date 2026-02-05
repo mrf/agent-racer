@@ -6,6 +6,16 @@ const TOKEN_MARKERS = [
 
 const PENNANT_COLORS = ['#a855f7', '#3b82f6', '#22c55e'];
 
+const SKIN_TONES = ['#f5d0a9', '#d4a574', '#c68642', '#8d5524', '#e0ac69', '#f1c27d'];
+const SHIRT_COLORS = [
+  '#e94560', '#3b82f6', '#22c55e', '#a855f7', '#f59e0b',
+  '#06b6d4', '#ec4899', '#f97316', '#84cc16', '#eee',
+];
+const CROWD_ROWS = [
+  { spacing: 13, offsetY: 14, scale: 0.65, xShift: 0 },
+  { spacing: 13, offsetY: 0, scale: 0.85, xShift: 6.5 },
+];
+
 const PIT_LANE_HEIGHT = 50;
 const PIT_GAP = 30;
 const PIT_PADDING_LEFT = 40;
@@ -19,7 +29,7 @@ export class Track {
     this.time = 0;
     // Pre-rendered offscreen canvases
     this._textureCanvas = null;
-    this._crowdCanvas = null;
+    this._spectators = null;
     this._lastWidth = 0;
     this._lastHeight = 0;
     this._lastLaneCount = 0;
@@ -119,31 +129,27 @@ export class Track {
 
   _prerenderCrowd(bounds) {
     const w = bounds.width + 20;
-    const crowdH = 30;
-    this._crowdCanvas = document.createElement('canvas');
-    this._crowdCanvas.width = w;
-    this._crowdCanvas.height = crowdH;
-    const cc = this._crowdCanvas.getContext('2d');
+    this._spectators = [];
 
-    // Row of semicircle heads
-    const spacing = 12;
-    const count = Math.floor(w / spacing);
-    for (let i = 0; i < count; i++) {
-      const cx = i * spacing + spacing / 2;
-      const r = 4 + Math.random() * 2;
-      cc.fillStyle = `rgb(${35 + Math.random() * 10},${35 + Math.random() * 10},${50 + Math.random() * 10})`;
-      cc.beginPath();
-      cc.arc(cx, crowdH - 2, r, Math.PI, 0);
-      cc.fill();
-    }
-    // Store head positions for animation
-    this._crowdHeads = [];
-    for (let i = 0; i < count; i++) {
-      this._crowdHeads.push({ x: i * spacing + spacing / 2, baseR: 4 + Math.random() * 2 });
+    for (const row of CROWD_ROWS) {
+      const count = Math.floor(w / row.spacing);
+      for (let i = 0; i < count; i++) {
+        this._spectators.push({
+          x: i * row.spacing + row.spacing / 2 + row.xShift,
+          rowOffset: row.offsetY,
+          scale: row.scale,
+          headR: (3 + Math.random() * 1.5) * row.scale,
+          bodyH: (9 + Math.random() * 4) * row.scale,
+          skinColor: SKIN_TONES[Math.floor(Math.random() * SKIN_TONES.length)],
+          shirtColor: SHIRT_COLORS[Math.floor(Math.random() * SHIRT_COLORS.length)],
+          phase: Math.random() * Math.PI * 2,
+          cheerThreshold: Math.random() * 0.95,
+        });
+      }
     }
   }
 
-  draw(ctx, canvasWidth, canvasHeight, laneCount, maxTokens = 200000, crowdYOverride = null) {
+  draw(ctx, canvasWidth, canvasHeight, laneCount, maxTokens = 200000, excitement = 0) {
     const bounds = this.getTrackBounds(canvasWidth, canvasHeight, laneCount);
     this.time += 0.016; // ~60fps tick
 
@@ -222,11 +228,11 @@ export class Track {
     // Token markers with flag icons
     this._drawTokenMarkers(ctx, bounds, maxTokens);
 
-    // Pennant flags along top edge
-    this._drawPennants(ctx, bounds);
+    // Animated spectators above the track
+    this._drawCrowd(ctx, bounds, excitement);
 
-    // Crowd silhouettes along bottom (with bobbing animation)
-    this._drawCrowd(ctx, bounds, crowdYOverride);
+    // Pennant flags along top edge (drawn on top of spectators as barrier)
+    this._drawPennants(ctx, bounds);
 
     return bounds;
   }
@@ -473,19 +479,62 @@ export class Track {
     }
   }
 
-  _drawCrowd(ctx, bounds, yOverride) {
-    if (!this._crowdHeads) return;
-    const crowdY = yOverride != null ? yOverride : bounds.y + bounds.height + 8;
+  _drawCrowd(ctx, bounds, excitement) {
+    if (!this._spectators) return;
 
-    for (let i = 0; i < this._crowdHeads.length; i++) {
-      const head = this._crowdHeads[i];
-      const hx = bounds.x - 10 + head.x;
-      const hy = crowdY;
+    // Spectators positioned above the track, just above the pennant line
+    const baseY = bounds.y - 14;
 
-      ctx.fillStyle = '#252535';
+    for (const spec of this._spectators) {
+      const isCheering = excitement > spec.cheerThreshold;
+      const hx = bounds.x - 10 + spec.x;
+
+      // Bounce when cheering, subtle sway when idle
+      const bounce = isCheering
+        ? Math.abs(Math.sin(this.time * 5 + spec.phase)) * 3 * spec.scale
+        : Math.sin(this.time * 0.5 + spec.phase) * 0.3;
+
+      const feetY = baseY - spec.rowOffset;
+      const bodyTop = feetY - spec.bodyH - bounce;
+      const headCY = bodyTop - spec.headR;
+      const halfW = 3 * spec.scale;
+
+      // Torso
+      ctx.fillStyle = spec.shirtColor;
+      ctx.fillRect(hx - halfW, bodyTop, halfW * 2, feetY - bodyTop);
+
+      // Head
+      ctx.fillStyle = spec.skinColor;
       ctx.beginPath();
-      ctx.arc(hx, hy, head.baseR, Math.PI, 0);
+      ctx.arc(hx, headCY, spec.headR, 0, Math.PI * 2);
       ctx.fill();
+
+      // Arms
+      ctx.strokeStyle = spec.skinColor;
+      ctx.lineWidth = Math.max(1, 1.2 * spec.scale);
+      const shoulderY = bodyTop + 2 * spec.scale;
+      const armLen = 5 * spec.scale;
+
+      if (isCheering) {
+        const wave = Math.sin(this.time * 8 + spec.phase);
+        ctx.beginPath();
+        ctx.moveTo(hx - halfW, shoulderY);
+        ctx.lineTo(hx - halfW - armLen + wave, headCY - armLen * 0.5);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(hx + halfW, shoulderY);
+        ctx.lineTo(hx + halfW + armLen - wave, headCY - armLen * 0.5);
+        ctx.stroke();
+      } else {
+        ctx.beginPath();
+        ctx.moveTo(hx - halfW, shoulderY);
+        ctx.lineTo(hx - halfW - 1, feetY - 1);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(hx + halfW, shoulderY);
+        ctx.lineTo(hx + halfW + 1, feetY - 1);
+        ctx.stroke();
+      }
     }
   }
 }
