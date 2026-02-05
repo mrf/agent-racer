@@ -63,24 +63,25 @@ func (a *Activity) UnmarshalJSON(data []byte) error {
 }
 
 type SessionState struct {
-	ID                 string    `json:"id"`
-	Name               string    `json:"name"`
-	Source             string    `json:"source"`
-	Activity           Activity  `json:"activity"`
-	TokensUsed         int       `json:"tokensUsed"`
-	MaxContextTokens   int       `json:"maxContextTokens"`
-	ContextUtilization float64   `json:"contextUtilization"`
-	CurrentTool        string    `json:"currentTool,omitempty"`
-	Model              string    `json:"model"`
-	WorkingDir         string    `json:"workingDir"`
-	StartedAt          time.Time `json:"startedAt"`
-	LastActivityAt     time.Time `json:"lastActivityAt"`
+	ID                 string     `json:"id"`
+	Name               string     `json:"name"`
+	Source             string     `json:"source"`
+	Activity           Activity   `json:"activity"`
+	TokensUsed         int        `json:"tokensUsed"`
+	TokenEstimated     bool       `json:"tokenEstimated"`
+	MaxContextTokens   int        `json:"maxContextTokens"`
+	ContextUtilization float64    `json:"contextUtilization"`
+	CurrentTool        string     `json:"currentTool,omitempty"`
+	Model              string     `json:"model"`
+	WorkingDir         string     `json:"workingDir"`
+	StartedAt          time.Time  `json:"startedAt"`
+	LastActivityAt     time.Time  `json:"lastActivityAt"`
 	CompletedAt        *time.Time `json:"completedAt,omitempty"`
-	MessageCount       int       `json:"messageCount"`
-	ToolCallCount      int       `json:"toolCallCount"`
-	PID                int       `json:"pid,omitempty"`
-	IsChurning         bool      `json:"isChurning,omitempty"`
-	Lane               int       `json:"lane"`
+	MessageCount       int        `json:"messageCount"`
+	ToolCallCount      int        `json:"toolCallCount"`
+	PID                int        `json:"pid,omitempty"`
+	IsChurning         bool       `json:"isChurning,omitempty"`
+	Lane               int        `json:"lane"`
 }
 
 func (s *SessionState) UpdateUtilization() {

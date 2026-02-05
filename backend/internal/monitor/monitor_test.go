@@ -9,6 +9,19 @@ import (
 	"github.com/agent-racer/backend/internal/ws"
 )
 
+// newTestMonitor creates a minimal Monitor for testing resolveTokens and
+// other methods that only need a config and in-memory maps.
+func newTestMonitor(tokenNorm config.TokenNormConfig) *Monitor {
+	return &Monitor{
+		cfg: &config.Config{
+			TokenNorm: tokenNorm,
+		},
+		tracked:        make(map[string]*trackedSession),
+		pendingRemoval: make(map[string]time.Time),
+		removedKeys:    make(map[string]bool),
+	}
+}
+
 func TestTrackingKey(t *testing.T) {
 	key := trackingKey("claude", "abc-123")
 	if key != "claude:abc-123" {
@@ -265,6 +278,177 @@ func TestHandleSessionEndFallsBackToTranscriptPath(t *testing.T) {
 	// The tracked entry should have been cleaned up.
 	if _, exists := m.tracked[filenameKey]; exists {
 		t.Error("tracked session should have been deleted")
+	}
+}
+
+func TestResolveTokensUsageWithRealData(t *testing.T) {
+	m := newTestMonitor(config.TokenNormConfig{
+		Strategies:       map[string]string{"claude": "usage", "default": "estimate"},
+		TokensPerMessage: 2000,
+	})
+
+	state := &session.SessionState{Source: "claude", MessageCount: 5}
+	update := SourceUpdate{TokensIn: 50000}
+
+	m.resolveTokens(state, update, 200000)
+
+	if state.TokensUsed != 50000 {
+		t.Errorf("TokensUsed = %d, want 50000", state.TokensUsed)
+	}
+	if state.TokenEstimated {
+		t.Error("TokenEstimated should be false for real data")
+	}
+	if state.MaxContextTokens != 200000 {
+		t.Errorf("MaxContextTokens = %d, want 200000", state.MaxContextTokens)
+	}
+	if state.ContextUtilization != 0.25 {
+		t.Errorf("ContextUtilization = %f, want 0.25", state.ContextUtilization)
+	}
+}
+
+func TestResolveTokensUsageFallbackToEstimate(t *testing.T) {
+	m := newTestMonitor(config.TokenNormConfig{
+		Strategies:       map[string]string{"codex": "usage"},
+		TokensPerMessage: 2000,
+	})
+
+	state := &session.SessionState{Source: "codex", MessageCount: 10}
+	update := SourceUpdate{TokensIn: 0}
+
+	m.resolveTokens(state, update, 272000)
+
+	expectedTokens := 10 * 2000
+	if state.TokensUsed != expectedTokens {
+		t.Errorf("TokensUsed = %d, want %d", state.TokensUsed, expectedTokens)
+	}
+	if !state.TokenEstimated {
+		t.Error("TokenEstimated should be true for fallback estimation")
+	}
+}
+
+func TestResolveTokensUsageTransitionEstimateToReal(t *testing.T) {
+	m := newTestMonitor(config.TokenNormConfig{
+		Strategies:       map[string]string{"codex": "usage"},
+		TokensPerMessage: 2000,
+	})
+
+	// Start with estimation.
+	state := &session.SessionState{
+		Source:         "codex",
+		MessageCount:   10,
+		TokensUsed:     20000,
+		TokenEstimated: true,
+	}
+
+	// Real data arrives, even if lower than estimate.
+	update := SourceUpdate{TokensIn: 15000}
+	m.resolveTokens(state, update, 272000)
+
+	if state.TokensUsed != 15000 {
+		t.Errorf("TokensUsed = %d, want 15000 (real data should replace estimate)", state.TokensUsed)
+	}
+	if state.TokenEstimated {
+		t.Error("TokenEstimated should be false after real data arrives")
+	}
+}
+
+func TestResolveTokensUsageKeepsRealWhenNoNewData(t *testing.T) {
+	m := newTestMonitor(config.TokenNormConfig{
+		Strategies:       map[string]string{"claude": "usage"},
+		TokensPerMessage: 2000,
+	})
+
+	// Session already has real data.
+	state := &session.SessionState{
+		Source:         "claude",
+		MessageCount:   20,
+		TokensUsed:     80000,
+		TokenEstimated: false,
+	}
+
+	// Update with no token data -- should keep existing real value.
+	update := SourceUpdate{TokensIn: 0}
+	m.resolveTokens(state, update, 200000)
+
+	if state.TokensUsed != 80000 {
+		t.Errorf("TokensUsed = %d, want 80000 (should keep real data)", state.TokensUsed)
+	}
+	if state.TokenEstimated {
+		t.Error("TokenEstimated should stay false when real data exists")
+	}
+}
+
+func TestResolveTokensEstimateStrategy(t *testing.T) {
+	m := newTestMonitor(config.TokenNormConfig{
+		Strategies:       map[string]string{"custom": "estimate"},
+		TokensPerMessage: 1500,
+	})
+
+	state := &session.SessionState{Source: "custom", MessageCount: 8}
+	update := SourceUpdate{TokensIn: 50000} // real data ignored for estimate strategy
+
+	m.resolveTokens(state, update, 200000)
+
+	expectedTokens := 8 * 1500
+	if state.TokensUsed != expectedTokens {
+		t.Errorf("TokensUsed = %d, want %d", state.TokensUsed, expectedTokens)
+	}
+	if !state.TokenEstimated {
+		t.Error("TokenEstimated should be true for estimate strategy")
+	}
+}
+
+func TestResolveTokensMessageCountStrategy(t *testing.T) {
+	m := newTestMonitor(config.TokenNormConfig{
+		Strategies:       map[string]string{"default": "message_count"},
+		TokensPerMessage: 2000,
+	})
+
+	state := &session.SessionState{Source: "new_cli", MessageCount: 5}
+	update := SourceUpdate{}
+
+	m.resolveTokens(state, update, 100000)
+
+	if state.TokensUsed != 10000 {
+		t.Errorf("TokensUsed = %d, want 10000", state.TokensUsed)
+	}
+	if !state.TokenEstimated {
+		t.Error("TokenEstimated should be true for message_count strategy")
+	}
+}
+
+func TestResolveTokensZeroMessages(t *testing.T) {
+	m := newTestMonitor(config.TokenNormConfig{
+		Strategies:       map[string]string{"default": "estimate"},
+		TokensPerMessage: 2000,
+	})
+
+	state := &session.SessionState{Source: "unknown", MessageCount: 0}
+	update := SourceUpdate{}
+
+	m.resolveTokens(state, update, 200000)
+
+	if state.TokensUsed != 0 {
+		t.Errorf("TokensUsed = %d, want 0 (no messages = no estimate)", state.TokensUsed)
+	}
+	if state.TokenEstimated {
+		t.Error("TokenEstimated should be false when no data at all")
+	}
+}
+
+func TestResolveTokensDefaultStrategy(t *testing.T) {
+	m := newTestMonitor(config.TokenNormConfig{
+		// Unknown strategy value -- should fall through to default behavior.
+		Strategies: map[string]string{"test": "bogus_strategy"},
+	})
+
+	state := &session.SessionState{Source: "test"}
+	update := SourceUpdate{TokensIn: 5000}
+
+	m.resolveTokens(state, update, 200000)
+
+	if state.TokensUsed != 5000 {
+		t.Errorf("TokensUsed = %d, want 5000", state.TokensUsed)
 	}
 }
 
