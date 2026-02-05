@@ -18,6 +18,11 @@ const DEFAULT_SOURCE = { bg: '#6b7280', label: '?' };
 
 const CAR_SCALE = 2.3;
 const FLAG_COLORS = { bg: '#ffffff', text: '#000', stripe: '#cccccc', pole: '#aaa', cap: '#ccc' };
+const TERMINAL_ACTIVITIES = new Set(['complete', 'errored', 'lost']);
+
+function isTerminalActivity(activity) {
+  return TERMINAL_ACTIVITIES.has(activity);
+}
 
 function shortModelName(model) {
   if (!model) return '?';
@@ -166,6 +171,12 @@ export class Racer {
 
       // Add spring energy on transition
       this.springVel += 2.5;
+
+      // Reset terminal visual effects when session resumes
+      if (isTerminalActivity(oldActivity) && !isTerminalActivity(state.activity)) {
+        this.opacity = 1.0;
+        this.spinAngle = 0;
+      }
 
       // Reset stage-specific flags on new activity
       if (state.activity === 'errored') {
