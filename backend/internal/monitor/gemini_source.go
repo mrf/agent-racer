@@ -7,9 +7,10 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
+
+	"github.com/shirou/gopsutil/v3/process"
 )
 
 // GeminiSource implements Source for Google Gemini CLI sessions. It discovers
@@ -331,33 +332,25 @@ type geminiUsage struct {
 	TotalTokenCount      int `json:"totalTokenCount"`
 }
 
-// refreshHashMappings scans /proc for running gemini processes to build
+// refreshHashMappings scans running processes for gemini processes to build
 // the hash-to-path lookup table.
 func (g *GeminiSource) refreshHashMappings() {
-	entries, err := os.ReadDir("/proc")
+	procs, err := process.Processes()
 	if err != nil {
 		return
 	}
 
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		pid, err := strconv.Atoi(entry.Name())
-		if err != nil {
+	for _, p := range procs {
+		args, err := p.CmdlineSlice()
+		if err != nil || len(args) == 0 {
 			continue
 		}
 
-		cmdline, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
-		if err != nil {
+		if !isGeminiProcess(args) {
 			continue
 		}
 
-		if !isGeminiProcess(string(cmdline)) {
-			continue
-		}
-
-		cwd, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", pid))
+		cwd, err := p.Cwd()
 		if err != nil {
 			continue
 		}
@@ -370,23 +363,20 @@ func (g *GeminiSource) refreshHashMappings() {
 	}
 }
 
-// isGeminiProcess checks if a /proc cmdline belongs to a gemini CLI process.
-func isGeminiProcess(cmdline string) bool {
-	parts := strings.Split(cmdline, "\x00")
-	if len(parts) == 0 {
+// isGeminiProcess checks if the command args belong to a gemini CLI process.
+func isGeminiProcess(args []string) bool {
+	if len(args) == 0 {
 		return false
 	}
 
-	exe := filepath.Base(parts[0])
+	exe := filepath.Base(args[0])
 
-	if exe == "gemini" {
+	switch exe {
+	case "gemini":
 		return true
-	}
-
-	// Gemini CLI is Node-based; check for node running gemini scripts.
-	if exe == "node" || exe == "npx" {
-		for _, part := range parts[1:] {
-			if strings.Contains(part, "gemini") && !strings.Contains(part, "node_modules/.bin") {
+	case "node", "npx":
+		for _, arg := range args[1:] {
+			if strings.Contains(arg, "gemini") && !strings.Contains(arg, "node_modules/.bin") {
 				return true
 			}
 		}
@@ -406,10 +396,6 @@ func hashProjectPath(path string) string {
 // session filename. Format: session-{date}T{time}-{short_hex}.json
 func geminiSessionIDFromFilename(name string) string {
 	name = strings.TrimSuffix(name, ".json")
-	// The short hex ID is the last dash-separated segment.
 	parts := strings.Split(name, "-")
-	if len(parts) > 0 {
-		return parts[len(parts)-1]
-	}
-	return name
+	return parts[len(parts)-1]
 }

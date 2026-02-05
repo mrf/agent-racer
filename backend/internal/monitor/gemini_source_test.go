@@ -359,20 +359,23 @@ func TestGeminiSessionSetsMaxContextTokens(t *testing.T) {
 
 func TestIsGeminiProcess(t *testing.T) {
 	tests := []struct {
-		cmdline string
-		want    bool
+		name string
+		args []string
+		want bool
 	}{
-		{"gemini\x00--prompt\x00hello", true},
-		{"node\x00/usr/lib/gemini/cli.js", true},
-		{"npx\x00gemini\x00--help", true},
-		{"claude\x00--help", false},
-		{"node\x00/usr/lib/something/main.js", false},
+		{"gemini binary", []string{"gemini", "--prompt", "hello"}, true},
+		{"node running gemini", []string{"node", "/usr/lib/gemini/cli.js"}, true},
+		{"npx running gemini", []string{"npx", "gemini", "--help"}, true},
+		{"claude binary", []string{"claude", "--help"}, false},
+		{"unrelated node", []string{"node", "/usr/lib/something/main.js"}, false},
 	}
 
 	for _, tt := range tests {
-		got := isGeminiProcess(tt.cmdline)
-		if got != tt.want {
-			t.Errorf("isGeminiProcess(%q) = %v, want %v", tt.cmdline, got, tt.want)
-		}
+		t.Run(tt.name, func(t *testing.T) {
+			got := isGeminiProcess(tt.args)
+			if got != tt.want {
+				t.Errorf("isGeminiProcess(%v) = %v, want %v", tt.args, got, tt.want)
+			}
+		})
 	}
 }
