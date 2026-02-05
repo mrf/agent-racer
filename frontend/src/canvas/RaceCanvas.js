@@ -342,17 +342,8 @@ export class RaceCanvas {
     const pitLaneCount = this._pitLaneCount;
     const parkingLotLaneCount = this._parkingLotLaneCount || 0;
 
-    // Compute crowd Y override (pit is always visible, parking lot below when present)
-    let crowdYOverride;
-    if (parkingLotLaneCount > 0) {
-      const lotBounds = this.track.getParkingLotBounds(this.width, this.height, activeLaneCount, pitLaneCount, parkingLotLaneCount);
-      crowdYOverride = lotBounds.y + lotBounds.height + 8;
-    } else {
-      const pitBounds = this.track.getPitBounds(this.width, this.height, activeLaneCount, pitLaneCount);
-      crowdYOverride = pitBounds.y + pitBounds.height + 8;
-    }
-
-    this.track.draw(ctx, this.width, this.height, activeLaneCount, 200000, crowdYOverride);
+    const excitement = this.engine ? this.engine.currentExcitement : 0;
+    this.track.draw(ctx, this.width, this.height, activeLaneCount, 200000, excitement);
 
     // Draw pit area (always visible, even when empty)
     this.track.drawPit(ctx, this.width, this.height, activeLaneCount, pitLaneCount);
