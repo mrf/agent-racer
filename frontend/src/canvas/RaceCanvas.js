@@ -27,6 +27,7 @@ export class RaceCanvas {
     this.connected = false;
     this.animFrameId = null;
     this.onRacerClick = null;
+    this.onAfterDraw = null;
     this.engine = engine;
 
     // Timing for dt-based animation
@@ -153,6 +154,7 @@ export class RaceCanvas {
 
       this.update();
       this.draw();
+      if (this.onAfterDraw) this.onAfterDraw();
       this.animFrameId = requestAnimationFrame(loop);
     };
     this.animFrameId = requestAnimationFrame(loop);
