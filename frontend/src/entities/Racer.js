@@ -61,13 +61,6 @@ function getModelColor(model, source) {
   return DEFAULT_COLOR;
 }
 
-function formatTokens(tokens) {
-  if (tokens >= 1000) {
-    return `${Math.round(tokens / 1000)}K`;
-  }
-  return `${tokens}`;
-}
-
 function hexToRgb(hex) {
   const r = parseInt(hex.slice(1, 3), 16);
   const g = parseInt(hex.slice(3, 5), 16);
@@ -137,8 +130,13 @@ export class Racer {
     this.pitDim = 0;       // current dimming (0=normal, 1=fully dimmed)
     this.pitDimTarget = 0;
 
-    // Pit transition waypoints
-    this.pitWaypoints = null;
+    // Parking lot state
+    this.inParkingLot = false;
+    this.parkingLotDim = 0;       // 0=normal, 1=fully dimmed
+    this.parkingLotDimTarget = 0;
+
+    // Zone transition waypoints (track <-> pit <-> parking lot)
+    this.transitionWaypoints = null;
     this.waypointIndex = 0;
 
     // Flag flutter animation
@@ -200,18 +198,18 @@ export class Racer {
     }
   }
 
-  startPitTransition(waypoints) {
-    this.pitWaypoints = waypoints;
+  startZoneTransition(waypoints) {
+    this.transitionWaypoints = waypoints;
     this.waypointIndex = 0;
   }
 
   animate(particles, dt) {
     const dtScale = dt ? dt / (1 / 60) : 1;
 
-    // Pit transition waypoint pathing
+    // Zone transition waypoint pathing
     let lerpSpeed = 0.08;
-    if (this.pitWaypoints) {
-      const wp = this.pitWaypoints[this.waypointIndex];
+    if (this.transitionWaypoints) {
+      const wp = this.transitionWaypoints[this.waypointIndex];
       this.targetX = wp.x;
       this.targetY = wp.y;
       lerpSpeed = 0.12;
@@ -219,8 +217,8 @@ export class Racer {
       const dy = this.displayY - wp.y;
       if (Math.sqrt(dx * dx + dy * dy) < 10) {
         this.waypointIndex++;
-        if (this.waypointIndex >= this.pitWaypoints.length) {
-          this.pitWaypoints = null;
+        if (this.waypointIndex >= this.transitionWaypoints.length) {
+          this.transitionWaypoints = null;
           this.waypointIndex = 0;
         }
       }
@@ -253,6 +251,9 @@ export class Racer {
 
     // Pit dimming transition
     this.pitDim += (this.pitDimTarget - this.pitDim) * 0.08 * dtScale;
+
+    // Parking lot dimming transition
+    this.parkingLotDim += (this.parkingLotDimTarget - this.parkingLotDim) * 0.06 * dtScale;
 
     this.thoughtBubblePhase += 0.06 * dtScale;
     this.dotPhase += 0.04 * dtScale;
@@ -378,8 +379,8 @@ export class Racer {
       this.targetGlow = 0.04;
     }
 
-    // Suppress effects when in pit
-    if (this.inPit) {
+    // Suppress effects when in pit or parking lot
+    if (this.inPit || this.inParkingLot) {
       this.targetGlow = Math.min(this.targetGlow, 0.02);
     }
   }
@@ -392,15 +393,22 @@ export class Racer {
 
     ctx.save();
 
-    // Pit dimming: reduce opacity and scale
+    // Zone dimming: reduce opacity for pit and parking lot racers
     const pitAlpha = 1 - this.pitDim * 0.4;
-    ctx.globalAlpha = this.opacity * pitAlpha;
+    const parkingAlpha = 1 - this.parkingLotDim * 0.5;
+    ctx.globalAlpha = this.opacity * pitAlpha * parkingAlpha;
 
-    if (this.pitDim > 0.01) {
+    if (this.pitDim > 0.01 || this.parkingLotDim > 0.01) {
       const pitScale = 1 - this.pitDim * 0.15;
+      const parkingScale = 1 - this.parkingLotDim * 0.1;
       ctx.translate(x, y);
-      ctx.scale(pitScale, pitScale);
+      ctx.scale(pitScale * parkingScale, pitScale * parkingScale);
       ctx.translate(-x, -y);
+    }
+
+    // Parking lot: apply desaturation via filter if supported
+    if (this.parkingLotDim > 0.01) {
+      ctx.filter = `saturate(${1 - this.parkingLotDim * 0.7})`;
     }
 
     // Apply spin for errored

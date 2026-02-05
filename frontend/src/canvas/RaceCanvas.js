@@ -2,15 +2,16 @@ import { ParticleSystem } from './Particles.js';
 import { Track } from './Track.js';
 import { Racer } from '../entities/Racer.js';
 
-function isActiveRacer(state) {
-  const { activity, isChurning } = state;
-  if (activity === 'thinking' || activity === 'tool_use') return true;
-  if ((activity === 'idle' || activity === 'starting') && isChurning) return true;
-  return false;
+function isParkingLotRacer(state) {
+  return state.activity === 'complete' ||
+         state.activity === 'errored' ||
+         state.activity === 'lost';
 }
 
 function isPitRacer(state) {
   const { activity, isChurning } = state;
+  // Terminal sessions go to parking lot, not pit
+  if (isParkingLotRacer(state)) return false;
   if (activity === 'idle' || activity === 'waiting' || activity === 'starting') {
     return !isChurning;
   }
@@ -51,6 +52,7 @@ export class RaceCanvas {
     // Track lane counts for dynamic canvas resizing
     this._activeLaneCount = 1;
     this._pitLaneCount = 0;
+    this._parkingLotLaneCount = 0;
 
     this.resize();
     this._resizeHandler = () => this.resize();
@@ -70,8 +72,8 @@ export class RaceCanvas {
     const viewportWidth = rect.width;
     const viewportHeight = rect.height;
 
-    // Canvas height grows to fit all lanes + pit, minimum is viewport height
-    const requiredHeight = this.track.getRequiredHeight(this._activeLaneCount, this._pitLaneCount);
+    // Canvas height grows to fit all lanes + pit + parking lot, minimum is viewport height
+    const requiredHeight = this.track.getRequiredHeight(this._activeLaneCount, this._pitLaneCount, this._parkingLotLaneCount);
     const height = Math.max(viewportHeight, requiredHeight);
 
     this.canvas.style.height = height + 'px';
@@ -165,26 +167,32 @@ export class RaceCanvas {
   update() {
     const dt = this.dt;
 
-    // Partition racers into track (active + terminal) and pit groups
+    // Partition racers into track, pit, and parking lot groups
     const trackRacers = [];
     const pitRacers = [];
+    const parkingLotRacers = [];
 
     for (const racer of this.racers.values()) {
-      if (isPitRacer(racer.state)) {
+      if (isParkingLotRacer(racer.state)) {
+        parkingLotRacers.push(racer);
+      } else if (isPitRacer(racer.state)) {
         pitRacers.push(racer);
       } else {
-        // Active, terminal (complete/errored/lost), and churning go on track
         trackRacers.push(racer);
       }
     }
 
     const activeLaneCount = trackRacers.length || 1;
     const pitLaneCount = pitRacers.length;
+    const parkingLotLaneCount = parkingLotRacers.length;
 
     // Resize canvas when lane counts change
-    if (activeLaneCount !== this._activeLaneCount || pitLaneCount !== this._pitLaneCount) {
+    if (activeLaneCount !== this._activeLaneCount ||
+        pitLaneCount !== this._pitLaneCount ||
+        parkingLotLaneCount !== this._parkingLotLaneCount) {
       this._activeLaneCount = activeLaneCount;
       this._pitLaneCount = pitLaneCount;
+      this._parkingLotLaneCount = parkingLotLaneCount;
       this.resize();
     }
 
@@ -202,7 +210,7 @@ export class RaceCanvas {
       // Detect leaving pit → track transition
       if (racer.inPit && racer.initialized) {
         const trackBottom = bounds.y + bounds.height;
-        racer.startPitTransition([
+        racer.startZoneTransition([
           { x: entryX, y: racer.displayY },  // drive left to entry column
           { x: entryX, y: trackBottom },      // drive up through connecting lane
           { x: targetX, y: targetY },         // drive right to track position
@@ -212,6 +220,8 @@ export class RaceCanvas {
       racer.setTarget(targetX, targetY);
       racer.inPit = false;
       racer.pitDimTarget = 0;
+      racer.inParkingLot = false;
+      racer.parkingLotDimTarget = 0;
       racer.animate(this.particles, dt);
 
       // Sync engine audio
@@ -234,13 +244,13 @@ export class RaceCanvas {
 
       for (let i = 0; i < sortedPit.length; i++) {
         const racer = sortedPit[i];
-        const targetX = this.track.getPitPositionX(pitBounds, racer.state.contextUtilization);
-        const targetY = this.track.getPitLaneY(pitBounds, i);
+        const targetX = this.track.getPositionX(pitBounds, racer.state.contextUtilization);
+        const targetY = this.track.getLaneY(pitBounds, i);
 
         // Detect entering pit from track
         if (!racer.inPit && racer.initialized) {
           const trackBottom = bounds.y + bounds.height;
-          racer.startPitTransition([
+          racer.startZoneTransition([
             { x: entryX, y: trackBottom },      // drive left to entry column at track edge
             { x: entryX, y: pitBounds.y },       // drive down through connecting lane
             { x: targetX, y: targetY },          // drive right to pit position
@@ -250,9 +260,44 @@ export class RaceCanvas {
         racer.setTarget(targetX, targetY);
         racer.inPit = true;
         racer.pitDimTarget = 1;
+        racer.inParkingLot = false;
+        racer.parkingLotDimTarget = 0;
         racer.animate(this.particles, dt);
 
         // Stop engine audio for pit racers
+        if (this.engine) {
+          this.engine.stopEngine(racer.id);
+        }
+      }
+    }
+
+    // Position parking lot racers
+    if (parkingLotLaneCount > 0) {
+      const lotBounds = this.track.getParkingLotBounds(this.width, this.height, activeLaneCount, pitLaneCount, parkingLotLaneCount);
+      const sortedLot = parkingLotRacers.sort((a, b) => a.state.lane - b.state.lane);
+
+      for (let i = 0; i < sortedLot.length; i++) {
+        const racer = sortedLot[i];
+        const targetX = this.track.getPositionX(lotBounds, racer.state.contextUtilization);
+        const targetY = this.track.getLaneY(lotBounds, i);
+
+        // Detect entering parking lot from track or pit
+        if (!racer.inParkingLot && racer.initialized) {
+          racer.startZoneTransition([
+            { x: entryX, y: racer.displayY },
+            { x: entryX, y: lotBounds.y },
+            { x: targetX, y: targetY },
+          ]);
+        }
+
+        racer.setTarget(targetX, targetY);
+        racer.inPit = false;
+        racer.pitDimTarget = 0;
+        racer.inParkingLot = true;
+        racer.parkingLotDimTarget = 1;
+        racer.animate(this.particles, dt);
+
+        // Stop engine audio for parked racers
         if (this.engine) {
           this.engine.stopEngine(racer.id);
         }
@@ -295,15 +340,27 @@ export class RaceCanvas {
 
     const activeLaneCount = this._activeLaneCount;
     const pitLaneCount = this._pitLaneCount;
+    const parkingLotLaneCount = this._parkingLotLaneCount || 0;
 
-    // Compute crowd Y override (pit is always visible)
-    const pitBounds = this.track.getPitBounds(this.width, this.height, activeLaneCount, pitLaneCount);
-    const crowdYOverride = pitBounds.y + pitBounds.height + 8;
+    // Compute crowd Y override (pit is always visible, parking lot below when present)
+    let crowdYOverride;
+    if (parkingLotLaneCount > 0) {
+      const lotBounds = this.track.getParkingLotBounds(this.width, this.height, activeLaneCount, pitLaneCount, parkingLotLaneCount);
+      crowdYOverride = lotBounds.y + lotBounds.height + 8;
+    } else {
+      const pitBounds = this.track.getPitBounds(this.width, this.height, activeLaneCount, pitLaneCount);
+      crowdYOverride = pitBounds.y + pitBounds.height + 8;
+    }
 
     this.track.draw(ctx, this.width, this.height, activeLaneCount, 200000, crowdYOverride);
 
     // Draw pit area (always visible, even when empty)
     this.track.drawPit(ctx, this.width, this.height, activeLaneCount, pitLaneCount);
+
+    // Draw parking lot area when there are parked racers
+    if (parkingLotLaneCount > 0) {
+      this.track.drawParkingLot(ctx, this.width, this.height, activeLaneCount, pitLaneCount, parkingLotLaneCount);
+    }
 
     // Draw particles behind racers
     this.particles.drawBehind(ctx);
