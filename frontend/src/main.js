@@ -376,6 +376,16 @@ raceCanvas.onRacerClick = (state) => {
   }
 };
 
+// Keep flyout attached to car as it moves
+raceCanvas.onAfterDraw = () => {
+  if (selectedSessionId && !detailFlyout.classList.contains('hidden')) {
+    const racer = raceCanvas.racers.get(selectedSessionId);
+    if (racer) {
+      positionFlyout(racer.displayX, racer.displayY);
+    }
+  }
+};
+
 // Detail flyout close
 flyoutClose.addEventListener('click', () => {
   detailFlyout.classList.add('hidden');
