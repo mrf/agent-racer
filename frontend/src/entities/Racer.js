@@ -662,12 +662,17 @@ export class Racer {
 
       case 'waiting':
         this._drawHazardLights(ctx, x, y);
-        this._drawWarningTriangle(ctx, x, y);
         break;
 
       case 'complete':
         this._drawCheckerFlag(ctx, x, y);
         break;
+    }
+
+    // Show warning triangle only when churning contradicts the activity
+    // (e.g. idle/waiting + CPU active is unexpected; thinking + CPU active is normal)
+    if (this.state.isChurning && activity !== 'thinking' && activity !== 'tool_use') {
+      this._drawWarningTriangle(ctx, x, y);
     }
   }
 

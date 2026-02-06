@@ -203,7 +203,7 @@ function renderDetailFlyout(state) {
     </div>
     ${state.isChurning ? `<div class="detail-row">
       <span class="label">Process</span>
-      <span class="value"><span class="detail-activity thinking">churning</span></span>
+      <span class="value"><span class="detail-activity thinking">CPU Active</span></span>
     </div>` : ''}
     <div class="detail-progress">
       <div class="detail-progress-bar" style="width:${pct}%;background:${barColor}"></div>
