@@ -350,8 +350,10 @@ func (m *Monitor) markComplete(state *session.SessionState, completedAt time.Tim
 	m.markTerminal(state, session.Complete, completedAt)
 }
 
+// scheduleRemoval enqueues a session for removal after CompletionRemoveAfter.
+// A zero duration removes immediately; a negative duration disables removal.
 func (m *Monitor) scheduleRemoval(sessionID string, completedAt time.Time) {
-	if m.cfg.Monitor.CompletionRemoveAfter <= 0 {
+	if m.cfg.Monitor.CompletionRemoveAfter < 0 {
 		return
 	}
 	removeAt := completedAt.Add(m.cfg.Monitor.CompletionRemoveAfter)

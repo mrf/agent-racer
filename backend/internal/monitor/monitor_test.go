@@ -223,6 +223,49 @@ func TestFlushRemovalsAddsToRemovedKeys(t *testing.T) {
 	}
 }
 
+func TestScheduleRemovalZeroDurationIsImmediate(t *testing.T) {
+	m := &Monitor{
+		cfg: &config.Config{
+			Monitor: config.MonitorConfig{
+				CompletionRemoveAfter: 0, // zero = remove immediately
+			},
+		},
+		tracked:        make(map[string]*trackedSession),
+		pendingRemoval: make(map[string]time.Time),
+		removedKeys:    make(map[string]bool),
+	}
+
+	completedAt := time.Now()
+	m.scheduleRemoval("claude:session-zero", completedAt)
+
+	removeAt, ok := m.pendingRemoval["claude:session-zero"]
+	if !ok {
+		t.Fatal("scheduleRemoval with 0 duration should add to pendingRemoval")
+	}
+	if !removeAt.Equal(completedAt) {
+		t.Errorf("removeAt = %v, want %v (immediate removal)", removeAt, completedAt)
+	}
+}
+
+func TestScheduleRemovalNegativeDurationDisablesRemoval(t *testing.T) {
+	m := &Monitor{
+		cfg: &config.Config{
+			Monitor: config.MonitorConfig{
+				CompletionRemoveAfter: -1, // negative = never remove
+			},
+		},
+		tracked:        make(map[string]*trackedSession),
+		pendingRemoval: make(map[string]time.Time),
+		removedKeys:    make(map[string]bool),
+	}
+
+	m.scheduleRemoval("claude:session-neg", time.Now())
+
+	if _, ok := m.pendingRemoval["claude:session-neg"]; ok {
+		t.Error("scheduleRemoval with negative duration should not add to pendingRemoval")
+	}
+}
+
 func TestHandleSessionEndFallsBackToTranscriptPath(t *testing.T) {
 	store := session.NewStore()
 	broadcaster := ws.NewBroadcaster(store, 100*time.Millisecond, 5*time.Second)
