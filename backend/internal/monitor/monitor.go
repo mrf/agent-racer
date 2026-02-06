@@ -195,7 +195,7 @@ func (m *Monitor) poll() {
 				}
 			}
 
-			if update.WorkingDir != "" && state.WorkingDir == "" {
+			if update.WorkingDir != "" && update.WorkingDir != state.WorkingDir {
 				state.WorkingDir = update.WorkingDir
 				state.Name = nameFromPath(update.WorkingDir)
 			}
