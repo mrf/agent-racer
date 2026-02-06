@@ -417,33 +417,33 @@ export class Track {
     ctx.lineTo(finishX, bounds.y + bounds.height + 10);
     ctx.stroke();
 
-    // Static checkerboard pattern
+    // Static checkerboard pattern (left of finish line, mirroring start)
     const checkSize = 12;
     const cols = 4;
+    const checkerLeft = finishX - cols * checkSize - 2;
+    const checkerCenterX = checkerLeft + cols * checkSize / 2;
     for (let row = 0; row < Math.ceil((bounds.height + 20) / checkSize); row++) {
       for (let col = 0; col < cols; col++) {
         ctx.fillStyle = (row + col) % 2 === 0 ? '#e94560' : '#1a1a2e';
         ctx.fillRect(
-          finishX + 2 + col * checkSize,
+          checkerLeft + col * checkSize,
           bounds.y - 10 + row * checkSize,
           checkSize, checkSize
         );
       }
     }
 
-    // "FINISH" text above
+    // "FINISH" text and flag icon above checkerboard
     ctx.fillStyle = '#e94560';
     ctx.font = 'bold 11px Courier New';
     ctx.textAlign = 'center';
-    ctx.fillText('FINISH', finishX + cols * checkSize / 2 + 2, bounds.y - 20);
+    ctx.fillText('FINISH', checkerCenterX, bounds.y - 20);
+    this._drawCheckerFlag(ctx, checkerCenterX, bounds.y - 30, 10);
 
     // Token count label
     ctx.fillStyle = '#e94560';
     ctx.font = 'bold 12px Courier New';
     ctx.fillText(`${Math.round(maxTokens / 1000)}K`, finishX, bounds.y - 8);
-
-    // Small checkered flag icon at finish
-    this._drawCheckerFlag(ctx, finishX + cols * checkSize / 2 + 2, bounds.y - 30, 10);
   }
 
   _drawCheckerFlag(ctx, x, y, size) {
