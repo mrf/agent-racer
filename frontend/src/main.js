@@ -463,5 +463,5 @@ const conn = new RaceConnection({
 conn.connect();
 requestPermission();
 loadSoundConfig();
-log('Claude Racing Dashboard initialized', 'info');
+log('Agent Racing Dashboard initialized', 'info');
 log('Shortcuts: D=debug, M=mute, F=fullscreen, Click racer=details', 'info');
