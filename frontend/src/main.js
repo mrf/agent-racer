@@ -19,6 +19,11 @@ let muted = false;
 let selectedSessionId = null;
 let ambientStarted = false;
 
+// Flyout positioning state — tracks the current anchor side to avoid oscillation
+let flyoutAnchor = null;       // 'right', 'left', 'above', 'below'
+let flyoutCurrentX = null;     // smoothed X position
+let flyoutCurrentY = null;     // smoothed Y position
+
 // Track known session IDs and their activities for detecting appear/disappear/transitions
 let knownSessionIds = new Set();
 let sessionActivities = new Map();
@@ -99,6 +104,9 @@ function formatElapsed(startStr) {
 
 function showDetailFlyout(state, carX, carY) {
   selectedSessionId = state.id;
+  flyoutAnchor = null;       // reset anchor for fresh placement
+  flyoutCurrentX = null;
+  flyoutCurrentY = null;
   renderDetailFlyout(state);
   positionFlyout(carX, carY);
   detailFlyout.classList.remove('hidden');
@@ -106,68 +114,81 @@ function showDetailFlyout(state, carX, carY) {
 
 function positionFlyout(carX, carY) {
   const canvasRect = canvas.getBoundingClientRect();
-  const flyoutWidth = 380; // match CSS width
-  const flyoutMaxHeight = window.innerHeight * 0.8; // match CSS max-height
-  const margin = 50; // distance from car (scaled up for larger cars)
-  const padding = 10; // padding from screen edges
+  const margin = 50;
+  const padding = 10;
 
-  // Calculate absolute position relative to viewport
-  const absoluteCarX = canvasRect.left + carX;
-  const absoluteCarY = canvasRect.top + carY;
+  // Use actual rendered dimensions (falls back to CSS values if not yet laid out)
+  const flyoutWidth = detailFlyout.offsetWidth || 380;
+  const flyoutHeight = detailFlyout.offsetHeight || 200;
 
-  let left, top;
-  let arrowClass = 'arrow-left';
+  // Absolute car position in viewport coordinates
+  const carVX = canvasRect.left + carX;
+  const carVY = canvasRect.top + carY;
 
-  // Try positioning to the right of the car first
-  if (absoluteCarX + margin + flyoutWidth + padding < window.innerWidth) {
-    left = absoluteCarX + margin;
-    arrowClass = 'arrow-left';
+  // Helper: check if a given anchor side can fit the flyout on screen
+  const canFit = (anchor) => {
+    switch (anchor) {
+      case 'right': return carVX + margin + flyoutWidth + padding < window.innerWidth;
+      case 'left':  return carVX - margin - flyoutWidth > padding;
+      case 'below': return carVY + margin + flyoutHeight + padding < window.innerHeight;
+      case 'above': return carVY - margin - flyoutHeight > padding;
+      default: return false;
+    }
+  };
+
+  // Determine anchor — keep existing anchor if it still fits, otherwise pick best
+  const preferredOrder = ['right', 'left', 'below', 'above'];
+  if (!flyoutAnchor || !canFit(flyoutAnchor)) {
+    flyoutAnchor = preferredOrder.find(canFit) || 'right';
   }
-  // If not enough space on right, try left
-  else if (absoluteCarX - margin - flyoutWidth > padding) {
-    left = absoluteCarX - margin - flyoutWidth;
-    arrowClass = 'arrow-right';
-  }
-  // If neither works, center it horizontally
-  else {
-    left = Math.max(padding, Math.min(
-      window.innerWidth - flyoutWidth - padding,
-      absoluteCarX - flyoutWidth / 2
-    ));
-    // Position above or below based on vertical space
-    if (absoluteCarY > window.innerHeight / 2) {
-      top = absoluteCarY - margin - flyoutMaxHeight;
-      arrowClass = 'arrow-down';
-    } else {
-      top = absoluteCarY + margin;
+
+  let targetX, targetY, arrowClass;
+
+  switch (flyoutAnchor) {
+    case 'right':
+      targetX = carVX + margin;
+      targetY = carVY - flyoutHeight / 2;
+      arrowClass = 'arrow-left';
+      break;
+    case 'left':
+      targetX = carVX - margin - flyoutWidth;
+      targetY = carVY - flyoutHeight / 2;
+      arrowClass = 'arrow-right';
+      break;
+    case 'below':
+      targetX = carVX - flyoutWidth / 2;
+      targetY = carVY + margin;
       arrowClass = 'arrow-up';
-    }
+      break;
+    case 'above':
+      targetX = carVX - flyoutWidth / 2;
+      targetY = carVY - margin - flyoutHeight;
+      arrowClass = 'arrow-down';
+      break;
   }
 
-  // Calculate vertical position if not already set (for left/right positioning)
-  if (top === undefined) {
-    // Check if there's enough space below the car
-    const spaceBelow = window.innerHeight - padding - absoluteCarY;
-    if (spaceBelow >= margin + flyoutMaxHeight) {
-      // Position below the car
-      top = absoluteCarY + margin;
-    } else {
-      // Position above the car
-      top = absoluteCarY - margin - flyoutMaxHeight;
-    }
-    // Clamp to viewport bounds
-    top = Math.max(padding, Math.min(
-      window.innerHeight - flyoutMaxHeight - padding,
-      top
-    ));
+  // Clamp to viewport
+  targetX = Math.max(padding, Math.min(window.innerWidth - flyoutWidth - padding, targetX));
+  targetY = Math.max(padding, Math.min(window.innerHeight - flyoutHeight - padding, targetY));
+
+  // Smooth the position to avoid jitter from lerping car coordinates
+  if (flyoutCurrentX === null) {
+    flyoutCurrentX = targetX;
+    flyoutCurrentY = targetY;
+  } else {
+    const smoothing = 0.25;
+    flyoutCurrentX += (targetX - flyoutCurrentX) * smoothing;
+    flyoutCurrentY += (targetY - flyoutCurrentY) * smoothing;
   }
 
-  // Apply position
-  detailFlyout.style.left = `${left}px`;
-  detailFlyout.style.top = `${top}px`;
+  detailFlyout.style.left = `${Math.round(flyoutCurrentX)}px`;
+  detailFlyout.style.top = `${Math.round(flyoutCurrentY)}px`;
 
-  // Update arrow class
-  detailFlyout.className = detailFlyout.className.replace(/arrow-\w+/g, '').trim() + ` ${arrowClass}`;
+  // Update arrow class only if changed
+  const currentArrow = detailFlyout.className.match(/arrow-\w+/)?.[0];
+  if (currentArrow !== arrowClass) {
+    detailFlyout.className = detailFlyout.className.replace(/arrow-\w+/g, '').trim() + ` ${arrowClass}`;
+  }
 }
 
 function renderDetailFlyout(state) {
@@ -390,6 +411,9 @@ raceCanvas.onAfterDraw = () => {
 flyoutClose.addEventListener('click', () => {
   detailFlyout.classList.add('hidden');
   selectedSessionId = null;
+  flyoutAnchor = null;
+  flyoutCurrentX = null;
+  flyoutCurrentY = null;
 });
 
 // Debug panel close

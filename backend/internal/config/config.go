@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/agent-racer/backend/internal/session"
 	"gopkg.in/yaml.v3"
 )
 
@@ -15,6 +16,44 @@ type Config struct {
 	Models    map[string]int  `yaml:"models"`
 	Sound     SoundConfig     `yaml:"sound"`
 	TokenNorm TokenNormConfig `yaml:"token_normalization"`
+	Privacy   PrivacyConfig   `yaml:"privacy"`
+}
+
+// PrivacyConfig controls what session metadata is exposed to connected clients.
+type PrivacyConfig struct {
+	// MaskWorkingDirs replaces full directory paths with just the last
+	// path component (e.g. "/home/user/secret-project" → "secret-project").
+	MaskWorkingDirs bool `yaml:"mask_working_dirs"`
+
+	// MaskSessionIDs replaces composite session IDs with opaque short hashes.
+	MaskSessionIDs bool `yaml:"mask_session_ids"`
+
+	// MaskPIDs hides process IDs from broadcast data.
+	MaskPIDs bool `yaml:"mask_pids"`
+
+	// MaskTmuxTargets hides tmux pane locations from broadcast data.
+	MaskTmuxTargets bool `yaml:"mask_tmux_targets"`
+
+	// AllowedPaths is a list of glob patterns. When non-empty, only sessions
+	// whose working directory matches at least one pattern are broadcast.
+	AllowedPaths []string `yaml:"allowed_paths"`
+
+	// BlockedPaths is a list of glob patterns. Sessions whose working
+	// directory matches any pattern are excluded from broadcast.
+	// BlockedPaths is evaluated after AllowedPaths.
+	BlockedPaths []string `yaml:"blocked_paths"`
+}
+
+// NewPrivacyFilter converts the config into a session.PrivacyFilter.
+func (p *PrivacyConfig) NewPrivacyFilter() *session.PrivacyFilter {
+	return &session.PrivacyFilter{
+		MaskWorkingDirs: p.MaskWorkingDirs,
+		MaskSessionIDs:  p.MaskSessionIDs,
+		MaskPIDs:        p.MaskPIDs,
+		MaskTmuxTargets: p.MaskTmuxTargets,
+		AllowedPaths:    p.AllowedPaths,
+		BlockedPaths:    p.BlockedPaths,
+	}
 }
 
 // TokenNormConfig controls how token counts are resolved for each agent

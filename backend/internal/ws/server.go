@@ -123,7 +123,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	sessions := s.store.GetAll()
+	sessions := s.broadcaster.FilterSessions(s.store.GetAll())
 	json.NewEncoder(w).Encode(sessions)
 }
 

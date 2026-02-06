@@ -168,34 +168,34 @@ header {
   pointer-events: none;
 }
 
-/* Arrow pointing left (default) */
+/* Arrow pointing left (flyout is to the right of car) */
 #detail-flyout.arrow-left::before {
   left: -10px;
-  top: 20px;
+  top: calc(50% - 10px);
   border-width: 10px 10px 10px 0;
   border-color: transparent #444 transparent transparent;
 }
 
-/* Arrow pointing right */
+/* Arrow pointing right (flyout is to the left of car) */
 #detail-flyout.arrow-right::before {
   right: -10px;
-  top: 20px;
+  top: calc(50% - 10px);
   border-width: 10px 0 10px 10px;
   border-color: transparent transparent transparent #444;
 }
 
-/* Arrow pointing up */
+/* Arrow pointing up (flyout is below car) */
 #detail-flyout.arrow-up::before {
   top: -10px;
-  left: 20px;
+  left: calc(50% - 10px);
   border-width: 0 10px 10px 10px;
   border-color: transparent transparent #444 transparent;
 }
 
-/* Arrow pointing down */
+/* Arrow pointing down (flyout is above car) */
 #detail-flyout.arrow-down::before {
   bottom: -10px;
-  left: 20px;
+  left: calc(50% - 10px);
   border-width: 10px 10px 0 10px;
   border-color: #444 transparent transparent transparent;
 }

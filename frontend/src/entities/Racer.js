@@ -58,6 +58,15 @@ function getModelColor(model, source) {
     if (lower.includes('haiku')) {
       return { ...MODEL_COLORS['claude-haiku-4-5-20251001'], name: 'Haiku' };
     }
+    if (lower.startsWith('gemini')) {
+      const GEMINI_COLOR = { main: '#4285f4', dark: '#2b5fc2', light: '#6aa6ff' };
+      const tier = lower.includes('pro') ? 'Pro' : lower.includes('flash') ? 'Flash' : 'Gemini';
+      return { ...GEMINI_COLOR, name: tier };
+    }
+    if (lower.includes('codex') || lower.startsWith('o') || lower.startsWith('gpt')) {
+      const CODEX_COLOR = { main: '#10b981', dark: '#059669', light: '#34d399' };
+      return { ...CODEX_COLOR, name: shortModelName(model) };
+    }
     return { ...DEFAULT_COLOR, name: shortModelName(model) };
   }
 
@@ -932,9 +941,13 @@ export class Racer {
     const carY = y + this.springY;
 
     // --- Directory flag: pennant on a pole from the rear spoiler ---
-    const dirName = this.state.workingDir
+    // Fallback chain: workingDir basename → session name → source name
+    const rawName = this.state.workingDir
       ? (this.state.workingDir.split('/').filter(Boolean).pop() || this.state.name || '')
       : (this.state.name || '');
+    const dirName = (rawName && rawName !== 'unknown')
+      ? rawName
+      : (this.state.source || '');
 
     if (dirName) {
       ctx.font = 'bold 9px Courier New';

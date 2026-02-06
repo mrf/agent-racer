@@ -43,6 +43,7 @@ func main() {
 
 	store := session.NewStore()
 	broadcaster := ws.NewBroadcaster(store, cfg.Monitor.BroadcastThrottle, cfg.Monitor.SnapshotInterval)
+	broadcaster.SetPrivacyFilter(cfg.Privacy.NewPrivacyFilter())
 
 	frontendDir := ""
 	if *devMode {

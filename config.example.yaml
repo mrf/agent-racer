@@ -71,6 +71,31 @@ token_normalization:
   # sources that have not yet reported token data.
   tokens_per_message: 2000
 
+# Privacy controls for session metadata
+# Use these to limit what data is broadcast to connected clients.
+privacy:
+  # Replace full directory paths with just the last component
+  # e.g. "/home/user/secret-project" becomes "secret-project"
+  mask_working_dirs: false
+  # Replace session IDs with opaque short hashes
+  mask_session_ids: false
+  # Hide process IDs from broadcast data
+  mask_pids: false
+  # Hide tmux pane locations from broadcast data
+  mask_tmux_targets: false
+  # Allowlist: only broadcast sessions whose working directory (or a
+  # parent directory) matches at least one glob pattern. Empty list means
+  # all sessions are allowed. Uses Go filepath.Match syntax (* matches
+  # any non-separator sequence). Patterns are checked against the path
+  # and all its parents, so "/home/user/work/*" matches nested paths
+  # like "/home/user/work/foo/bar".
+  # Example: ["/home/user/work/*", "/home/user/projects/*"]
+  allowed_paths: []
+  # Denylist: exclude sessions whose working directory (or a parent)
+  # matches any pattern. Evaluated after allowed_paths.
+  # Example: ["/home/user/work/secret-*", "/tmp/*"]
+  blocked_paths: []
+
 # Sound settings
 sound:
   # Master enable/disable for all sounds

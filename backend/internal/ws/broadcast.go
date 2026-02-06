@@ -41,6 +41,7 @@ type Broadcaster struct {
 	mu             sync.RWMutex
 	clients        map[*client]bool
 	store          *session.Store
+	privacy        *session.PrivacyFilter
 	throttle       time.Duration
 	snapshotTicker *time.Ticker
 	pendingUpdates []*session.SessionState
@@ -53,6 +54,7 @@ func NewBroadcaster(store *session.Store, throttle, snapshotInterval time.Durati
 	b := &Broadcaster{
 		clients:  make(map[*client]bool),
 		store:    store,
+		privacy:  &session.PrivacyFilter{},
 		throttle: throttle,
 	}
 
@@ -60,6 +62,18 @@ func NewBroadcaster(store *session.Store, throttle, snapshotInterval time.Durati
 	go b.snapshotLoop()
 
 	return b
+}
+
+// SetPrivacyFilter configures the privacy filter applied to all outgoing
+// session data. Must be called before any clients connect.
+func (b *Broadcaster) SetPrivacyFilter(f *session.PrivacyFilter) {
+	b.privacy = f
+}
+
+// FilterSessions applies the privacy filter to the given sessions, removing
+// blocked sessions and masking sensitive fields.
+func (b *Broadcaster) FilterSessions(sessions []*session.SessionState) []*session.SessionState {
+	return b.privacy.FilterSlice(sessions)
 }
 
 func (b *Broadcaster) AddClient(conn *websocket.Conn) *client {
@@ -72,7 +86,7 @@ func (b *Broadcaster) AddClient(conn *websocket.Conn) *client {
 	snapshot := WSMessage{
 		Type: MsgSnapshot,
 		Payload: SnapshotPayload{
-			Sessions: b.store.GetAll(),
+			Sessions: b.privacy.FilterSlice(b.store.GetAll()),
 		},
 	}
 	data, _ := json.Marshal(snapshot)
@@ -142,10 +156,15 @@ func (b *Broadcaster) flush() {
 		return
 	}
 
+	filtered := b.privacy.FilterSlice(updates)
+	if len(filtered) == 0 && len(removed) == 0 {
+		return
+	}
+
 	msg := WSMessage{
 		Type: MsgDelta,
 		Payload: DeltaPayload{
-			Updates: updates,
+			Updates: filtered,
 			Removed: removed,
 		},
 	}
@@ -157,7 +176,7 @@ func (b *Broadcaster) snapshotLoop() {
 		msg := WSMessage{
 			Type: MsgSnapshot,
 			Payload: SnapshotPayload{
-				Sessions: b.store.GetAll(),
+				Sessions: b.privacy.FilterSlice(b.store.GetAll()),
 			},
 		}
 		b.broadcast(msg)
