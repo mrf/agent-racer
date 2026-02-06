@@ -34,6 +34,17 @@ type GeminiSource struct {
 	// skip unchanged files. We encode this as the "offset" by using the
 	// mtime's UnixNano value.
 	lastParsed map[string]time.Time
+
+	// prevCounts tracks the absolute message/tool counts from the previous
+	// parse of each session file so we can return deltas to the monitor.
+	prevCounts map[string]geminiAbsoluteCounts
+}
+
+// geminiAbsoluteCounts holds the absolute counts from the last full parse
+// of a Gemini session file. Used to compute deltas for the monitor.
+type geminiAbsoluteCounts struct {
+	Messages  int
+	ToolCalls int
 }
 
 func NewGeminiSource(discoverWindow time.Duration) *GeminiSource {
@@ -41,6 +52,7 @@ func NewGeminiSource(discoverWindow time.Duration) *GeminiSource {
 		discoverWindow: discoverWindow,
 		hashToPath:     make(map[string]string),
 		lastParsed:     make(map[string]time.Time),
+		prevCounts:     make(map[string]geminiAbsoluteCounts),
 	}
 }
 
@@ -147,6 +159,19 @@ func (g *GeminiSource) Parse(handle SessionHandle, offset int64) (SourceUpdate, 
 
 	update := parseGeminiSession(data)
 
+	// Convert absolute counts to deltas. The monitor accumulates deltas,
+	// but Gemini re-parses the entire file each time returning absolute
+	// counts. We track previous values and return the difference.
+	prev := g.prevCounts[handle.LogPath]
+	current := geminiAbsoluteCounts{
+		Messages:  update.MessageCount,
+		ToolCalls: update.ToolCalls,
+	}
+
+	update.MessageCount = max(current.Messages-prev.Messages, 0)
+	update.ToolCalls = max(current.ToolCalls-prev.ToolCalls, 0)
+	g.prevCounts[handle.LogPath] = current
+
 	// Use the new mtime as the offset (encoded as UnixNano).
 	newOffset := currentMtime.UnixNano()
 	g.lastParsed[handle.LogPath] = currentMtime
@@ -160,52 +185,50 @@ func (g *GeminiSource) Parse(handle SessionHandle, offset int64) (SourceUpdate, 
 }
 
 // parseGeminiSession parses the complete Gemini session JSON file and
-// returns a SourceUpdate with absolute counts. The monitor treats
-// MessageCount and ToolCalls as deltas, so we track the difference
-// ourselves. For now we return absolute values and let the monitor
-// handle them as if they were all new (on first parse) or zero-delta
-// (on re-parse with same data). The monitor accumulates, but we return
-// counts only for new data (since we skip unchanged files via mtime).
+// returns a SourceUpdate with absolute counts. The caller (GeminiSource.Parse)
+// converts these to deltas before returning to the monitor.
+//
+// The Gemini CLI session format is a JSON object with a "messages" array.
+// Each message has "type" (not "role") with values "user", "gemini", or
+// "info". Model responses use "gemini" and carry token data in a "tokens"
+// field and tool calls in a "toolCalls" array -- both at the message level,
+// not nested inside content parts.
 func parseGeminiSession(data []byte) SourceUpdate {
-	var update SourceUpdate
-
-	// Gemini session files contain a JSON array of message objects, or
-	// a wrapper object containing such an array. Try both.
-	var messages []geminiMessage
-	if err := json.Unmarshal(data, &messages); err != nil {
-		// Try wrapper object with common field names.
-		var wrapper struct {
-			Messages     []geminiMessage `json:"messages"`
-			Conversation []geminiMessage `json:"conversation"`
-			History      []geminiMessage `json:"history"`
-		}
-		if err := json.Unmarshal(data, &wrapper); err != nil {
-			return update
-		}
-		if wrapper.Messages != nil {
-			messages = wrapper.Messages
-		} else if wrapper.Conversation != nil {
-			messages = wrapper.Conversation
-		} else if wrapper.History != nil {
-			messages = wrapper.History
-		}
+	messages := unmarshalGeminiMessages(data)
+	if messages == nil {
+		return SourceUpdate{}
 	}
 
+	var update SourceUpdate
+
 	for _, msg := range messages {
-		role := msg.Role
-		if role == "" {
-			role = msg.Type
+		// Resolve message kind: CLI uses "type", API uses "role".
+		kind := msg.Role
+		if kind == "" {
+			kind = msg.Type
 		}
 
-		switch role {
+		switch kind {
 		case "user":
 			update.MessageCount++
 			update.Activity = "waiting"
-		case "model":
+		case "model", "gemini":
 			update.MessageCount++
 			update.Activity = "thinking"
 
-			// Check content parts for tool calls.
+			// Gemini CLI puts tool calls at the message level.
+			for _, tc := range msg.ToolCallsList {
+				update.ToolCalls++
+				update.Activity = "tool_use"
+				update.LastTool = tc.Name
+			}
+
+			// Gemini CLI puts thoughts at the message level.
+			if len(msg.Thoughts) > 0 {
+				update.Activity = "thinking"
+			}
+
+			// Gemini API puts tool calls inside content parts.
 			for _, part := range msg.Content.Parts {
 				if part.FunctionCall != nil {
 					update.ToolCalls++
@@ -217,8 +240,16 @@ func parseGeminiSession(data []byte) SourceUpdate {
 				}
 			}
 
-			// Token usage from response metadata.
-			if msg.UsageMetadata != nil {
+			// Token usage: prefer CLI "tokens" field, fall back to
+			// API "usageMetadata" format.
+			if msg.Tokens != nil {
+				if msg.Tokens.Input > 0 {
+					update.TokensIn = msg.Tokens.Input
+				}
+				if msg.Tokens.Output > 0 {
+					update.TokensOut = msg.Tokens.Output
+				}
+			} else if msg.UsageMetadata != nil {
 				if msg.UsageMetadata.PromptTokenCount > 0 {
 					update.TokensIn = msg.UsageMetadata.PromptTokenCount
 				}
@@ -242,6 +273,36 @@ func parseGeminiSession(data []byte) SourceUpdate {
 	}
 
 	return update
+}
+
+// unmarshalGeminiMessages extracts the message array from a Gemini session
+// file. The file may be a bare JSON array or a wrapper object with a
+// "messages", "conversation", or "history" field.
+func unmarshalGeminiMessages(data []byte) []geminiMessage {
+	var messages []geminiMessage
+	if json.Unmarshal(data, &messages) == nil {
+		return messages
+	}
+
+	var wrapper struct {
+		Messages     []geminiMessage `json:"messages"`
+		Conversation []geminiMessage `json:"conversation"`
+		History      []geminiMessage `json:"history"`
+	}
+	if json.Unmarshal(data, &wrapper) != nil {
+		return nil
+	}
+
+	switch {
+	case wrapper.Messages != nil:
+		return wrapper.Messages
+	case wrapper.Conversation != nil:
+		return wrapper.Conversation
+	case wrapper.History != nil:
+		return wrapper.History
+	default:
+		return nil
+	}
 }
 
 func extractGeminiModel(data []byte) string {
@@ -303,16 +364,43 @@ func geminiContextWindow(model string) int {
 }
 
 // geminiMessage represents a message in a Gemini session JSON file.
+// Supports both the real Gemini CLI format (type/tokens/toolCalls at
+// message level, content as a plain string) and the Gemini API format
+// (role/usageMetadata, content as {parts: [...]}).
 type geminiMessage struct {
-	Role          string        `json:"role"`
-	Type          string        `json:"type"`
-	Model         string        `json:"model,omitempty"`
-	Content       geminiContent `json:"content"`
-	UsageMetadata *geminiUsage  `json:"usageMetadata,omitempty"`
+	Role          string             `json:"role"`
+	Type          string             `json:"type"`
+	Model         string             `json:"model,omitempty"`
+	Content       geminiContent      `json:"content"`
+	UsageMetadata *geminiUsage       `json:"usageMetadata,omitempty"`
+	Tokens        *geminiTokens      `json:"tokens,omitempty"`
+	ToolCallsList []geminiToolCall   `json:"toolCalls,omitempty"`
+	Thoughts      []geminiThought    `json:"thoughts,omitempty"`
 }
 
+// geminiContent handles the content field which may be a plain string
+// (Gemini CLI format) or an object with parts (Gemini API format).
 type geminiContent struct {
 	Parts []geminiPart `json:"parts"`
+}
+
+func (c *geminiContent) UnmarshalJSON(data []byte) error {
+	// Try as object with parts first (Gemini API format).
+	type alias geminiContent
+	var obj alias
+	if err := json.Unmarshal(data, &obj); err == nil {
+		*c = geminiContent(obj)
+		return nil
+	}
+	// Accept plain string (Gemini CLI format) -- parts stay empty
+	// since we only need structured content parts for tool calls
+	// and thoughts.
+	var ignore string
+	if json.Unmarshal(data, &ignore) == nil {
+		return nil
+	}
+	// Unknown shape -- ignore silently.
+	return nil
 }
 
 type geminiPart struct {
@@ -326,10 +414,31 @@ type geminiFunctionCall struct {
 	Args json.RawMessage `json:"args,omitempty"`
 }
 
+// geminiUsage is the Gemini API response metadata format.
 type geminiUsage struct {
 	PromptTokenCount     int `json:"promptTokenCount"`
 	CandidatesTokenCount int `json:"candidatesTokenCount"`
 	TotalTokenCount      int `json:"totalTokenCount"`
+}
+
+// geminiTokens is the Gemini CLI session token format.
+type geminiTokens struct {
+	Input    int `json:"input"`
+	Output   int `json:"output"`
+	Cached   int `json:"cached"`
+	Thoughts int `json:"thoughts"`
+	Tool     int `json:"tool"`
+	Total    int `json:"total"`
+}
+
+// geminiToolCall represents a tool invocation in a Gemini CLI session.
+type geminiToolCall struct {
+	Name string `json:"name"`
+}
+
+// geminiThought represents a thinking step in a Gemini CLI session.
+type geminiThought struct {
+	Subject string `json:"subject"`
 }
 
 // refreshHashMappings scans running processes for gemini processes to build

@@ -357,6 +357,184 @@ func TestGeminiSessionSetsMaxContextTokens(t *testing.T) {
 	}
 }
 
+func TestParseGeminiSessionCLIFormat(t *testing.T) {
+	// Real Gemini CLI session format: object with "messages" array,
+	// type "user"/"gemini"/"info", content as plain string, toolCalls
+	// and tokens at message level.
+	data := []byte(`{
+		"sessionId": "b5ebc5b2-594a-475d-99c9-3f8d336e3e9b",
+		"messages": [
+			{
+				"type": "user",
+				"content": "how do I check my usage?"
+			},
+			{
+				"type": "gemini",
+				"content": "",
+				"toolCalls": [
+					{"name": "delegate_to_agent"},
+					{"name": "read_file"}
+				],
+				"thoughts": [
+					{"subject": "Analyzing the question"}
+				],
+				"model": "gemini-2.5-pro",
+				"tokens": {
+					"input": 7831,
+					"output": 25,
+					"cached": 0,
+					"thoughts": 100,
+					"tool": 0,
+					"total": 7956
+				}
+			},
+			{
+				"type": "user",
+				"content": "show me the file"
+			},
+			{
+				"type": "gemini",
+				"content": "Here is the file content.",
+				"model": "gemini-2.5-pro",
+				"tokens": {
+					"input": 15000,
+					"output": 200,
+					"total": 15200
+				}
+			}
+		]
+	}`)
+
+	update := parseGeminiSession(data)
+
+	if update.Model != "gemini-2.5-pro" {
+		t.Errorf("Model = %q, want %q", update.Model, "gemini-2.5-pro")
+	}
+	if update.MessageCount != 4 {
+		t.Errorf("MessageCount = %d, want 4", update.MessageCount)
+	}
+	if update.ToolCalls != 2 {
+		t.Errorf("ToolCalls = %d, want 2", update.ToolCalls)
+	}
+	if update.LastTool != "read_file" {
+		t.Errorf("LastTool = %q, want %q", update.LastTool, "read_file")
+	}
+	// Should use the last gemini message's tokens.input.
+	if update.TokensIn != 15000 {
+		t.Errorf("TokensIn = %d, want 15000", update.TokensIn)
+	}
+	if update.TokensOut != 200 {
+		t.Errorf("TokensOut = %d, want 200", update.TokensOut)
+	}
+	if update.MaxContextTokens != 1_048_576 {
+		t.Errorf("MaxContextTokens = %d, want 1048576", update.MaxContextTokens)
+	}
+}
+
+func TestParseGeminiSessionCLIFormatInfoMessages(t *testing.T) {
+	// "info" type messages should be skipped (not counted).
+	data := []byte(`{
+		"messages": [
+			{"type": "info", "content": "Authentication succeeded"},
+			{"type": "user", "content": "hello"},
+			{"type": "gemini", "content": "hi", "model": "gemini-2.5-flash", "tokens": {"input": 500, "output": 10, "total": 510}}
+		]
+	}`)
+
+	update := parseGeminiSession(data)
+
+	if update.MessageCount != 2 {
+		t.Errorf("MessageCount = %d, want 2 (info messages should not count)", update.MessageCount)
+	}
+	if update.TokensIn != 500 {
+		t.Errorf("TokensIn = %d, want 500", update.TokensIn)
+	}
+}
+
+func TestGeminiSourceParseDeltaConversion(t *testing.T) {
+	// Verify that Parse returns deltas, not absolute counts, when a
+	// session file is re-parsed after modification.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "session-2026-01-30T10-00-delta.json")
+
+	// Initial file with 2 messages and 1 tool call.
+	data1 := `{"messages":[{"type":"user","content":"hello"},{"type":"gemini","content":"","toolCalls":[{"name":"read_file"}],"model":"gemini-2.5-pro","tokens":{"input":500,"output":10,"total":510}}]}`
+	if err := os.WriteFile(path, []byte(data1), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	src := NewGeminiSource(10 * time.Minute)
+	handle := SessionHandle{
+		SessionID: "delta",
+		LogPath:   path,
+		Source:    "gemini",
+	}
+
+	// First parse: should return full absolute counts as deltas (prev=0).
+	update1, offset1, err := src.Parse(handle, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if update1.MessageCount != 2 {
+		t.Errorf("first parse MessageCount = %d, want 2", update1.MessageCount)
+	}
+	if update1.ToolCalls != 1 {
+		t.Errorf("first parse ToolCalls = %d, want 1", update1.ToolCalls)
+	}
+	if update1.TokensIn != 500 {
+		t.Errorf("first parse TokensIn = %d, want 500", update1.TokensIn)
+	}
+
+	// Update file with 2 more messages and 1 more tool call (4 total, 2 tools).
+	// We need a different mtime, so sleep briefly.
+	time.Sleep(10 * time.Millisecond)
+	data2 := `{"messages":[{"type":"user","content":"hello"},{"type":"gemini","content":"","toolCalls":[{"name":"read_file"}],"model":"gemini-2.5-pro","tokens":{"input":500,"output":10,"total":510}},{"type":"user","content":"run ls"},{"type":"gemini","content":"done","toolCalls":[{"name":"run_command"}],"tokens":{"input":8000,"output":50,"total":8050}}]}`
+	if err := os.WriteFile(path, []byte(data2), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	update2, _, err := src.Parse(handle, offset1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Should return delta: 4-2 = 2 new messages, 2-1 = 1 new tool call.
+	if update2.MessageCount != 2 {
+		t.Errorf("second parse MessageCount = %d, want 2 (delta)", update2.MessageCount)
+	}
+	if update2.ToolCalls != 1 {
+		t.Errorf("second parse ToolCalls = %d, want 1 (delta)", update2.ToolCalls)
+	}
+	// TokensIn is a snapshot (last model message), not a delta.
+	if update2.TokensIn != 8000 {
+		t.Errorf("second parse TokensIn = %d, want 8000", update2.TokensIn)
+	}
+}
+
+func TestGeminiContentUnmarshalString(t *testing.T) {
+	// Content as a plain string (Gemini CLI format).
+	data := []byte(`"hello world"`)
+	var c geminiContent
+	if err := c.UnmarshalJSON(data); err != nil {
+		t.Fatal(err)
+	}
+	// Plain strings result in empty Parts (we don't need text content).
+	if len(c.Parts) != 0 {
+		t.Errorf("expected 0 parts for string content, got %d", len(c.Parts))
+	}
+}
+
+func TestGeminiContentUnmarshalObject(t *testing.T) {
+	// Content as an object with parts (Gemini API format).
+	data := []byte(`{"parts": [{"text": "hello"}]}`)
+	var c geminiContent
+	if err := c.UnmarshalJSON(data); err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Parts) != 1 {
+		t.Errorf("expected 1 part, got %d", len(c.Parts))
+	}
+}
+
 func TestIsGeminiProcess(t *testing.T) {
 	tests := []struct {
 		name string
