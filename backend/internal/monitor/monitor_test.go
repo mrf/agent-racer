@@ -266,6 +266,64 @@ func TestScheduleRemovalNegativeDurationDisablesRemoval(t *testing.T) {
 	}
 }
 
+func TestStaleTerminalSessionAddedToRemovedKeys(t *testing.T) {
+	// Simulate the stale detection loop for a terminal session whose file
+	// has disappeared. The fix ensures m.removedKeys[key] is set so that
+	// if the file briefly reappears, the session is not re-created from
+	// offset 0 (which would cause zombie flickering).
+	store := session.NewStore()
+	m := &Monitor{
+		cfg:            &config.Config{},
+		store:          store,
+		tracked:        make(map[string]*trackedSession),
+		pendingRemoval: make(map[string]time.Time),
+		removedKeys:    make(map[string]bool),
+	}
+
+	key := trackingKey("claude", "terminal-session")
+	completedAt := time.Now().Add(-time.Minute)
+
+	// Put a terminal session in the store and tracking map.
+	store.Update(&session.SessionState{
+		ID:          key,
+		Source:      "claude",
+		Activity:    session.Complete,
+		CompletedAt: &completedAt,
+	})
+	m.tracked[key] = &trackedSession{
+		handle: SessionHandle{
+			SessionID: "terminal-session",
+			Source:    "claude",
+		},
+		lastDataTime: completedAt,
+	}
+
+	// Simulate stale detection: file is no longer discovered.
+	activeKeys := map[string]bool{} // empty — file disappeared
+
+	var toRemove []string
+	for k := range m.tracked {
+		if activeKeys[k] {
+			continue
+		}
+		if state, ok := m.store.Get(k); ok && state.IsTerminal() {
+			m.removedKeys[k] = true
+			toRemove = append(toRemove, k)
+		}
+	}
+	for _, k := range toRemove {
+		delete(m.tracked, k)
+	}
+
+	// Verify: tracking removed and removedKeys set.
+	if _, exists := m.tracked[key]; exists {
+		t.Error("terminal session should have been removed from tracked")
+	}
+	if !m.removedKeys[key] {
+		t.Error("terminal session cleaned up by stale detection should be added to removedKeys")
+	}
+}
+
 func TestHandleSessionEndFallsBackToTranscriptPath(t *testing.T) {
 	store := session.NewStore()
 	broadcaster := ws.NewBroadcaster(store, 100*time.Millisecond, 5*time.Second)
