@@ -29,6 +29,7 @@ type jsonlEntry struct {
 	UUID      string          `json:"uuid"`
 	SessionID string          `json:"sessionId"`
 	Timestamp string          `json:"timestamp"`
+	Cwd       string          `json:"cwd"`
 	Message   json.RawMessage `json:"message"`
 }
 
@@ -53,6 +54,7 @@ type ParseResult struct {
 	LastTool     string
 	LastActivity string
 	LastTime     time.Time
+	WorkingDir   string
 }
 
 func FindSessionFile(workingDir string) (string, error) {
@@ -149,6 +151,10 @@ func ParseSessionJSONL(path string, offset int64) (*ParseResult, int64, error) {
 
 		if entry.SessionID != "" && result.SessionID == "" {
 			result.SessionID = entry.SessionID
+		}
+
+		if entry.Cwd != "" {
+			result.WorkingDir = entry.Cwd
 		}
 
 		if entry.Timestamp != "" {

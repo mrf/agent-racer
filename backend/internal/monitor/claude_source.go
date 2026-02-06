@@ -69,6 +69,7 @@ func (c *ClaudeSource) Parse(handle SessionHandle, offset int64) (SourceUpdate, 
 		LastTool:     result.LastTool,
 		Activity:     result.LastActivity,
 		LastTime:     result.LastTime,
+		WorkingDir:   result.WorkingDir,
 	}
 
 	if result.LatestUsage != nil {

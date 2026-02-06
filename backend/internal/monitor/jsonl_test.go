@@ -132,6 +132,61 @@ func TestParseSessionJSONL(t *testing.T) {
 	}
 }
 
+// TestParseSessionJSONLExtractsCwd verifies that the parser extracts the cwd
+// field from JSONL entries and uses the latest value. This is a regression test:
+// worktree sessions write to ~/.claude/projects/-home-mrf/ (home dir project)
+// but the actual cwd changes to the worktree path after the first tool call.
+// Without cwd extraction, all worktree sessions show "mrf" as their name.
+func TestParseSessionJSONLExtractsCwd(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test-session.jsonl")
+
+	// Simulate a worktree session: cwd starts as /home/mrf, then changes
+	content := `{"type":"user","cwd":"/home/mrf","message":{"role":"user","content":[{"type":"text","text":"hello"}]},"sessionId":"test-cwd","timestamp":"2026-01-30T10:00:00.000Z"}
+{"type":"assistant","cwd":"/home/mrf","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"text","text":"hi"}]},"sessionId":"test-cwd","timestamp":"2026-01-30T10:00:01.000Z"}
+{"type":"user","cwd":"/home/mrf/Projects/agent-racer--fix-foo","message":{"role":"user","content":[{"type":"text","text":"read a file"}]},"sessionId":"test-cwd","timestamp":"2026-01-30T10:00:02.000Z"}
+{"type":"assistant","cwd":"/home/mrf/Projects/agent-racer--fix-foo","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"tool_use","name":"Read","id":"t1","input":{}}]},"sessionId":"test-cwd","timestamp":"2026-01-30T10:00:03.000Z"}
+`
+
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, _, err := ParseSessionJSONL(path, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Should use the LATEST cwd, not the first one
+	if result.WorkingDir != "/home/mrf/Projects/agent-racer--fix-foo" {
+		t.Errorf("WorkingDir = %q, want %q (should use latest cwd)",
+			result.WorkingDir, "/home/mrf/Projects/agent-racer--fix-foo")
+	}
+}
+
+// TestParseSessionJSONLCwdEmptyWhenMissing verifies WorkingDir is empty
+// when no cwd field is present in any JSONL entries.
+func TestParseSessionJSONLCwdEmptyWhenMissing(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test-session.jsonl")
+
+	content := `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"hello"}]},"sessionId":"test-no-cwd","timestamp":"2026-01-30T10:00:00.000Z"}
+`
+
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, _, err := ParseSessionJSONL(path, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if result.WorkingDir != "" {
+		t.Errorf("WorkingDir = %q, want empty (no cwd in entries)", result.WorkingDir)
+	}
+}
+
 func TestTokenUsageTotalContext(t *testing.T) {
 	usage := TokenUsage{
 		InputTokens:              100,
