@@ -266,6 +266,90 @@ func TestCodexSourceParseContextWindowFromTokenCount(t *testing.T) {
 	}
 }
 
+func TestCodexSourceParseNestedTokenFormat(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "rollout-nested.jsonl")
+
+	// Real Codex CLI format: token data nested under info.total_token_usage.
+	content := `{"timestamp":"2026-02-03T00:59:08.310Z","type":"session_meta","payload":{"id":"nested-test","model":"gpt-5.2-codex","timestamp":"2026-02-03T00:59:08.300Z","source":"cli"}}
+{"timestamp":"2026-02-03T00:59:09Z","type":"turn_context","payload":{"cwd":"/home/user/myproject","model":"gpt-5.2-codex"}}
+{"timestamp":"2026-02-03T00:59:10Z","type":"event_msg","payload":{"type":"user_message","payload":{"text":"fix the bug"}}}
+{"timestamp":"2026-02-03T00:59:11Z","type":"event_msg","payload":{"type":"agent_reasoning","payload":{}}}
+{"timestamp":"2026-02-03T00:59:12Z","type":"event_msg","payload":{"type":"agent_message","payload":{"text":"on it"}}}
+{"timestamp":"2026-02-03T00:59:13Z","type":"response_item","payload":{"type":"function_call","name":"shell_command","arguments":"{\"command\":\"ls\"}"}}
+{"timestamp":"2026-02-03T00:59:14Z","type":"response_item","payload":{"type":"function_call_output","output":"file.go"}}
+{"timestamp":"2026-02-03T00:59:15Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":45000,"cached_input_tokens":30000,"output_tokens":1200,"reasoning_output_tokens":500,"total_tokens":46200},"model_context_window":258400},"rate_limits":{"primary":null}}}
+`
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	src := NewCodexSource(10 * time.Minute)
+	handle := SessionHandle{SessionID: "nested-test", LogPath: path, Source: "codex"}
+
+	update, offset, err := src.Parse(handle, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if offset == 0 {
+		t.Error("expected non-zero offset")
+	}
+	if update.TokensIn != 45000 {
+		t.Errorf("TokensIn = %d, want 45000", update.TokensIn)
+	}
+	if update.TokensOut != 1200 {
+		t.Errorf("TokensOut = %d, want 1200", update.TokensOut)
+	}
+	if update.MaxContextTokens != 258400 {
+		t.Errorf("MaxContextTokens = %d, want 258400", update.MaxContextTokens)
+	}
+	if update.WorkingDir != "/home/user/myproject" {
+		t.Errorf("WorkingDir = %q, want %q", update.WorkingDir, "/home/user/myproject")
+	}
+	if update.Model != "gpt-5.2-codex" {
+		t.Errorf("Model = %q, want %q", update.Model, "gpt-5.2-codex")
+	}
+	// 1 user_message + 1 agent_message = 2 messages
+	if update.MessageCount != 2 {
+		t.Errorf("MessageCount = %d, want 2", update.MessageCount)
+	}
+	// 1 function_call (function_call_output is not a tool call)
+	if update.ToolCalls != 1 {
+		t.Errorf("ToolCalls = %d, want 1", update.ToolCalls)
+	}
+	if update.LastTool != "shell_command" {
+		t.Errorf("LastTool = %q, want %q", update.LastTool, "shell_command")
+	}
+}
+
+func TestCodexSourceParseNullInfoTokenCount(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "rollout-null.jsonl")
+
+	// First token_count event can have info:null (before any API call completes).
+	content := `{"type":"session_meta","payload":{"id":"null-info","model":"gpt-5.2-codex"}}
+{"type":"event_msg","payload":{"type":"token_count","info":null,"rate_limits":{"primary":null}}}
+{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":8000,"output_tokens":200},"model_context_window":258400},"rate_limits":{"primary":null}}}
+`
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	src := NewCodexSource(10 * time.Minute)
+	handle := SessionHandle{SessionID: "null-info", LogPath: path, Source: "codex"}
+
+	update, _, err := src.Parse(handle, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if update.TokensIn != 8000 {
+		t.Errorf("TokensIn = %d, want 8000 (should use second token_count)", update.TokensIn)
+	}
+	if update.MaxContextTokens != 258400 {
+		t.Errorf("MaxContextTokens = %d, want 258400", update.MaxContextTokens)
+	}
+}
+
 func TestCodexSessionIDFromFilenameFallback(t *testing.T) {
 	// Short filename that doesn't contain a full UUID.
 	got := codexSessionIDFromFilename("rollout-short.jsonl")

@@ -241,11 +241,20 @@ func parseCodexEnvelope(typ string, payload json.RawMessage) codexParsed {
 				parsed.messages = 1
 				parsed.activity = "thinking"
 			case "token_count":
-				parseCodexTokenCount(event.Payload, &parsed)
+				// Newer Codex CLI nests token data under info/rate_limits
+				// at the event_msg level (no inner "payload" wrapper). Fall
+				// back to the full event_msg payload when inner is absent.
+				tcData := event.Payload
+				if len(tcData) == 0 || string(tcData) == "null" {
+					tcData = payload
+				}
+				parseCodexTokenCount(tcData, &parsed)
 			case "turn_started":
 				parseCodexTurnStarted(event.Payload, &parsed)
 			case "tool_call":
 				parseCodexToolCall(event.Payload, &parsed)
+			case "agent_reasoning":
+				parsed.activity = "thinking"
 			case "session_configured":
 				var cfg struct {
 					Model json.RawMessage `json:"model"`
@@ -265,6 +274,18 @@ func parseCodexEnvelope(typ string, payload json.RawMessage) codexParsed {
 		}
 		if json.Unmarshal(payload, &env) == nil && env.Cwd != "" {
 			parsed.workingDir = env.Cwd
+		}
+
+	case "turn_context":
+		var tc struct {
+			Cwd   string          `json:"cwd"`
+			Model json.RawMessage `json:"model"`
+		}
+		if json.Unmarshal(payload, &tc) == nil {
+			if tc.Cwd != "" {
+				parsed.workingDir = tc.Cwd
+			}
+			parsed.model = parseCodexModel(tc.Model)
 		}
 	}
 
@@ -351,7 +372,6 @@ func parseCodexBareItem(line []byte) codexParsed {
 func parseCodexResponseItem(payload json.RawMessage, parsed *codexParsed) {
 	var item struct {
 		Type     string `json:"type"`
-		Command  string `json:"command"`
 		ToolName string `json:"tool_name"`
 		Name     string `json:"name"`
 	}
@@ -378,6 +398,10 @@ func parseCodexResponseItem(payload json.RawMessage, parsed *codexParsed) {
 		if parsed.lastTool == "" {
 			parsed.lastTool = item.Name
 		}
+	case "function_call", "custom_tool_call":
+		parsed.toolCalls = 1
+		parsed.activity = "tool_use"
+		parsed.lastTool = item.Name
 	case "tool_call":
 		parseCodexToolCall(payload, parsed)
 	case "reasoning":
@@ -390,20 +414,40 @@ func parseCodexResponseItem(payload json.RawMessage, parsed *codexParsed) {
 }
 
 func parseCodexTokenCount(payload json.RawMessage, parsed *codexParsed) {
-	// Codex token counts are cumulative snapshots. The model_context_window
-	// field reports the model's total context size when available.
-	var tc struct {
-		InputTokens         int `json:"input_tokens"`
-		CachedInputTokens   int `json:"cached_input_tokens"`
-		OutputTokens        int `json:"output_tokens"`
-		TotalTokens         int `json:"total_tokens"`
-		ModelContextWindow  int `json:"model_context_window"`
+	// Codex token counts are cumulative snapshots. Newer Codex CLI versions
+	// nest the data under an "info" object with "total_token_usage" and
+	// "model_context_window". Older versions use flat top-level fields.
+	var nested struct {
+		Info *struct {
+			TotalTokenUsage *struct {
+				InputTokens  int `json:"input_tokens"`
+				OutputTokens int `json:"output_tokens"`
+			} `json:"total_token_usage"`
+			ModelContextWindow int `json:"model_context_window"`
+		} `json:"info"`
 	}
-	if json.Unmarshal(payload, &tc) == nil {
-		parsed.tokensIn = tc.InputTokens
-		parsed.tokensOut = tc.OutputTokens
-		if tc.ModelContextWindow > 0 {
-			parsed.maxContextTokens = tc.ModelContextWindow
+	if json.Unmarshal(payload, &nested) == nil && nested.Info != nil {
+		if nested.Info.TotalTokenUsage != nil {
+			parsed.tokensIn = nested.Info.TotalTokenUsage.InputTokens
+			parsed.tokensOut = nested.Info.TotalTokenUsage.OutputTokens
+		}
+		if nested.Info.ModelContextWindow > 0 {
+			parsed.maxContextTokens = nested.Info.ModelContextWindow
+		}
+		return
+	}
+
+	// Flat format (older Codex CLI or bare-format lines).
+	var flat struct {
+		InputTokens        int `json:"input_tokens"`
+		OutputTokens       int `json:"output_tokens"`
+		ModelContextWindow int `json:"model_context_window"`
+	}
+	if json.Unmarshal(payload, &flat) == nil {
+		parsed.tokensIn = flat.InputTokens
+		parsed.tokensOut = flat.OutputTokens
+		if flat.ModelContextWindow > 0 {
+			parsed.maxContextTokens = flat.ModelContextWindow
 		}
 	}
 }
