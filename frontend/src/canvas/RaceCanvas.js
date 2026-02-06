@@ -54,9 +54,11 @@ export class RaceCanvas {
 
     this.resize();
     this._resizeHandler = () => this.resize();
+    this._clickHandler = (e) => this.handleClick(e);
+    this._mouseMoveHandler = (e) => this.handleMouseMove(e);
     window.addEventListener('resize', this._resizeHandler);
-    this.canvas.addEventListener('click', (e) => this.handleClick(e));
-    this.canvas.addEventListener('mousemove', (e) => this.handleMouseMove(e));
+    this.canvas.addEventListener('click', this._clickHandler);
+    this.canvas.addEventListener('mousemove', this._mouseMoveHandler);
     this.startLoop();
   }
 
@@ -532,7 +534,27 @@ export class RaceCanvas {
   destroy() {
     if (this.animFrameId) {
       cancelAnimationFrame(this.animFrameId);
+      this.animFrameId = null;
     }
     window.removeEventListener('resize', this._resizeHandler);
+    this.canvas.removeEventListener('click', this._clickHandler);
+    this.canvas.removeEventListener('mousemove', this._mouseMoveHandler);
+
+    // Clear racer references
+    this.racers.clear();
+
+    // Clear particle system
+    this.particles.clear();
+
+    // Release offscreen canvas
+    this.glowCanvas.width = 0;
+    this.glowCanvas.height = 0;
+    this.glowCanvas = null;
+    this.glowCtx = null;
+
+    // Clear callback references
+    this.onRacerClick = null;
+    this.onAfterDraw = null;
+    this.engine = null;
   }
 }

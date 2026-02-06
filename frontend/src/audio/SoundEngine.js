@@ -33,10 +33,12 @@ export class SoundEngine {
     this.muted = false;
     this.ambientRunning = false;
     this.engineNodes = new Map(); // per-racer engine hum
+    this.engineStopTimeouts = new Map(); // track pending stop timeouts
     this.noiseBuffer = null;
     this.impulseBuffer = null;
     this.ambientNodes = [];
     this.duckTimeout = null;
+    this.gustTimeout = null;
     // Dynamic crowd excitement
     this.crowdGain = null;
     this.crowdLfoGain = null;
@@ -195,7 +197,7 @@ export class SoundEngine {
 
   _scheduleGust(gainNode) {
     const delay = 5000 + Math.random() * 10000; // 5-15s
-    setTimeout(() => {
+    this.gustTimeout = setTimeout(() => {
       if (!this.ambientRunning || !this.ctx) return;
       const now = this.ctx.currentTime;
       gainNode.gain.cancelScheduledValues(now);
@@ -273,6 +275,10 @@ export class SoundEngine {
       clearInterval(this.excitementUpdateInterval);
       this.excitementUpdateInterval = null;
     }
+    if (this.gustTimeout) {
+      clearTimeout(this.gustTimeout);
+      this.gustTimeout = null;
+    }
     for (const nodes of this.ambientNodes) {
       try { nodes.noise.stop(); } catch { /* ok */ }
       try { nodes.lfo?.stop(); } catch { /* ok */ }
@@ -294,6 +300,13 @@ export class SoundEngine {
       return;
     }
 
+    // Cancel any pending stop operation for this racer
+    const pendingStop = this.engineStopTimeouts.get(racerId);
+    if (pendingStop) {
+      clearTimeout(pendingStop);
+      this.engineStopTimeouts.delete(racerId);
+    }
+
     const pitchMult = activity === 'tool_use' ? 1.4 : 1.0;
     const existing = this.engineNodes.get(racerId);
 
@@ -303,6 +316,10 @@ export class SoundEngine {
       existing.osc1.frequency.linearRampToValueAtTime(80 * pitchMult, now + 0.15);
       existing.osc2.frequency.linearRampToValueAtTime(82 * pitchMult, now + 0.15);
       existing.filter.frequency.linearRampToValueAtTime(200 * pitchMult, now + 0.15);
+      // Restore volume in case it was fading out
+      existing.gain.gain.cancelScheduledValues(now);
+      existing.gain.gain.setValueAtTime(existing.gain.gain.value, now);
+      existing.gain.gain.linearRampToValueAtTime(0.04, now + 0.1);
       return;
     }
 
@@ -337,15 +354,23 @@ export class SoundEngine {
     const nodes = this.engineNodes.get(racerId);
     if (!nodes) return;
 
+    // Clear any existing stop timeout for this racer
+    const existingTimeout = this.engineStopTimeouts.get(racerId);
+    if (existingTimeout) {
+      clearTimeout(existingTimeout);
+    }
+
     if (this.ctx) {
       const now = this.ctx.currentTime;
       nodes.gain.gain.cancelScheduledValues(now);
       nodes.gain.gain.setValueAtTime(nodes.gain.gain.value, now);
       nodes.gain.gain.linearRampToValueAtTime(0, now + 0.2);
-      setTimeout(() => {
+      const timeoutId = setTimeout(() => {
         try { nodes.osc1.stop(); } catch { /* ok */ }
         try { nodes.osc2.stop(); } catch { /* ok */ }
+        this.engineStopTimeouts.delete(racerId);
       }, 300);
+      this.engineStopTimeouts.set(racerId, timeoutId);
     } else {
       try { nodes.osc1.stop(); } catch { /* ok */ }
       try { nodes.osc2.stop(); } catch { /* ok */ }
@@ -532,6 +557,45 @@ export class SoundEngine {
         this.stopEngine(id);
       }
     }
+  }
+
+  destroy() {
+    // Stop ambient sounds
+    this.stopAmbient();
+
+    // Clear duck timeout
+    if (this.duckTimeout) {
+      clearTimeout(this.duckTimeout);
+      this.duckTimeout = null;
+    }
+
+    // Stop all engine hums and clear pending timeouts
+    for (const id of [...this.engineNodes.keys()]) {
+      const nodes = this.engineNodes.get(id);
+      if (nodes) {
+        try { nodes.osc1.stop(); } catch { /* ok */ }
+        try { nodes.osc2.stop(); } catch { /* ok */ }
+      }
+    }
+    this.engineNodes.clear();
+
+    for (const timeoutId of this.engineStopTimeouts.values()) {
+      clearTimeout(timeoutId);
+    }
+    this.engineStopTimeouts.clear();
+
+    // Close audio context
+    if (this.ctx) {
+      this.ctx.close().catch(() => {});
+      this.ctx = null;
+    }
+
+    // Clear references
+    this.masterGain = null;
+    this.ambientBus = null;
+    this.sfxBus = null;
+    this.noiseBuffer = null;
+    this.impulseBuffer = null;
   }
 
   setMasterVolume(volume) {

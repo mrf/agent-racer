@@ -8,6 +8,7 @@ export class RaceConnection {
     this.reconnectDelay = 1000;
     this.maxReconnectDelay = 30000;
     this.reconnectAttempts = 0;
+    this.reconnectTimeoutId = null;
   }
 
   connect() {
@@ -61,10 +62,14 @@ export class RaceConnection {
       this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1),
       this.maxReconnectDelay
     );
-    setTimeout(() => this.connect(), delay);
+    this.reconnectTimeoutId = setTimeout(() => this.connect(), delay);
   }
 
   disconnect() {
+    if (this.reconnectTimeoutId) {
+      clearTimeout(this.reconnectTimeoutId);
+      this.reconnectTimeoutId = null;
+    }
     if (this.ws) {
       this.ws.close();
       this.ws = null;

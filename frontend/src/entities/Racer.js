@@ -424,6 +424,8 @@ export class Racer {
     // Parking lot: apply desaturation via filter if supported
     if (this.parkingLotDim > 0.01) {
       ctx.filter = `saturate(${1 - this.parkingLotDim * 0.7})`;
+    } else {
+      ctx.filter = 'none';
     }
 
     // Apply spin for errored
