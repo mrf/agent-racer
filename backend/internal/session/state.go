@@ -76,6 +76,7 @@ type SessionState struct {
 	WorkingDir         string     `json:"workingDir"`
 	StartedAt          time.Time  `json:"startedAt"`
 	LastActivityAt     time.Time  `json:"lastActivityAt"`
+	LastDataReceivedAt time.Time  `json:"lastDataReceivedAt"`
 	CompletedAt        *time.Time `json:"completedAt,omitempty"`
 	MessageCount       int        `json:"messageCount"`
 	ToolCallCount      int        `json:"toolCallCount"`

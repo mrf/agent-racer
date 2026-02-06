@@ -10,8 +10,8 @@ server:
 
 sources:
   claude: true
-  codex: false    # Set to true to enable Codex (OpenAI) session monitoring
-  gemini: false   # Set to true to enable Gemini CLI session monitoring
+  codex: true # Set to true to enable Codex (OpenAI) session monitoring
+  gemini: true # Set to true to enable Gemini CLI session monitoring
 
 monitor:
   poll_interval: 1s

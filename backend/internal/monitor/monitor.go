@@ -132,7 +132,14 @@ func (m *Monitor) poll() {
 			ts.fileOffset = newOffset
 			hasNewData := newOffset > oldOffset || update.HasData()
 			if hasNewData {
-				ts.lastDataTime = now
+				// Use the actual timestamp from parsed data when available
+				// so that old sessions discovered on startup are immediately
+				// detected as stale rather than appearing active for 2 minutes.
+				if !update.LastTime.IsZero() {
+					ts.lastDataTime = update.LastTime
+				} else {
+					ts.lastDataTime = now
+				}
 			}
 
 			// Always use filename-based session ID to ensure session identity
@@ -161,6 +168,16 @@ func (m *Monitor) poll() {
 			}
 
 			if !existed {
+				// Skip sessions that are already stale on initial discovery.
+				// This prevents dead session files from briefly appearing as
+				// active on server startup.
+				if !update.LastTime.IsZero() && m.cfg.Monitor.SessionStaleAfter > 0 {
+					if now.Sub(update.LastTime) > m.cfg.Monitor.SessionStaleAfter {
+						delete(m.tracked, key)
+						m.removedKeys[key] = true
+						continue
+					}
+				}
 				startedAt := h.StartedAt
 				if startedAt.IsZero() {
 					startedAt = now
@@ -204,6 +221,10 @@ func (m *Monitor) poll() {
 				state.LastActivityAt = now
 			} else {
 				state.LastActivityAt = update.LastTime
+			}
+
+			if hasNewData {
+				state.LastDataReceivedAt = now
 			}
 
 			// Accumulate message/tool deltas before token resolution so
