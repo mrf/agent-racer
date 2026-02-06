@@ -297,6 +297,9 @@ func (m *Monitor) poll() {
 		if state, ok := m.store.Get(key); ok {
 			if state.IsTerminal() {
 				// Already terminal and file disappeared — just clean up tracking.
+				// Add to removedKeys so the session isn't re-created with offset 0
+				// if the file briefly reappears on the next poll cycle.
+				m.removedKeys[key] = true
 				toRemove = append(toRemove, key)
 				continue
 			}
