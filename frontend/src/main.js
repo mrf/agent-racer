@@ -84,6 +84,12 @@ function formatTokens(tokens) {
   return `${tokens}`;
 }
 
+function formatBurnRate(rate) {
+  if (!rate || rate <= 0) return '-';
+  if (rate >= 1000) return `${(rate / 1000).toFixed(1)}K/min`;
+  return `${Math.round(rate)}/min`;
+}
+
 function formatTime(dateStr) {
   if (!dateStr) return '-';
   const d = new Date(dateStr);
@@ -210,6 +216,10 @@ function renderDetailFlyout(state) {
     <div class="detail-progress">
       <div class="detail-progress-bar" style="width:${pct}%;background:${barColor}"></div>
       <span class="detail-progress-label">${formatTokens(state.tokensUsed)} / ${formatTokens(state.maxContextTokens)} (${pct}%)</span>
+    </div>
+    <div class="detail-row">
+      <span class="label">Burn Rate</span>
+      <span class="value burn-rate">${formatBurnRate(state.burnRatePerMinute)}</span>
     </div>
     <div class="detail-row">
       <span class="label">Model</span>

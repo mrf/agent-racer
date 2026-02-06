@@ -11,15 +11,16 @@ import (
 )
 
 type mockSession struct {
-	state       *session.SessionState
+	state         *session.SessionState
 	tokensPerTick int
-	pattern     string
-	stageTime   int
-	maxTokens   int
-	errorAt     float64
-	tools       []string
-	toolIdx     int
-	completed   bool
+	pattern       string
+	stageTime     int
+	maxTokens     int
+	errorAt       float64
+	tools         []string
+	toolIdx       int
+	completed     bool
+	prevTokens    int
 }
 
 var commonTools = []string{"Read", "Write", "Edit", "Bash", "Grep", "Glob", "Task", "LSP"}
@@ -152,10 +153,13 @@ func (g *MockGenerator) advanceMock(ms *mockSession, tick int) {
 	now := time.Now()
 	ms.state.LastActivityAt = now
 
+	prevTokens := ms.state.TokensUsed
+
 	if tick <= 2 {
 		ms.state.Activity = session.Starting
 		ms.state.TokensUsed += 500
 		ms.state.UpdateUtilization()
+		ms.prevTokens = prevTokens
 		return
 	}
 
@@ -171,6 +175,16 @@ func (g *MockGenerator) advanceMock(ms *mockSession, tick int) {
 	case "methodical":
 		g.advanceMethodical(ms, tick)
 	}
+
+	// Calculate burn rate: tokens gained this tick, scaled to realistic per-minute rates
+	// Target range: 500-7000 tokens/min for demo
+	tokenDelta := ms.state.TokensUsed - prevTokens
+	if tokenDelta > 0 {
+		ms.state.BurnRatePerMinute = float64(tokenDelta) * 2.5
+	} else {
+		ms.state.BurnRatePerMinute = 0
+	}
+	ms.prevTokens = prevTokens
 }
 
 func (g *MockGenerator) advanceSteady(ms *mockSession, tick int) {

@@ -84,6 +84,7 @@ type SessionState struct {
 	IsChurning         bool       `json:"isChurning,omitempty"`
 	TmuxTarget         string     `json:"tmuxTarget,omitempty"`
 	Lane               int        `json:"lane"`
+	BurnRatePerMinute  float64    `json:"burnRatePerMinute,omitempty"`
 }
 
 func (s *SessionState) UpdateUtilization() {

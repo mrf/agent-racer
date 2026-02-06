@@ -14,11 +14,18 @@ import (
 	"github.com/agent-racer/backend/internal/ws"
 )
 
+// tokenSnapshot stores a token count at a point in time for burn rate calculation.
+type tokenSnapshot struct {
+	tokens    int
+	timestamp time.Time
+}
+
 // trackedSession holds per-session state used by the monitor between polls.
 type trackedSession struct {
-	handle       SessionHandle
-	fileOffset   int64
-	lastDataTime time.Time
+	handle         SessionHandle
+	fileOffset     int64
+	lastDataTime   time.Time
+	tokenSnapshots []tokenSnapshot
 }
 
 // trackingKey returns the composite key used to identify a tracked session.
@@ -243,6 +250,9 @@ func (m *Monitor) poll() {
 			}
 
 			m.resolveTokens(state, update, maxTokens)
+
+			// Calculate burn rate from token history
+			state.BurnRatePerMinute = m.calculateBurnRate(ts, state.TokensUsed, now)
 
 			m.store.Update(state)
 			updates = append(updates, state)
@@ -621,6 +631,61 @@ func (m *Monitor) resolveTokens(state *session.SessionState, update SourceUpdate
 
 	state.MaxContextTokens = maxTokens
 	state.UpdateUtilization()
+}
+
+const burnRateWindow = 60 * time.Second
+
+// calculateBurnRate computes the token consumption rate (tokens per minute)
+// using a rolling window of recent token snapshots.
+func (m *Monitor) calculateBurnRate(ts *trackedSession, currentTokens int, now time.Time) float64 {
+	if currentTokens <= 0 {
+		return 0
+	}
+
+	// Append current snapshot
+	ts.tokenSnapshots = append(ts.tokenSnapshots, tokenSnapshot{
+		tokens:    currentTokens,
+		timestamp: now,
+	})
+
+	// Trim snapshots older than window
+	cutoff := now.Add(-burnRateWindow)
+	startIdx := 0
+	for i, snap := range ts.tokenSnapshots {
+		if snap.timestamp.After(cutoff) {
+			startIdx = i
+			break
+		}
+		startIdx = i + 1
+	}
+	if startIdx > 0 && startIdx < len(ts.tokenSnapshots) {
+		ts.tokenSnapshots = ts.tokenSnapshots[startIdx:]
+	} else if startIdx >= len(ts.tokenSnapshots) {
+		ts.tokenSnapshots = ts.tokenSnapshots[:0]
+	}
+
+	// Need at least 2 snapshots for rate calculation
+	if len(ts.tokenSnapshots) < 2 {
+		return 0
+	}
+
+	oldest := ts.tokenSnapshots[0]
+	latest := ts.tokenSnapshots[len(ts.tokenSnapshots)-1]
+
+	tokenDelta := latest.tokens - oldest.tokens
+	timeDelta := latest.timestamp.Sub(oldest.timestamp)
+
+	// Require minimum 5 seconds to avoid noisy rates
+	if timeDelta.Seconds() < 5 {
+		return 0
+	}
+
+	// Convert to per-minute rate
+	minutes := timeDelta.Minutes()
+	if minutes > 0 && tokenDelta > 0 {
+		return float64(tokenDelta) / minutes
+	}
+	return 0
 }
 
 func nameFromPath(path string) string {
