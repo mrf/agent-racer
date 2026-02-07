@@ -5,3 +5,7 @@ backend/cmd/server/server
 dist/
 backend/internal/frontend/static/
 .playwright-mcp
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
