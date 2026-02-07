@@ -22,6 +22,24 @@ func newTestMonitor(tokenNorm config.TokenNormConfig) *Monitor {
 	}
 }
 
+// newTestMonitorWithStore creates a Monitor backed by a real Store and
+// Broadcaster, for testing flushRemovals and other methods that interact
+// with the session store and WebSocket broadcaster.
+func newTestMonitorWithStore(monitorCfg config.MonitorConfig) *Monitor {
+	store := session.NewStore()
+	broadcaster := ws.NewBroadcaster(store, 100*time.Millisecond, 5*time.Second)
+	return &Monitor{
+		cfg: &config.Config{
+			Monitor: monitorCfg,
+		},
+		store:          store,
+		broadcaster:    broadcaster,
+		tracked:        make(map[string]*trackedSession),
+		pendingRemoval: make(map[string]time.Time),
+		removedKeys:    make(map[string]bool),
+	}
+}
+
 func TestTrackingKey(t *testing.T) {
 	key := trackingKey("claude", "abc-123")
 	if key != "claude:abc-123" {
@@ -187,39 +205,110 @@ func TestRemovedKeysRetainedWhileFileStillDiscovered(t *testing.T) {
 }
 
 func TestFlushRemovalsAddsToRemovedKeys(t *testing.T) {
-	store := session.NewStore()
+	m := newTestMonitorWithStore(config.MonitorConfig{
+		CompletionRemoveAfter: time.Second,
+	})
+
+	key := "claude:session-456"
+	m.store.Update(&session.SessionState{ID: key, Activity: session.Complete})
+	m.pendingRemoval[key] = time.Now().Add(-time.Minute) // already past
+
+	m.flushRemovals(time.Now())
+
+	if !m.removedKeys[key] {
+		t.Error("flushRemovals should add key to removedKeys")
+	}
+	if _, exists := m.store.Get(key); exists {
+		t.Error("session should have been removed from store")
+	}
+	if len(m.pendingRemoval) != 0 {
+		t.Errorf("pendingRemoval should be empty, got %d entries", len(m.pendingRemoval))
+	}
+}
+
+func TestFlushRemovalsBroadcastsRemovedIDs(t *testing.T) {
+	m := newTestMonitorWithStore(config.MonitorConfig{})
+
+	now := time.Now()
+	dueKey := "claude:session-due"
+	futureKey := "claude:session-future"
+
+	m.store.Update(&session.SessionState{ID: dueKey, Activity: session.Complete})
+	m.store.Update(&session.SessionState{ID: futureKey, Activity: session.Complete})
+
+	m.pendingRemoval[dueKey] = now.Add(-time.Second)  // past due
+	m.pendingRemoval[futureKey] = now.Add(time.Hour)   // not yet due
+
+	m.flushRemovals(now)
+
+	// Due session should be removed from store and added to removedKeys.
+	if _, exists := m.store.Get(dueKey); exists {
+		t.Error("due session should have been removed from store")
+	}
+	if !m.removedKeys[dueKey] {
+		t.Error("due session should be in removedKeys")
+	}
+
+	// Future session should remain in store and pendingRemoval.
+	if _, exists := m.store.Get(futureKey); !exists {
+		t.Error("future session should still be in store")
+	}
+	if m.removedKeys[futureKey] {
+		t.Error("future session should not be in removedKeys")
+	}
+	if _, ok := m.pendingRemoval[futureKey]; !ok {
+		t.Error("future session should still be in pendingRemoval")
+	}
+}
+
+func TestFlushRemovalsEmptyPendingIsNoop(t *testing.T) {
+	m := newTestMonitorWithStore(config.MonitorConfig{})
+
+	// Should not panic or modify anything.
+	m.flushRemovals(time.Now())
+
+	if len(m.removedKeys) != 0 {
+		t.Error("removedKeys should remain empty")
+	}
+}
+
+func TestScheduleRemovalDoubleScheduleKeepsEarlierTime(t *testing.T) {
 	m := &Monitor{
 		cfg: &config.Config{
 			Monitor: config.MonitorConfig{
-				CompletionRemoveAfter: time.Second,
+				CompletionRemoveAfter: 10 * time.Second,
 			},
 		},
-		store:          store,
-		broadcaster:    nil, // not used in this test path
 		tracked:        make(map[string]*trackedSession),
 		pendingRemoval: make(map[string]time.Time),
 		removedKeys:    make(map[string]bool),
 	}
 
-	key := "claude:session-456"
-	store.Update(&session.SessionState{ID: key, Activity: session.Complete})
-	m.pendingRemoval[key] = time.Now().Add(-time.Minute) // already past
+	key := "claude:session-dup"
+	earlier := time.Now()
+	later := earlier.Add(5 * time.Second)
 
-	// flushRemovals requires a broadcaster, so test the logic directly.
-	// Verify the key gets added to removedKeys when removed from store.
-	for id, removeAt := range m.pendingRemoval {
-		if !time.Now().Before(removeAt) {
-			delete(m.pendingRemoval, id)
-			m.store.Remove(id)
-			m.removedKeys[id] = true
-		}
+	// Schedule with earlier completion time first.
+	m.scheduleRemoval(key, earlier)
+	firstRemoveAt := m.pendingRemoval[key]
+
+	// Schedule again with later completion time — should keep the earlier one.
+	m.scheduleRemoval(key, later)
+	secondRemoveAt := m.pendingRemoval[key]
+
+	if !secondRemoveAt.Equal(firstRemoveAt) {
+		t.Errorf("double-schedule should keep earlier time: got %v, want %v", secondRemoveAt, firstRemoveAt)
 	}
 
-	if !m.removedKeys[key] {
-		t.Error("flushRemovals should add key to removedKeys")
-	}
-	if _, exists := store.Get(key); exists {
-		t.Error("session should have been removed from store")
+	// Reverse order: schedule later first, then earlier — should update to earlier.
+	m.pendingRemoval = make(map[string]time.Time)
+	m.scheduleRemoval(key, later)
+	m.scheduleRemoval(key, earlier)
+	finalRemoveAt := m.pendingRemoval[key]
+
+	expectedRemoveAt := earlier.Add(10 * time.Second)
+	if !finalRemoveAt.Equal(expectedRemoveAt) {
+		t.Errorf("should update to earlier time: got %v, want %v", finalRemoveAt, expectedRemoveAt)
 	}
 }
 
