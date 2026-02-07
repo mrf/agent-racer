@@ -1,5 +1,6 @@
 import { ParticleSystem } from './Particles.js';
 import { Track } from './Track.js';
+import { Dashboard } from './Dashboard.js';
 import { Racer } from '../entities/Racer.js';
 
 const TERMINAL_ACTIVITIES = new Set(['complete', 'errored', 'lost']);
@@ -31,6 +32,7 @@ export class RaceCanvas {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.track = new Track();
+    this.dashboard = new Dashboard();
     this.particles = new ParticleSystem();
     this.racers = new Map();
     this.connected = false;
@@ -80,9 +82,14 @@ export class RaceCanvas {
     const viewportWidth = rect.width;
     const viewportHeight = rect.height;
 
-    // Canvas height grows to fit all lanes + pit + parking lot, minimum is viewport height
-    const requiredHeight = this.track.getRequiredHeight(this._activeLaneCount, this._pitLaneCount, this._parkingLotLaneCount);
-    const height = Math.max(viewportHeight, requiredHeight);
+    // Track zones height (track + pit + parking lot)
+    const zonesHeight = this.track.getRequiredHeight(this._activeLaneCount, this._pitLaneCount, this._parkingLotLaneCount);
+
+    // Dashboard fills remaining viewport space, with a guaranteed minimum
+    const dashMinHeight = this.dashboard.getRequiredHeight(this.racers.size);
+    const dashFromViewport = Math.max(0, viewportHeight - zonesHeight);
+    const dashHeight = Math.max(dashMinHeight, dashFromViewport);
+    const height = zonesHeight + dashHeight;
 
     this.canvas.style.height = height + 'px';
     this.canvas.width = viewportWidth * dpr;
@@ -359,7 +366,7 @@ export class RaceCanvas {
 
     const activeLaneCount = this._activeLaneCount;
     const pitLaneCount = this._pitLaneCount;
-    const parkingLotLaneCount = this._parkingLotLaneCount || 0;
+    const parkingLotLaneCount = this._parkingLotLaneCount;
 
     const excitement = this.engine ? this.engine.currentExcitement : 0;
     this.track.draw(ctx, this.width, this.height, activeLaneCount, 200000, excitement);
@@ -370,6 +377,15 @@ export class RaceCanvas {
     // Draw parking lot area when there are parked racers
     if (parkingLotLaneCount > 0) {
       this.track.drawParkingLot(ctx, this.width, this.height, activeLaneCount, pitLaneCount, parkingLotLaneCount);
+    }
+
+    // Draw dashboard below the track zones
+    const zonesHeight = this.track.getRequiredHeight(activeLaneCount, pitLaneCount, parkingLotLaneCount);
+    const dashAvailable = this.height - zonesHeight;
+    if (dashAvailable > 40) {
+      const dashBounds = this.dashboard.getBounds(this.width, zonesHeight, dashAvailable);
+      const sessions = [...this.racers.values()].map(r => r.state);
+      this.dashboard.draw(ctx, dashBounds, sessions);
     }
 
     // Draw particles behind racers
