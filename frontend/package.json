@@ -1,0 +1,17 @@
+{
+  "name": "agent-racer-frontend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "pixi-filters": "^6.1.0",
+    "pixi.js": "^8.6.6"
+  },
+  "devDependencies": {
+    "vite": "^6.1.0"
+  }
+}

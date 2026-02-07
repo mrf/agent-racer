@@ -8,3 +8,7 @@ backend/internal/frontend/static/
 
 # Local config (use config.example.yaml as template)
 config.yaml
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
