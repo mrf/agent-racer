@@ -13,18 +13,20 @@ function isParkingLotRacer(state) {
   return TERMINAL_ACTIVITIES.has(state.activity);
 }
 
+const PIT_ACTIVITIES = new Set(['idle', 'waiting', 'starting']);
+
+// Determines whether a racer belongs in the pit lane. Uses data freshness
+// as the sole zone determinant — isChurning is reserved for visual effects
+// only, since CPU jitter caused track/pit oscillation.
 function isPitRacer(state) {
-  const { activity, isChurning, lastDataReceivedAt } = state;
   if (isParkingLotRacer(state)) return false;
-  if (activity === 'idle' || activity === 'waiting' || activity === 'starting') {
-    if (isChurning) return false;
-    if (lastDataReceivedAt) {
-      const age = Date.now() - new Date(lastDataReceivedAt).getTime();
-      if (age < DATA_FRESHNESS_MS) return false;
-    }
-    return true;
+  if (!PIT_ACTIVITIES.has(state.activity)) return false;
+
+  if (state.lastDataReceivedAt) {
+    const age = Date.now() - new Date(state.lastDataReceivedAt).getTime();
+    if (age < DATA_FRESHNESS_MS) return false;
   }
-  return false;
+  return true;
 }
 
 export class RaceCanvas {

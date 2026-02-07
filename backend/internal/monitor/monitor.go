@@ -200,8 +200,12 @@ func (m *Monitor) poll() {
 				state.Name = nameFromPath(update.WorkingDir)
 			}
 
-			activity := classifyActivityFromUpdate(update)
-			state.Activity = activity
+			// Only classify activity when we have new data or a fresh session.
+			// No-data polls must not overwrite with Idle — the frontend
+			// derives pit transitions from lastDataReceivedAt staleness.
+			if hasNewData || !existed {
+				state.Activity = classifyActivityFromUpdate(update)
+			}
 
 			if update.Model != "" {
 				state.Model = update.Model
