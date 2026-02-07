@@ -120,7 +120,7 @@ func (m *Monitor) poll() {
 					handle: h,
 				}
 				m.tracked[key] = ts
-				log.Printf("[%s] Tracking new session: %s", src.Name(), h.SessionID)
+				log.Printf("[%s] Tracking new session: %s (offset=0)", src.Name(), h.SessionID)
 			}
 
 			oldOffset := ts.fileOffset
@@ -131,6 +131,9 @@ func (m *Monitor) poll() {
 			}
 			ts.fileOffset = newOffset
 			hasNewData := newOffset > oldOffset || update.HasData()
+			if hasNewData && newOffset > oldOffset {
+				log.Printf("[%s] Parsed %d new bytes from %s (offset %d→%d)", src.Name(), newOffset-oldOffset, h.LogPath, oldOffset, newOffset)
+			}
 			if hasNewData {
 				// Use the actual timestamp from parsed data when available
 				// so that old sessions discovered on startup are immediately
@@ -153,7 +156,7 @@ func (m *Monitor) poll() {
 					continue
 				}
 				delete(m.removedKeys, key)
-				log.Printf("[%s] Session resumed after removal: %s", src.Name(), h.SessionID)
+				log.Printf("[%s] Session resumed after removal: %s (newData=%d bytes)", src.Name(), h.SessionID, newOffset-oldOffset)
 			}
 
 			state, existed := m.store.Get(storeKey)
@@ -164,7 +167,7 @@ func (m *Monitor) poll() {
 				// New JSONL data on a terminal session — it's being resumed.
 				state.CompletedAt = nil
 				delete(m.pendingRemoval, storeKey)
-				log.Printf("[%s] Session resumed from %s: %s", src.Name(), state.Activity, h.SessionID)
+				log.Printf("[%s] Session resumed from %s: %s (newData=%d bytes)", src.Name(), state.Activity, h.SessionID, newOffset-oldOffset)
 			}
 
 			if !existed {
@@ -317,6 +320,8 @@ func (m *Monitor) poll() {
 			if !isStale {
 				continue
 			}
+			log.Printf("Session %s stale (lastData=%s, age=%s, threshold=%s)",
+				key, ts.lastDataTime.Format("15:04:05"), now.Sub(ts.lastDataTime).Round(time.Second), m.cfg.Monitor.SessionStaleAfter)
 		}
 
 		if state, ok := m.store.Get(key); ok {
@@ -324,6 +329,7 @@ func (m *Monitor) poll() {
 				// Already terminal and file disappeared — just clean up tracking.
 				// Add to removedKeys so the session isn't re-created with offset 0
 				// if the file briefly reappears on the next poll cycle.
+				log.Printf("Cleaning up terminal session %s (activity=%s, file gone)", key, state.Activity)
 				m.removedKeys[key] = true
 				toRemove = append(toRemove, key)
 				continue
@@ -332,16 +338,19 @@ func (m *Monitor) poll() {
 			if state.CompletedAt != nil {
 				completedAt = *state.CompletedAt
 			}
-			// Sessions that disappear without session end marker are marked as Lost
+			reason := "stale"
+			if !activeKeys[key] {
+				reason = "file gone"
+			}
+			log.Printf("Marking session %s as lost (reason=%s, activity=%s)", key, reason, state.Activity)
 			m.markTerminal(state, session.Lost, completedAt)
 		}
-		// Keep the tracked entry (and its file offset) when the session
-		// is in removedKeys and the file is still discovered. Without this,
-		// flushRemovals + stale detection creates a dead state: the session
-		// is blocked by removedKeys but has no tracked entry to detect new
-		// data for resume. The entry is cheap and cleans up naturally when
-		// the file ages out of the discover window.
-		if m.removedKeys[key] && activeKeys[key] {
+		// Keep tracked entry (and its file offset) while the file is still
+		// discovered.  Without the offset, the next poll re-parses from 0,
+		// sees "new data", resumes the terminal session, and the stale
+		// detector immediately marks it Lost again — creating a 1-second
+		// track→lost→track loop with repeated completion events.
+		if activeKeys[key] {
 			continue
 		}
 		toRemove = append(toRemove, key)
@@ -376,6 +385,7 @@ func (m *Monitor) markTerminal(state *session.SessionState, activity session.Act
 	state.CompletedAt = &completedAt
 	m.store.Update(state)
 	if !wasTerminal {
+		log.Printf("Session %s terminal: %s → %s (broadcasting completion)", state.ID, state.Name, activity)
 		m.broadcaster.QueueCompletion(state.ID, activity, state.Name)
 	}
 	m.broadcaster.QueueUpdate([]*session.SessionState{state})
@@ -407,6 +417,7 @@ func (m *Monitor) flushRemovals(now time.Time) {
 	var removeIDs []string
 	for id, removeAt := range m.pendingRemoval {
 		if !now.Before(removeAt) {
+			log.Printf("Removing session %s from store (scheduled at %s)", id, removeAt.Format("15:04:05"))
 			removeIDs = append(removeIDs, id)
 			delete(m.pendingRemoval, id)
 			m.store.Remove(id)

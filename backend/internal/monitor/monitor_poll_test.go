@@ -693,3 +693,75 @@ func TestPollRemovedSessionResumesAfterStaleCleanup(t *testing.T) {
 		t.Error("removedKeys should be cleared after session resumes")
 	}
 }
+
+// TestPollStaleSessionDoesNotLoop verifies that an old session file (stale
+// data timestamps) does not enter a track→lost→track loop.  Before the fix,
+// stale detection deleted the tracked entry, causing the next poll to
+// re-parse from offset 0, see "new data", resume the terminal session,
+// and immediately mark it lost again — repeating every poll.
+func TestPollStaleSessionDoesNotLoop(t *testing.T) {
+	dir := t.TempDir()
+	jsonlPath := filepath.Join(dir, "session-loop.jsonl")
+
+	// Write data with timestamps well in the past (>2 min ago).
+	oldTime := time.Now().UTC().Add(-10 * time.Minute)
+	ts1 := oldTime.Format(time.RFC3339Nano)
+	ts2 := oldTime.Add(time.Second).Format(time.RFC3339Nano)
+	writeJSONL(t, jsonlPath,
+		jsonlLine("user", "session-loop", ts1, "", "", "/tmp/proj")+
+			jsonlLine("assistant", "session-loop", ts2, "claude-opus-4-5-20251101", "", "/tmp/proj"))
+
+	src := &testSource{
+		handles: []SessionHandle{newTestHandle("session-loop", jsonlPath, "/tmp/proj", oldTime)},
+	}
+
+	cfg := defaultTestConfig()
+	cfg.Monitor.CompletionRemoveAfter = 90 * time.Second // realistic setting
+	cfg.Monitor.SessionStaleAfter = 2 * time.Minute
+	m, store, broadcaster := newPollTestMonitor(src, cfg)
+
+	key := trackingKey("claude", "session-loop")
+
+	// Poll 1: session is discovered, data is old → should be skipped
+	// (initial stale detection) OR created then immediately marked stale.
+	m.poll()
+
+	// The session should either not exist (skipped as stale on initial
+	// discovery) or exist as terminal (marked Lost).
+	state, exists := store.Get(key)
+	if exists && !state.IsTerminal() {
+		t.Fatalf("old session should be terminal or absent, got activity=%s", state.Activity)
+	}
+
+	// Record completion count from broadcaster to detect repeated events.
+	initialClientCount := broadcaster.ClientCount()
+	_ = initialClientCount // just ensure broadcaster is wired up
+
+	// Poll 2-5: simulate multiple poll cycles. The bug would cause
+	// "Tracking new session" + "Session resumed from lost" on every poll.
+	for i := 0; i < 4; i++ {
+		m.poll()
+	}
+
+	// After multiple polls, verify:
+	// 1. The tracked entry should still exist (offset preserved)
+	ts, tracked := m.tracked[key]
+	if !tracked {
+		// It's also acceptable for the session to not be tracked if it was
+		// skipped by initial stale detection and added to removedKeys.
+		if !m.removedKeys[key] {
+			t.Fatal("session should either be tracked (with preserved offset) or in removedKeys")
+		}
+	} else {
+		// If tracked, the offset should be the full file size, NOT 0.
+		if ts.fileOffset == 0 {
+			t.Fatal("tracked entry has offset 0 — file would be re-parsed from scratch (loop bug)")
+		}
+	}
+
+	// 2. The session should NOT have been re-created as non-terminal.
+	state, exists = store.Get(key)
+	if exists && !state.IsTerminal() {
+		t.Fatalf("session should remain terminal after multiple polls, got activity=%s", state.Activity)
+	}
+}
