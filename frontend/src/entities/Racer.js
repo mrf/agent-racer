@@ -1031,6 +1031,9 @@ export class Racer {
     // --- Source badge on hood ---
     this._drawSourceBadge(ctx, x, carY);
 
+    // --- Metrics label above car ---
+    this._drawMetricsLabel(ctx, x, carY);
+
     ctx.textBaseline = 'alphabetic';
     ctx.textAlign = 'center';
   }
@@ -1060,5 +1063,71 @@ export class Racer {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(sc.label, cx, cy);
+  }
+
+  _drawMetricsLabel(ctx, x, y) {
+    const state = this.state;
+    if (!state.tokensUsed && !state.contextUtilization) return;
+
+    const S = CAR_SCALE;
+    const label = this._buildMetricsLabel(state);
+
+    ctx.font = 'bold 8px Courier New';
+    const textWidth = ctx.measureText(label).width;
+    const pillWidth = textWidth + 10;
+    const pillHeight = 12;
+    const pillX = x - pillWidth / 2;
+    const pillY = y - 14 * S;
+
+    // Pill background
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.beginPath();
+    ctx.roundRect(pillX, pillY, pillWidth, pillHeight, 3);
+    ctx.fill();
+
+    // Metrics text
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, x, pillY + pillHeight / 2);
+  }
+
+  _buildMetricsLabel(state) {
+    const parts = [];
+
+    // Context utilization percentage
+    const pct = Math.round((state.contextUtilization || 0) * 100);
+    parts.push(`${pct}%`);
+
+    // Token usage
+    if (state.tokensUsed) {
+      const usedFormatted = this._formatTokenCount(state.tokensUsed);
+      if (state.maxContextTokens) {
+        const maxFormatted = this._formatTokenCount(state.maxContextTokens);
+        parts.push(`${usedFormatted}/${maxFormatted}`);
+      } else {
+        parts.push(usedFormatted);
+      }
+    }
+
+    // Session duration
+    if (state.startedAt) {
+      const elapsedSeconds = Math.floor((Date.now() - new Date(state.startedAt).getTime()) / 1000);
+      if (elapsedSeconds >= 60) {
+        const minutes = Math.floor(elapsedSeconds / 60);
+        parts.push(`${minutes}m`);
+      } else if (elapsedSeconds > 0) {
+        parts.push(`${elapsedSeconds}s`);
+      }
+    }
+
+    return parts.join(' · ');
+  }
+
+  _formatTokenCount(count) {
+    if (count >= 1000) {
+      return `${Math.round(count / 1000)}K`;
+    }
+    return `${count}`;
   }
 }
