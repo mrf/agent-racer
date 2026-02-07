@@ -178,8 +178,12 @@ export class Racer {
       this.prevActivity = oldActivity;
       this.transitionTimer = 0.3; // 0.3s transition
 
-      // Add spring energy on transition
-      this.springVel += 2.5;
+      // Add spring energy on transition, but skip rapid thinking<->tool_use oscillation
+      const bothActive = (oldActivity === 'thinking' || oldActivity === 'tool_use') &&
+                         (state.activity === 'thinking' || state.activity === 'tool_use');
+      if (!bothActive) {
+        this.springVel += 2.5;
+      }
 
       // Reset terminal visual effects when session resumes
       if (isTerminalActivity(oldActivity) && !isTerminalActivity(state.activity)) {

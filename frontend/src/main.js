@@ -27,6 +27,8 @@ let flyoutCurrentY = null;     // smoothed Y position
 // Track known session IDs and their activities for detecting appear/disappear/transitions
 let knownSessionIds = new Set();
 let sessionActivities = new Map();
+let lastTransitionSfx = new Map(); // sessionId -> timestamp of last gear/tool SFX
+const TRANSITION_SFX_COOLDOWN = 3000; // ms between gear shift / tool click per session
 
 const engine = new SoundEngine();
 const raceCanvas = new RaceCanvas(canvas);
@@ -323,17 +325,24 @@ function handleDelta(payload) {
         knownSessionIds.add(s.id);
       }
 
-      // Detect activity transitions
+      // Detect activity transitions (debounced per session)
       const prevActivity = sessionActivities.get(s.id);
       if (prevActivity && prevActivity !== s.activity) {
-        // Play tool click when entering tool_use
-        if (s.activity === 'tool_use') {
-          engine.playToolClick();
-        }
-        // Play gear shift on any active transition
-        if ((s.activity === 'thinking' || s.activity === 'tool_use') &&
-            (prevActivity === 'thinking' || prevActivity === 'tool_use')) {
-          engine.playGearShift();
+        const now = Date.now();
+        const lastSfx = lastTransitionSfx.get(s.id) || 0;
+        const cooledDown = now - lastSfx >= TRANSITION_SFX_COOLDOWN;
+
+        if (cooledDown) {
+          // Play tool click when entering tool_use
+          if (s.activity === 'tool_use') {
+            engine.playToolClick();
+          }
+          // Play gear shift on any active transition
+          if ((s.activity === 'thinking' || s.activity === 'tool_use') &&
+              (prevActivity === 'thinking' || prevActivity === 'tool_use')) {
+            engine.playGearShift();
+          }
+          lastTransitionSfx.set(s.id, now);
         }
       }
       sessionActivities.set(s.id, s.activity);
@@ -347,6 +356,7 @@ function handleDelta(payload) {
       sessions.delete(id);
       knownSessionIds.delete(id);
       sessionActivities.delete(id);
+      lastTransitionSfx.delete(id);
       raceCanvas.removeRacer(id);
       engine.playDisappear();
       engine.stopEngine(id);

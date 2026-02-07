@@ -34,6 +34,7 @@ export class SoundEngine {
     this.ambientRunning = false;
     this.engineNodes = new Map(); // per-racer engine hum
     this.engineStopTimeouts = new Map(); // track pending stop timeouts
+    this.engineBus = null; // submix for all engine hums
     this.noiseBuffer = null;
     this.impulseBuffer = null;
     this.ambientNodes = [];
@@ -66,6 +67,19 @@ export class SoundEngine {
     this.sfxBus = this.ctx.createGain();
     this.sfxBus.gain.value = 1.0;
     this.sfxBus.connect(this.masterGain);
+
+    // Engine bus — all per-racer hums mix here with a volume ceiling
+    // so multiple simultaneous engines don't overwhelm the ambient layer
+    this.engineBus = this.ctx.createGain();
+    this.engineBus.gain.value = 1.0;
+    const engineCompressor = this.ctx.createDynamicsCompressor();
+    engineCompressor.threshold.value = -24;
+    engineCompressor.knee.value = 12;
+    engineCompressor.ratio.value = 12;
+    engineCompressor.attack.value = 0.003;
+    engineCompressor.release.value = 0.15;
+    this.engineBus.connect(engineCompressor);
+    engineCompressor.connect(this.ambientBus);
 
     // Pre-compute shared buffers
     this._createNoiseBuffer();
@@ -295,7 +309,7 @@ export class SoundEngine {
 
   startEngine(racerId, activity) {
     if (this.muted || !this.ctx) return;
-    if (activity !== 'thinking' && activity !== 'tool_use') {
+    if (activity !== 'thinking' && activity !== 'tool_use' && activity !== 'churning') {
       this.stopEngine(racerId);
       return;
     }
@@ -307,19 +321,30 @@ export class SoundEngine {
       this.engineStopTimeouts.delete(racerId);
     }
 
-    const pitchMult = activity === 'tool_use' ? 1.4 : 1.0;
+    const pitchMult = activity === 'tool_use' ? 1.4 : activity === 'churning' ? 0.7 : 1.0;
+    const volume = activity === 'churning' ? 0.003 : 0.008;
     const existing = this.engineNodes.get(racerId);
+
+    // Derive a stable per-racer base frequency so simultaneous engines
+    // don't constructively interfere.  Hash the ID to a value in [65, 95]
+    // giving each engine its own fundamental.
+    let hash = 0;
+    for (let i = 0; i < racerId.length; i++) {
+      hash = ((hash << 5) - hash + racerId.charCodeAt(i)) | 0;
+    }
+    const baseFreq = 65 + (Math.abs(hash) % 31); // 65-95 Hz range
+    const detune = 1.5 + (Math.abs(hash >> 8) % 20) / 10; // 1.5-3.5 Hz beat
 
     if (existing) {
       // Update pitch smoothly
       const now = this.ctx.currentTime;
-      existing.osc1.frequency.linearRampToValueAtTime(80 * pitchMult, now + 0.15);
-      existing.osc2.frequency.linearRampToValueAtTime(82 * pitchMult, now + 0.15);
-      existing.filter.frequency.linearRampToValueAtTime(200 * pitchMult, now + 0.15);
+      existing.osc1.frequency.linearRampToValueAtTime(baseFreq * pitchMult, now + 0.15);
+      existing.osc2.frequency.linearRampToValueAtTime((baseFreq + detune) * pitchMult, now + 0.15);
+      existing.filter.frequency.linearRampToValueAtTime((baseFreq * 2.5) * pitchMult, now + 0.15);
       // Restore volume in case it was fading out
       existing.gain.gain.cancelScheduledValues(now);
       existing.gain.gain.setValueAtTime(existing.gain.gain.value, now);
-      existing.gain.gain.linearRampToValueAtTime(0.04, now + 0.1);
+      existing.gain.gain.linearRampToValueAtTime(volume, now + 0.1);
       return;
     }
 
@@ -328,22 +353,22 @@ export class SoundEngine {
     const osc2 = this.ctx.createOscillator();
     osc1.type = 'sawtooth';
     osc2.type = 'sawtooth';
-    osc1.frequency.value = 80 * pitchMult;
-    osc2.frequency.value = 82 * pitchMult;
+    osc1.frequency.value = baseFreq * pitchMult;
+    osc2.frequency.value = (baseFreq + detune) * pitchMult;
 
     const filter = this.ctx.createBiquadFilter();
     filter.type = 'lowpass';
-    filter.frequency.value = 200 * pitchMult;
+    filter.frequency.value = (baseFreq * 2.5) * pitchMult;
 
     const gain = this.ctx.createGain();
     gain.gain.value = 0;
     const now = this.ctx.currentTime;
-    gain.gain.linearRampToValueAtTime(0.04, now + 0.1);
+    gain.gain.linearRampToValueAtTime(volume, now + 0.1);
 
     osc1.connect(filter);
     osc2.connect(filter);
     filter.connect(gain);
-    gain.connect(this.ambientBus);
+    gain.connect(this.engineBus);
     osc1.start();
     osc2.start();
 
@@ -424,8 +449,8 @@ export class SoundEngine {
         const gain = this.ctx.createGain();
         const t = now + chord.start;
         gain.gain.setValueAtTime(0, t);
-        gain.gain.linearRampToValueAtTime(0.12, t + 0.02); // 20ms attack
-        gain.gain.setValueAtTime(0.12, t + chord.dur - 0.05);
+        gain.gain.linearRampToValueAtTime(0.35, t + 0.02); // 20ms attack
+        gain.gain.setValueAtTime(0.35, t + chord.dur - 0.05);
         gain.gain.exponentialRampToValueAtTime(0.001, t + chord.dur + 0.4); // 400ms release
 
         osc.connect(gain);
@@ -449,7 +474,7 @@ export class SoundEngine {
     bandpass.frequency.value = 500;
     bandpass.Q.value = 0.8;
     const noiseGain = this.ctx.createGain();
-    noiseGain.gain.setValueAtTime(0.3, now);
+    noiseGain.gain.setValueAtTime(0.6, now);
     noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
     noise.connect(bandpass);
     bandpass.connect(noiseGain);
@@ -463,7 +488,7 @@ export class SoundEngine {
     saw.frequency.setValueAtTime(400, now);
     saw.frequency.exponentialRampToValueAtTime(50, now + 0.5);
     const sawGain = this.ctx.createGain();
-    sawGain.gain.setValueAtTime(0.15, now);
+    sawGain.gain.setValueAtTime(0.35, now);
     sawGain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
     saw.connect(sawGain);
     sawGain.connect(this.sfxBus);
@@ -475,7 +500,7 @@ export class SoundEngine {
     rumble.type = 'sine';
     rumble.frequency.value = 40;
     const rumbleGain = this.ctx.createGain();
-    rumbleGain.gain.setValueAtTime(0.12, now);
+    rumbleGain.gain.setValueAtTime(0.3, now);
     rumbleGain.gain.exponentialRampToValueAtTime(0.001, now + 1.0);
     rumble.connect(rumbleGain);
     rumbleGain.connect(this.sfxBus);
@@ -594,6 +619,7 @@ export class SoundEngine {
     this.masterGain = null;
     this.ambientBus = null;
     this.sfxBus = null;
+    this.engineBus = null;
     this.noiseBuffer = null;
     this.impulseBuffer = null;
   }

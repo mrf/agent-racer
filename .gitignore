@@ -5,3 +5,6 @@ backend/cmd/server/server
 dist/
 backend/internal/frontend/static/
 .playwright-mcp
+
+# Local config (use config.example.yaml as template)
+config.yaml
