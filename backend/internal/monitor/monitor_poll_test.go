@@ -615,3 +615,81 @@ func TestPollRemovedKeysPurgedWhenFileDisappears(t *testing.T) {
 		t.Error("removedKeys should be purged when file is no longer discovered")
 	}
 }
+
+// TestPollRemovedSessionResumesAfterStaleCleanup verifies that a session
+// removed by flushRemovals can still resume when new data arrives, even
+// after stale detection would have cleaned up the tracked entry.
+//
+// This reproduces the bug where:
+// 1. flushRemovals removes session from store + adds to removedKeys
+// 2. Stale detection removes session from tracked (no store entry)
+// 3. removedKeys blocks re-tracking → session permanently invisible
+func TestPollRemovedSessionResumesAfterStaleCleanup(t *testing.T) {
+	dir := t.TempDir()
+	jsonlPath := filepath.Join(dir, "session-revive.jsonl")
+
+	now := time.Now().UTC()
+	ts1 := now.Format(time.RFC3339Nano)
+	writeJSONL(t, jsonlPath,
+		jsonlLine("user", "session-revive", ts1, "", "", "/tmp/proj")+
+			jsonlLine("assistant", "session-revive", ts1, "claude-opus-4-5-20251101", "", "/tmp/proj"))
+
+	src := &testSource{
+		handles: []SessionHandle{newTestHandle("session-revive", jsonlPath, "/tmp/proj", now)},
+	}
+
+	cfg := defaultTestConfig()
+	cfg.Monitor.CompletionRemoveAfter = 0      // immediate removal
+	cfg.Monitor.SessionStaleAfter = time.Second // short stale window for test
+	m, store, _ := newPollTestMonitor(src, cfg)
+
+	// Poll 1: session discovered and created in store.
+	m.poll()
+	if _, ok := store.Get("claude:session-revive"); !ok {
+		t.Fatal("session should exist after first poll")
+	}
+
+	// Mark terminal → immediate removal by flushRemovals.
+	state, _ := store.Get("claude:session-revive")
+	m.markTerminal(state, session.Complete, time.Now())
+	m.poll()
+
+	if _, ok := store.Get("claude:session-revive"); ok {
+		t.Fatal("session should be removed from store after flush")
+	}
+
+	key := trackingKey("claude", "session-revive")
+	if !m.removedKeys[key] {
+		t.Fatal("session should be in removedKeys after removal")
+	}
+
+	// Wait for stale threshold to pass. Before the fix, this would
+	// cause the tracked entry to be deleted (session not in store +
+	// stale = cleanup). After the fix, tracked is preserved because
+	// the key is in removedKeys and the file is still discovered.
+	time.Sleep(cfg.Monitor.SessionStaleAfter + 100*time.Millisecond)
+	m.poll()
+
+	// The tracked entry must survive for resume detection.
+	if _, ok := m.tracked[key]; !ok {
+		t.Fatal("tracked entry should be preserved for removedKeys sessions with active files")
+	}
+
+	// Now "revitalize" the session: append new data to the JSONL file.
+	ts2 := time.Now().UTC().Format(time.RFC3339Nano)
+	appendJSONL(t, jsonlPath,
+		jsonlLine("user", "session-revive", ts2, "", "", "/tmp/proj")+
+			jsonlLine("assistant", "session-revive", ts2, "claude-opus-4-5-20251101", "", "/tmp/proj"))
+
+	m.poll()
+
+	// Session should be back in the store.
+	if _, ok := store.Get("claude:session-revive"); !ok {
+		t.Error("session should resume after new data arrives — removedKeys must not block permanently")
+	}
+
+	// removedKeys should be cleared for the resumed session.
+	if m.removedKeys[key] {
+		t.Error("removedKeys should be cleared after session resumes")
+	}
+}

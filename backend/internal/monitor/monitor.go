@@ -331,6 +331,15 @@ func (m *Monitor) poll() {
 			// Sessions that disappear without session end marker are marked as Lost
 			m.markTerminal(state, session.Lost, completedAt)
 		}
+		// Keep the tracked entry (and its file offset) when the session
+		// is in removedKeys and the file is still discovered. Without this,
+		// flushRemovals + stale detection creates a dead state: the session
+		// is blocked by removedKeys but has no tracked entry to detect new
+		// data for resume. The entry is cheap and cleans up naturally when
+		// the file ages out of the discover window.
+		if m.removedKeys[key] && activeKeys[key] {
+			continue
+		}
 		toRemove = append(toRemove, key)
 	}
 	for _, key := range toRemove {
