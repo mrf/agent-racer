@@ -10,6 +10,21 @@ This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get sta
 
 **Place research and planning docs in `docs/`.** All design documents, research notes, and implementation plans go in the `docs/` directory — not the project root. Keep the root clean (only README.md, AGENTS.md, and config files).
 
+## Scope Discipline
+
+**Test tasks must only add tests.** When a beads issue says "add tests for X", the spawned session must NOT refactor, rewrite, or extend the production code it's testing. If a test reveals a bug or improvement opportunity, file a new beads issue — don't fix it in the test branch. Production changes hiding in "test" branches bypass review and cause regressions.
+
+**Spawned worktree sessions must stay in scope.** The seed prompt defines the task boundary. If the agent discovers adjacent work, it should create a beads issue (with `discovered-from` dependency) rather than expanding scope.
+
+## Regression Investigation
+
+When a regression is reported after merges, follow this diagnostic order:
+
+1. `git diff --stat` across recent merges — find unexpected production file changes
+2. Check test-only branches for production code modifications (common source of regressions)
+3. Trace the affected lifecycle end-to-end in the backend before touching code
+4. Write a failing test that reproduces the bug before writing the fix
+
 ## Quick Reference
 
 ```bash
