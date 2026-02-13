@@ -6,5 +6,8 @@ dist/
 backend/internal/frontend/static/
 .playwright-mcp
 
+# Dependencies
+node_modules/
+
 # Local config (use config.example.yaml as template)
 config.yaml
