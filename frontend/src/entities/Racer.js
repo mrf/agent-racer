@@ -1058,7 +1058,7 @@ export class Racer {
     // --- Source badge on hood ---
     this._drawSourceBadge(ctx, x, carY);
 
-    // --- Metrics label above car ---
+    // --- Metrics label on car body, below model name ---
     this._drawMetricsLabel(ctx, x, carY);
 
     ctx.textBaseline = 'alphabetic';
@@ -1099,24 +1099,16 @@ export class Racer {
     const S = CAR_SCALE;
     const label = this._buildMetricsLabel(state);
 
-    ctx.font = 'bold 8px Courier New';
-    const textWidth = ctx.measureText(label).width;
-    const pillWidth = textWidth + 10;
-    const pillHeight = 12;
-    const pillX = x - pillWidth / 2;
-    const pillY = y - 14 * S;
+    // Position on car body, below model name decal
+    const labelX = x - 6 * S;
+    const labelY = y - 3 * S + 10;
 
-    // Pill background
-    ctx.fillStyle = 'rgba(0,0,0,0.55)';
-    ctx.beginPath();
-    ctx.roundRect(pillX, pillY, pillWidth, pillHeight, 3);
-    ctx.fill();
-
-    // Metrics text
-    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    // Metrics text (transparent background, no pill)
+    ctx.font = 'bold 7px Courier New';
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(label, x, pillY + pillHeight / 2);
+    ctx.fillText(label, labelX, labelY);
   }
 
   _buildMetricsLabel(state) {
