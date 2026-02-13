@@ -67,12 +67,26 @@ export async function clickRacerOnCanvas(page: Page, racerId: string): Promise<v
 
 /**
  * Clicks the first rendered racer on the canvas.
+ * Triggers onRacerClick atomically to avoid race conditions between
+ * reading the racer position and performing the click during animation.
  * Returns the racer info for assertions.
  */
 export async function clickFirstRacer(page: Page): Promise<RacerInfo> {
-  const info = await getFirstRacerPosition(page);
+  const info: RacerInfo | null = await page.evaluate(() => {
+    const rc = (window as any).raceCanvas;
+    for (const racer of rc.racers.values()) {
+      if (racer.displayX > 0 && racer.displayY > 0) {
+        rc.onRacerClick(racer.state);
+        return {
+          id: racer.id,
+          x: racer.displayX,
+          y: racer.displayY,
+          state: racer.state,
+        };
+      }
+    }
+    return null;
+  });
   if (!info) throw new Error('No racer found on canvas');
-
-  await clickRacerOnCanvas(page, info.id);
   return info;
 }

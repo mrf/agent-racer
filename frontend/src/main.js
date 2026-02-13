@@ -116,8 +116,8 @@ function showDetailFlyout(state, carX, carY) {
   flyoutCurrentX = null;
   flyoutCurrentY = null;
   renderDetailFlyout(state);
-  positionFlyout(carX, carY);
   detailFlyout.classList.remove('hidden');
+  positionFlyout(carX, carY);
 }
 
 function positionFlyout(carX, carY) {
@@ -187,6 +187,9 @@ function positionFlyout(carX, carY) {
     const smoothing = 0.25;
     flyoutCurrentX += (targetX - flyoutCurrentX) * smoothing;
     flyoutCurrentY += (targetY - flyoutCurrentY) * smoothing;
+    // Snap to target when within 1px to prevent perpetual sub-pixel drift
+    if (Math.abs(flyoutCurrentX - targetX) < 1) flyoutCurrentX = targetX;
+    if (Math.abs(flyoutCurrentY - targetY) < 1) flyoutCurrentY = targetY;
   }
 
   detailFlyout.style.left = `${Math.round(flyoutCurrentX)}px`;
