@@ -17,6 +17,7 @@ const SOURCE_COLORS = {
 const DEFAULT_SOURCE = { bg: '#6b7280', label: '?' };
 
 const CAR_SCALE = 2.3;
+const LIMO_STRETCH = 35;
 const FLAG_COLORS = { bg: '#ffffff', text: '#000', stripe: '#cccccc', pole: '#aaa', cap: '#ccc' };
 const TERMINAL_ACTIVITIES = new Set(['complete', 'errored', 'lost']);
 
@@ -305,9 +306,9 @@ export class Racer {
           const exhaustChance = 0.5 - burnIntensity * 0.1; // more likely with higher burn
           if (Math.random() > exhaustChance) {
             if (burnIntensity >= 2 && Math.random() > 0.5) {
-              particles.emit('flame', this.displayX - 17 * S, this.displayY + 1 * S, 1 + burnIntensity);
+              particles.emit('flame', this.displayX - (17 + LIMO_STRETCH) * S, this.displayY + 1 * S, 1 + burnIntensity);
             } else {
-              particles.emit('exhaust', this.displayX - 17 * S, this.displayY + 1 * S, 1);
+              particles.emit('exhaust', this.displayX - (17 + LIMO_STRETCH) * S, this.displayY + 1 * S, 1);
             }
           }
         }
@@ -322,12 +323,12 @@ export class Racer {
           if (Math.random() > exhaustChance) {
             if (burnIntensity >= 1) {
               // Hot burn: emit flames
-              particles.emit('flame', this.displayX - 17 * S, this.displayY + 1 * S, 1 + burnIntensity);
+              particles.emit('flame', this.displayX - (17 + LIMO_STRETCH) * S, this.displayY + 1 * S, 1 + burnIntensity);
               if (burnIntensity >= 2) {
-                particles.emit('exhaust', this.displayX - 17 * S, this.displayY + 2 * S, 1);
+                particles.emit('exhaust', this.displayX - (17 + LIMO_STRETCH) * S, this.displayY + 2 * S, 1);
               }
             } else {
-              particles.emit('exhaust', this.displayX - 17 * S, this.displayY + 1 * S, 1);
+              particles.emit('exhaust', this.displayX - (17 + LIMO_STRETCH) * S, this.displayY + 1 * S, 1);
             }
           }
         }
@@ -338,7 +339,7 @@ export class Racer {
         if (particles && speed > 1.5) {
           const color = getModelColor(this.state.model, this.state.source);
           const rgb = hexToRgb(color.main);
-          particles.emitWithColor('speedLines', this.displayX - 20 * S, this.displayY, 1, rgb);
+          particles.emitWithColor('speedLines', this.displayX - (20 + LIMO_STRETCH) * S, this.displayY, 1, rgb);
         }
         // Hammer animation
         if (this.hammerActive) {
@@ -382,7 +383,7 @@ export class Racer {
           // Stage 0: skid marks
           this.errorStage = 0;
           if (!this.skidEmitted && particles) {
-            particles.emit('skidMarks', this.displayX - 11 * S, this.displayY + 5 * S + 5 * S, 8);
+            particles.emit('skidMarks', this.displayX - (11 + LIMO_STRETCH) * S, this.displayY + 5 * S + 5 * S, 8);
             particles.emit('skidMarks', this.displayX + 12 * S, this.displayY + 5 * S + 5 * S, 8);
             this.skidEmitted = true;
           }
@@ -424,7 +425,7 @@ export class Racer {
       this.wheelAngle += 0.02 * dtScale;
       if (particles && Math.random() > 0.95) {
         const S = CAR_SCALE;
-        particles.emit('exhaust', this.displayX - 17 * S, this.displayY + 1 * S, 1);
+        particles.emit('exhaust', this.displayX - (17 + LIMO_STRETCH) * S, this.displayY + 1 * S, 1);
       }
       this.springVel += (Math.random() - 0.5) * 0.3;
       this.targetGlow = 0.04;
@@ -544,20 +545,23 @@ export class Racer {
     }
 
     // --- Wheels (drawn first, behind body) ---
-    const rearWheelX = x - 11;
+    const L = LIMO_STRETCH;
+    const rearWheelX = x - 11 - L;
+    const midWheelX = x - 11;
     const frontWheelX = x + 12;
     const wheelY = y + 5;
     const wheelR = 5;
     this._drawWheel(ctx, rearWheelX, wheelY, wheelR);
+    this._drawWheel(ctx, midWheelX, wheelY, wheelR);
     this._drawWheel(ctx, frontWheelX, wheelY, wheelR);
 
     // --- Car body - side profile racing car facing right ---
     ctx.fillStyle = bodyColor;
     ctx.beginPath();
-    ctx.moveTo(x - 17, y + 2);        // rear bottom
-    ctx.lineTo(x - 17, y - 3);        // rear face
-    ctx.lineTo(x - 13, y - 7);        // rear roofline
-    ctx.lineTo(x - 4, y - 9);         // roof
+    ctx.moveTo(x - 17 - L, y + 2);    // rear bottom (limo)
+    ctx.lineTo(x - 17 - L, y - 3);    // rear face
+    ctx.lineTo(x - 13 - L, y - 7);    // rear roofline
+    ctx.lineTo(x - 4 - L, y - 9);     // roof
     ctx.lineTo(x + 3, y - 9);         // roof front
     ctx.lineTo(x + 9, y - 5);         // windshield slope
     ctx.lineTo(x + 15, y - 3);        // hood
@@ -575,8 +579,8 @@ export class Racer {
     // Lower panel / side skirt (darker shade for depth)
     ctx.fillStyle = color.dark;
     ctx.beginPath();
-    ctx.moveTo(x - 17, y + 2);
-    ctx.lineTo(x - 17, y);
+    ctx.moveTo(x - 17 - L, y + 2);
+    ctx.lineTo(x - 17 - L, y);
     ctx.lineTo(x + 19, y);
     ctx.lineTo(x + 21, y + 1);
     ctx.lineTo(x + 18, y + 2);
@@ -587,8 +591,8 @@ export class Racer {
     ctx.strokeStyle = lightenHex(color.main, 35);
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(x - 12, y - 7);
-    ctx.lineTo(x - 4, y - 9);
+    ctx.moveTo(x - 12 - L, y - 7);
+    ctx.lineTo(x - 4 - L, y - 9);
     ctx.lineTo(x + 3, y - 9);
     ctx.stroke();
 
@@ -596,7 +600,7 @@ export class Racer {
     ctx.strokeStyle = lightenHex(color.main, 60);
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.moveTo(x - 15, y - 2);
+    ctx.moveTo(x - 15 - L, y - 2);
     ctx.lineTo(x + 19, y - 2);
     ctx.stroke();
 
@@ -613,6 +617,38 @@ export class Racer {
     ctx.lineWidth = 0.5;
     ctx.stroke();
 
+    // Limo passenger windows along the stretched body
+    const winY = y - 7;
+    const winH = 5;
+    const winW = 6;
+    const winGap = 2;
+    const winStartX = x - L + 2;
+    const numWindows = Math.floor((L - 4) / (winW + winGap));
+    ctx.fillStyle = 'rgba(100,180,255,0.25)';
+    for (let i = 0; i < numWindows; i++) {
+      const wx = winStartX + i * (winW + winGap);
+      const wr = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(wx + wr, winY);
+      ctx.lineTo(wx + winW - wr, winY);
+      ctx.quadraticCurveTo(wx + winW, winY, wx + winW, winY + wr);
+      ctx.lineTo(wx + winW, winY + winH - wr);
+      ctx.quadraticCurveTo(wx + winW, winY + winH, wx + winW - wr, winY + winH);
+      ctx.lineTo(wx + wr, winY + winH);
+      ctx.quadraticCurveTo(wx, winY + winH, wx, winY + winH - wr);
+      ctx.lineTo(wx, winY + wr);
+      ctx.quadraticCurveTo(wx, winY, wx + wr, winY);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // Chrome trim along window line
+    ctx.strokeStyle = 'rgba(200,200,220,0.5)';
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(x - L + 1, winY + winH + 1);
+    ctx.lineTo(x + 2, winY + winH + 1);
+    ctx.stroke();
+
     // Headlight
     ctx.fillStyle = 'rgba(255,255,220,0.7)';
     ctx.beginPath();
@@ -622,13 +658,13 @@ export class Racer {
     // Taillight
     ctx.fillStyle = 'rgba(255,30,30,0.7)';
     ctx.beginPath();
-    ctx.arc(x - 17, y - 1, 2, 0, Math.PI * 2);
+    ctx.arc(x - 17 - L, y - 1, 2, 0, Math.PI * 2);
     ctx.fill();
 
     // Exhaust pipe
     ctx.fillStyle = '#333';
     ctx.beginPath();
-    ctx.arc(x - 17, y + 1, 1.5, 0, Math.PI * 2);
+    ctx.arc(x - 17 - L, y + 1, 1.5, 0, Math.PI * 2);
     ctx.fill();
 
     // X overlay for errored stage 3
@@ -636,12 +672,12 @@ export class Racer {
       ctx.strokeStyle = '#e94560';
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.moveTo(x - 14, y - 8);
+      ctx.moveTo(x - 14 - L, y - 8);
       ctx.lineTo(x + 16, y + 4);
       ctx.stroke();
       ctx.beginPath();
       ctx.moveTo(x + 16, y - 8);
-      ctx.lineTo(x - 14, y + 4);
+      ctx.lineTo(x - 14 - L, y + 4);
       ctx.stroke();
     }
 
@@ -818,7 +854,7 @@ export class Racer {
     // Hazard lights at front and rear (side view)
     const positions = [
       [x + 20 * S, y],          // front
-      [x - 17 * S, y - 1 * S],  // rear
+      [x - (17 + LIMO_STRETCH) * S, y - 1 * S],  // rear
     ];
     for (const [hx, hy] of positions) {
       // Glow halo
@@ -994,7 +1030,7 @@ export class Racer {
       const notchDepth = 5;
 
       // Pole anchors at rear spoiler
-      const poleBaseX = x - 15 * S;
+      const poleBaseX = x - (15 + LIMO_STRETCH) * S;
       const poleBaseY = carY - 5 * S;
       const poleTopY = poleBaseY - 20;
 
@@ -1051,11 +1087,11 @@ export class Racer {
       ctx.fillText(dirName, textCenterX, textCenterY);
     }
 
-    // --- Model decal on car body (door panel area) ---
-    const panelX = x - 6 * S;
-    const panelY = carY - 3 * S;
-    ctx.fillStyle = 'rgba(255,255,255,0.8)';
-    ctx.font = 'bold 9px Courier New';
+    // --- Model decal on limo body (centered on stretched side panel) ---
+    const panelX = x - (6 + LIMO_STRETCH / 2) * S;
+    const panelY = carY - 4.5 * S;
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx.font = 'bold 14px Courier New';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(color.name.toUpperCase(), panelX, panelY);
@@ -1104,13 +1140,13 @@ export class Racer {
     const S = CAR_SCALE;
     const label = this._buildMetricsLabel(state);
 
-    // Position on car body, below model name decal
-    const labelX = x - 6 * S;
-    const labelY = y - 3 * S + 10;
+    // Position on limo body, below model name decal
+    const labelX = x - (6 + LIMO_STRETCH / 2) * S;
+    const labelY = y - 4.5 * S + 16;
 
-    // Metrics text (transparent background, no pill)
-    ctx.font = 'bold 7px Courier New';
-    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    // Metrics text spread across limo body
+    ctx.font = 'bold 11px Courier New';
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(label, labelX, labelY);
