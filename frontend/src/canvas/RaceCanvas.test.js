@@ -317,14 +317,14 @@ describe('RaceCanvas', () => {
       expect(result).toBe(racer);
     });
 
-    it('returns null for clicks outside the 45px radius', () => {
+    it('returns null for clicks outside the 100px radius', () => {
       rc.setAllRacers([makeState({ id: 'r1' })]);
       rc.update();
       const racer = rc.racers.get('r1');
       racer.displayX = 400;
       racer.displayY = 300;
 
-      const result = rc._hitTest(clickEvent(450, 300)); // 50px away
+      const result = rc._hitTest(clickEvent(510, 300)); // 110px away
       expect(result).toBeNull();
     });
 
@@ -333,27 +333,27 @@ describe('RaceCanvas', () => {
       expect(result).toBeNull();
     });
 
-    it('detects a hit at the exact boundary (just under 45px)', () => {
+    it('detects a hit at the exact boundary (just under 100px)', () => {
       rc.setAllRacers([makeState({ id: 'r1' })]);
       rc.update();
       const racer = rc.racers.get('r1');
       racer.displayX = 400;
       racer.displayY = 300;
 
-      // Distance = sqrt(31^2 + 31^2) ≈ 43.84 < 45
-      const result = rc._hitTest(clickEvent(431, 331));
+      // Distance = sqrt(70^2 + 70^2) ≈ 98.99 < 100
+      const result = rc._hitTest(clickEvent(470, 370));
       expect(result).toBe(racer);
     });
 
-    it('misses at just beyond the 45px boundary', () => {
+    it('misses at just beyond the 100px boundary', () => {
       rc.setAllRacers([makeState({ id: 'r1' })]);
       rc.update();
       const racer = rc.racers.get('r1');
       racer.displayX = 400;
       racer.displayY = 300;
 
-      // Distance = sqrt(32^2 + 32^2) ≈ 45.25 > 45
-      const result = rc._hitTest(clickEvent(432, 332));
+      // Distance = sqrt(72^2 + 72^2) ≈ 101.8 > 100
+      const result = rc._hitTest(clickEvent(472, 372));
       expect(result).toBeNull();
     });
 
@@ -381,10 +381,10 @@ describe('RaceCanvas', () => {
       racer.displayX = 100;
       racer.displayY = 100;
 
-      // sqrt(30^2 + 30^2) = 42.4 < 45 → hit
-      expect(rc._hitTest(clickEvent(130, 130))).toBe(racer);
-      // sqrt(35^2 + 35^2) = 49.5 > 45 → miss
-      expect(rc._hitTest(clickEvent(135, 135))).toBeNull();
+      // sqrt(70^2 + 70^2) = 98.99 < 100 → hit
+      expect(rc._hitTest(clickEvent(170, 170))).toBe(racer);
+      // sqrt(72^2 + 72^2) = 101.8 > 100 → miss
+      expect(rc._hitTest(clickEvent(172, 172))).toBeNull();
     });
 
     it('handleClick invokes onRacerClick callback on hit', () => {
