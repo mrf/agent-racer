@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Racer } from './Racer.js';
 
 function makeState(overrides = {}) {
@@ -496,5 +496,97 @@ describe('model color lookup', () => {
   it('null model with source falls back to gray', () => {
     const rgb = extractSpeedLineColor(null, 'custom');
     expect(rgb).toEqual({ r: 107, g: 114, b: 128 });
+  });
+});
+
+/* ── Racer utility methods (_formatTokenCount, _buildMetricsLabel) ── */
+
+function makeRacer(overrides = {}) {
+  return new Racer(makeState(overrides));
+}
+
+describe('Racer._formatTokenCount', () => {
+  const racer = makeRacer();
+
+  it('returns plain number below 1000', () => {
+    expect(racer._formatTokenCount(0)).toBe('0');
+    expect(racer._formatTokenCount(500)).toBe('500');
+    expect(racer._formatTokenCount(999)).toBe('999');
+  });
+
+  it('returns K format at 1000', () => {
+    expect(racer._formatTokenCount(1000)).toBe('1K');
+  });
+
+  it('rounds to nearest K', () => {
+    expect(racer._formatTokenCount(1499)).toBe('1K');
+    expect(racer._formatTokenCount(1500)).toBe('2K');
+    expect(racer._formatTokenCount(50000)).toBe('50K');
+  });
+});
+
+describe('Racer._buildMetricsLabel', () => {
+  const racer = makeRacer();
+
+  it('includes context utilization percentage', () => {
+    const label = racer._buildMetricsLabel({ contextUtilization: 0.75 });
+    expect(label).toContain('75%');
+  });
+
+  it('rounds utilization to integer', () => {
+    const label = racer._buildMetricsLabel({ contextUtilization: 0.333 });
+    expect(label).toContain('33%');
+  });
+
+  it('includes token usage with max', () => {
+    const label = racer._buildMetricsLabel({
+      contextUtilization: 0.5,
+      tokensUsed: 5000,
+      maxContextTokens: 100000,
+    });
+    expect(label).toContain('5K/100K');
+  });
+
+  it('includes token usage without max', () => {
+    const label = racer._buildMetricsLabel({
+      contextUtilization: 0.5,
+      tokensUsed: 5000,
+    });
+    expect(label).toContain('5K');
+    expect(label).not.toContain('/');
+  });
+
+  describe('with fake timers', () => {
+    beforeEach(() => { vi.useFakeTimers(); });
+    afterEach(() => { vi.useRealTimers(); });
+
+    it('includes elapsed minutes', () => {
+      vi.setSystemTime(new Date('2025-01-01T00:05:00Z'));
+      const label = racer._buildMetricsLabel({
+        contextUtilization: 0,
+        startedAt: '2025-01-01T00:00:00Z',
+      });
+      expect(label).toContain('5m');
+    });
+
+    it('includes elapsed seconds for short durations', () => {
+      vi.setSystemTime(new Date('2025-01-01T00:00:30Z'));
+      const label = racer._buildMetricsLabel({
+        contextUtilization: 0,
+        startedAt: '2025-01-01T00:00:00Z',
+      });
+      expect(label).toContain('30s');
+    });
+
+    it('joins parts with dot separator', () => {
+      vi.setSystemTime(new Date('2025-01-01T00:05:00Z'));
+      const label = racer._buildMetricsLabel({
+        contextUtilization: 0.5,
+        tokensUsed: 5000,
+        maxContextTokens: 100000,
+        startedAt: '2025-01-01T00:00:00Z',
+      });
+      expect(label).toBe('50% · 5K/100K · 5m');
+    });
   });
 });
