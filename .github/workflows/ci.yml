@@ -22,6 +22,50 @@ jobs:
       - name: Vet
         run: cd backend && go vet ./...
 
+  vitest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: cd frontend && npm ci
+
+      - name: Run Vitest
+        run: cd frontend && npx vitest run
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install E2E dependencies
+        run: cd e2e && npm ci
+
+      - name: Install Playwright browsers
+        run: cd e2e && npx playwright install --with-deps chromium
+
+      - name: Run E2E tests
+        run: cd e2e && npx playwright test
+
+      - name: Upload test artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-results
+          path: e2e/test-results/
+
   build:
     runs-on: ubuntu-latest
     steps:
