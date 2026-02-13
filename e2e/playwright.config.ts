@@ -8,6 +8,7 @@ export default defineConfig({
   retries: 1,
   use: {
     baseURL: `http://localhost:${SERVER_PORT}`,
+    viewport: { width: 1280, height: 720 },
     screenshot: 'only-on-failure',
   },
   webServer: {
