@@ -1,0 +1,622 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
+// Mocks -- keep RaceCanvas from touching the real DOM / rAF
+
+vi.mock('./Particles.js', () => ({
+  ParticleSystem: vi.fn(() => ({
+    update: vi.fn(),
+    drawBehind: vi.fn(),
+    drawFront: vi.fn(),
+    clear: vi.fn(),
+    emit: vi.fn(),
+    emitWithColor: vi.fn(),
+  })),
+}));
+
+vi.mock('./Track.js', () => ({
+  Track: vi.fn(() => ({
+    getRequiredHeight: vi.fn((active, pit = 0, parking = 0) => {
+      // Simplified formula matching real Track layout constants
+      let h = 60 + active * 80 + 40;
+      if (pit > 0) h += 30 + pit * 50 + 40;
+      if (parking > 0) h += 20 + parking * 45 + 40;
+      return h;
+    }),
+    getTrackBounds: vi.fn((w, h, lanes) => ({
+      x: 200, y: 60, width: w - 260, height: lanes * 80, laneHeight: 80,
+    })),
+    getPitBounds: vi.fn((w, h, active, pitCount) => ({
+      x: 200, y: 60 + active * 80 + 40 + 30,
+      width: w - 260, height: pitCount * 50, laneHeight: 50,
+    })),
+    getParkingLotBounds: vi.fn((w, h, active, pit, lot) => ({
+      x: 200,
+      y: 60 + active * 80 + 40 + (pit > 0 ? 30 + pit * 50 + 40 : 0) + 20,
+      width: w - 260, height: lot * 45, laneHeight: 45,
+    })),
+    getLaneY: vi.fn((bounds, lane) => bounds.y + lane * bounds.laneHeight + bounds.laneHeight / 2),
+    getPositionX: vi.fn((bounds, util) => bounds.x + util * bounds.width),
+    getPitEntryX: vi.fn((bounds) => bounds.x - 60),
+    draw: vi.fn(),
+    drawPit: vi.fn(),
+    drawParkingLot: vi.fn(),
+  })),
+}));
+
+vi.mock('./Dashboard.js', () => ({
+  Dashboard: vi.fn(() => ({
+    getRequiredHeight: vi.fn(() => 160),
+    getBounds: vi.fn(),
+    draw: vi.fn(),
+  })),
+}));
+
+vi.mock('../entities/Racer.js', () => ({
+  Racer: vi.fn((state) => ({
+    id: state.id,
+    state,
+    displayX: 0,
+    displayY: 0,
+    targetX: 0,
+    targetY: 0,
+    springY: 0,
+    initialized: false,
+    inPit: false,
+    inParkingLot: false,
+    pitDimTarget: 0,
+    parkingLotDimTarget: 0,
+    glowIntensity: 0,
+    hovered: false,
+    hasTmux: !!state.tmuxTarget,
+    confettiEmitted: false,
+    smokeEmitted: false,
+    skidEmitted: false,
+    errorTimer: 0,
+    errorStage: 0,
+    update: vi.fn(function (s) { this.state = s; this.hasTmux = !!s.tmuxTarget; }),
+    setTarget: vi.fn(function (x, y) {
+      this.targetX = x;
+      this.targetY = y;
+      if (!this.initialized) { this.displayX = x; this.displayY = y; this.initialized = true; }
+    }),
+    animate: vi.fn(),
+    draw: vi.fn(),
+    startZoneTransition: vi.fn(),
+  })),
+}));
+
+// Stub factories
+
+function makeCtx() {
+  return {
+    scale: vi.fn(),
+    clearRect: vi.fn(),
+    save: vi.fn(),
+    restore: vi.fn(),
+    translate: vi.fn(),
+    fillRect: vi.fn(),
+    fillText: vi.fn(),
+    drawImage: vi.fn(),
+    beginPath: vi.fn(),
+    arc: vi.fn(),
+    fill: vi.fn(),
+    createRadialGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
+    set fillStyle(_) {},
+    set strokeStyle(_) {},
+    set lineWidth(_) {},
+    set font(_) {},
+    set textAlign(_) {},
+    set globalCompositeOperation(_) {},
+    set globalAlpha(_) {},
+  };
+}
+
+function makeCanvas() {
+  const ctx = makeCtx();
+  return {
+    getContext: vi.fn(() => ctx),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    parentElement: { getBoundingClientRect: () => ({ width: 800, height: 600 }) },
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 }),
+    style: {},
+    width: 0,
+    height: 0,
+    _ctx: ctx,
+  };
+}
+
+function setupGlobals() {
+  globalThis.window = globalThis.window || {};
+  window.devicePixelRatio = 1;
+  window.addEventListener = vi.fn();
+  window.removeEventListener = vi.fn();
+
+  globalThis.document = globalThis.document || {};
+  document.createElement = vi.fn(() => ({
+    getContext: vi.fn(() => makeCtx()), width: 0, height: 0,
+  }));
+
+  // rAF / cAF stubs -- do NOT run the loop automatically
+  globalThis.requestAnimationFrame = vi.fn(() => 42);
+  globalThis.cancelAnimationFrame = vi.fn();
+}
+
+// Import under test (after mocks are wired)
+const { RaceCanvas } = await import('./RaceCanvas.js');
+
+// Helpers
+
+function agoISO(ms) {
+  return new Date(Date.now() - ms).toISOString();
+}
+
+function makeState(overrides = {}) {
+  return {
+    id: 'sess-1',
+    activity: 'thinking',
+    lane: 0,
+    contextUtilization: 0.5,
+    lastDataReceivedAt: agoISO(0),
+    model: 'claude-sonnet-4-5-20250929',
+    source: 'claude',
+    ...overrides,
+  };
+}
+
+describe('RaceCanvas', () => {
+  let canvas;
+  let rc;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    setupGlobals();
+    canvas = makeCanvas();
+    rc = new RaceCanvas(canvas);
+  });
+
+  afterEach(() => {
+    if (rc && rc.animFrameId !== null) rc.destroy();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  describe('zone assignment', () => {
+    it('assigns active racers (thinking) to the track', () => {
+      rc.setAllRacers([makeState({ id: 'a', activity: 'thinking' })]);
+      rc.update();
+      const racer = rc.racers.get('a');
+      expect(racer.inPit).toBe(false);
+      expect(racer.inParkingLot).toBe(false);
+    });
+
+    it('assigns active racers (tool_use) to the track', () => {
+      rc.setAllRacers([makeState({ id: 'a', activity: 'tool_use' })]);
+      rc.update();
+      const racer = rc.racers.get('a');
+      expect(racer.inPit).toBe(false);
+      expect(racer.inParkingLot).toBe(false);
+    });
+
+    it('assigns idle racers with stale data to the pit', () => {
+      rc.setAllRacers([makeState({ id: 'a', activity: 'idle', lastDataReceivedAt: agoISO(20_000) })]);
+      rc.update();
+      const racer = rc.racers.get('a');
+      expect(racer.inPit).toBe(true);
+      expect(racer.inParkingLot).toBe(false);
+    });
+
+    it('keeps idle racers with fresh data on the track', () => {
+      rc.setAllRacers([makeState({ id: 'a', activity: 'idle', lastDataReceivedAt: agoISO(0) })]);
+      rc.update();
+      const racer = rc.racers.get('a');
+      expect(racer.inPit).toBe(false);
+      expect(racer.inParkingLot).toBe(false);
+    });
+
+    it('assigns waiting racers with stale data to the pit', () => {
+      rc.setAllRacers([makeState({ id: 'a', activity: 'waiting', lastDataReceivedAt: agoISO(15_000) })]);
+      rc.update();
+      const racer = rc.racers.get('a');
+      expect(racer.inPit).toBe(true);
+    });
+
+    it('assigns starting racers with stale data to the pit', () => {
+      rc.setAllRacers([makeState({ id: 'a', activity: 'starting', lastDataReceivedAt: agoISO(15_000) })]);
+      rc.update();
+      const racer = rc.racers.get('a');
+      expect(racer.inPit).toBe(true);
+    });
+
+    it('assigns idle racers with no lastDataReceivedAt to the pit', () => {
+      rc.setAllRacers([makeState({ id: 'a', activity: 'idle', lastDataReceivedAt: null })]);
+      rc.update();
+      const racer = rc.racers.get('a');
+      expect(racer.inPit).toBe(true);
+    });
+
+    it('assigns completed racers to the parking lot', () => {
+      rc.setAllRacers([makeState({ id: 'a', activity: 'complete' })]);
+      rc.update();
+      const racer = rc.racers.get('a');
+      expect(racer.inParkingLot).toBe(true);
+      expect(racer.inPit).toBe(false);
+    });
+
+    it('assigns errored racers to the parking lot', () => {
+      rc.setAllRacers([makeState({ id: 'a', activity: 'errored' })]);
+      rc.update();
+      const racer = rc.racers.get('a');
+      expect(racer.inParkingLot).toBe(true);
+    });
+
+    it('assigns lost racers to the parking lot', () => {
+      rc.setAllRacers([makeState({ id: 'a', activity: 'lost' })]);
+      rc.update();
+      const racer = rc.racers.get('a');
+      expect(racer.inParkingLot).toBe(true);
+    });
+
+    it('terminal activities always go to parking lot regardless of freshness', () => {
+      rc.setAllRacers([makeState({ id: 'a', activity: 'complete', lastDataReceivedAt: agoISO(0) })]);
+      rc.update();
+      expect(rc.racers.get('a').inParkingLot).toBe(true);
+    });
+
+    it('partitions mixed sessions correctly across all three zones', () => {
+      const stale = agoISO(20_000);
+      const fresh = agoISO(0);
+      rc.setAllRacers([
+        makeState({ id: 'track1', activity: 'thinking', lastDataReceivedAt: fresh }),
+        makeState({ id: 'track2', activity: 'tool_use', lastDataReceivedAt: fresh }),
+        makeState({ id: 'pit1', activity: 'idle', lastDataReceivedAt: stale }),
+        makeState({ id: 'pit2', activity: 'waiting', lastDataReceivedAt: stale }),
+        makeState({ id: 'lot1', activity: 'complete' }),
+        makeState({ id: 'lot2', activity: 'errored' }),
+      ]);
+      rc.update();
+
+      expect(rc.racers.get('track1').inPit).toBe(false);
+      expect(rc.racers.get('track1').inParkingLot).toBe(false);
+      expect(rc.racers.get('track2').inPit).toBe(false);
+      expect(rc.racers.get('track2').inParkingLot).toBe(false);
+
+      expect(rc.racers.get('pit1').inPit).toBe(true);
+      expect(rc.racers.get('pit2').inPit).toBe(true);
+
+      expect(rc.racers.get('lot1').inParkingLot).toBe(true);
+      expect(rc.racers.get('lot2').inParkingLot).toBe(true);
+    });
+
+    it('DATA_FRESHNESS_MS boundary: exactly at threshold goes to pit', () => {
+      rc.setAllRacers([makeState({ id: 'a', activity: 'idle', lastDataReceivedAt: agoISO(10_000) })]);
+      rc.update();
+      expect(rc.racers.get('a').inPit).toBe(true);
+    });
+
+    it('DATA_FRESHNESS_MS boundary: 1ms under threshold stays on track', () => {
+      rc.setAllRacers([makeState({ id: 'a', activity: 'idle', lastDataReceivedAt: agoISO(9_999) })]);
+      rc.update();
+      expect(rc.racers.get('a').inPit).toBe(false);
+    });
+  });
+
+  describe('hit testing', () => {
+    function clickEvent(clientX, clientY) {
+      return { clientX, clientY };
+    }
+
+    it('detects a hit within the 45px radius', () => {
+      rc.setAllRacers([makeState({ id: 'r1' })]);
+      rc.update();
+      const racer = rc.racers.get('r1');
+      racer.displayX = 400;
+      racer.displayY = 300;
+
+      const result = rc._hitTest(clickEvent(430, 300)); // 30px away
+      expect(result).toBe(racer);
+    });
+
+    it('returns null for clicks outside the 45px radius', () => {
+      rc.setAllRacers([makeState({ id: 'r1' })]);
+      rc.update();
+      const racer = rc.racers.get('r1');
+      racer.displayX = 400;
+      racer.displayY = 300;
+
+      const result = rc._hitTest(clickEvent(450, 300)); // 50px away
+      expect(result).toBeNull();
+    });
+
+    it('returns null when there are no racers', () => {
+      const result = rc._hitTest(clickEvent(400, 300));
+      expect(result).toBeNull();
+    });
+
+    it('detects a hit at the exact boundary (just under 45px)', () => {
+      rc.setAllRacers([makeState({ id: 'r1' })]);
+      rc.update();
+      const racer = rc.racers.get('r1');
+      racer.displayX = 400;
+      racer.displayY = 300;
+
+      // Distance = sqrt(31^2 + 31^2) ≈ 43.84 < 45
+      const result = rc._hitTest(clickEvent(431, 331));
+      expect(result).toBe(racer);
+    });
+
+    it('misses at just beyond the 45px boundary', () => {
+      rc.setAllRacers([makeState({ id: 'r1' })]);
+      rc.update();
+      const racer = rc.racers.get('r1');
+      racer.displayX = 400;
+      racer.displayY = 300;
+
+      // Distance = sqrt(32^2 + 32^2) ≈ 45.25 > 45
+      const result = rc._hitTest(clickEvent(432, 332));
+      expect(result).toBeNull();
+    });
+
+    it('hits the first racer when multiple overlap', () => {
+      rc.setAllRacers([
+        makeState({ id: 'r1' }),
+        makeState({ id: 'r2' }),
+      ]);
+      rc.update();
+      const r1 = rc.racers.get('r1');
+      const r2 = rc.racers.get('r2');
+      r1.displayX = 400;
+      r1.displayY = 300;
+      r2.displayX = 410;
+      r2.displayY = 300;
+
+      const result = rc._hitTest(clickEvent(405, 300));
+      expect(result).toBe(r1);
+    });
+
+    it('handles diagonal distance correctly', () => {
+      rc.setAllRacers([makeState({ id: 'r1' })]);
+      rc.update();
+      const racer = rc.racers.get('r1');
+      racer.displayX = 100;
+      racer.displayY = 100;
+
+      // sqrt(30^2 + 30^2) = 42.4 < 45 → hit
+      expect(rc._hitTest(clickEvent(130, 130))).toBe(racer);
+      // sqrt(35^2 + 35^2) = 49.5 > 45 → miss
+      expect(rc._hitTest(clickEvent(135, 135))).toBeNull();
+    });
+
+    it('handleClick invokes onRacerClick callback on hit', () => {
+      const cb = vi.fn();
+      rc.onRacerClick = cb;
+      rc.setAllRacers([makeState({ id: 'r1' })]);
+      rc.update();
+      const racer = rc.racers.get('r1');
+      racer.displayX = 400;
+      racer.displayY = 300;
+
+      rc.handleClick(clickEvent(400, 300));
+      expect(cb).toHaveBeenCalledWith(racer.state);
+    });
+
+    it('handleClick does not invoke callback on miss', () => {
+      const cb = vi.fn();
+      rc.onRacerClick = cb;
+      rc.handleClick(clickEvent(9999, 9999));
+      expect(cb).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('canvas resize', () => {
+    it('sets initial canvas dimensions on construction', () => {
+      expect(rc.width).toBe(800);
+      expect(rc.height).toBeGreaterThan(0);
+    });
+
+    it('resizes when active lane count changes', () => {
+      const resizeSpy = vi.spyOn(rc, 'resize');
+
+      rc.setAllRacers([
+        makeState({ id: 'a', activity: 'thinking', lane: 0 }),
+        makeState({ id: 'b', activity: 'thinking', lane: 1 }),
+        makeState({ id: 'c', activity: 'thinking', lane: 2 }),
+      ]);
+      rc.update();
+
+      expect(rc._activeLaneCount).toBe(3);
+      expect(resizeSpy).toHaveBeenCalled();
+    });
+
+    it('resizes when pit lane count changes', () => {
+      const stale = agoISO(20_000);
+      const resizeSpy = vi.spyOn(rc, 'resize');
+
+      rc.setAllRacers([
+        makeState({ id: 'a', activity: 'thinking' }),
+        makeState({ id: 'pit1', activity: 'idle', lastDataReceivedAt: stale }),
+        makeState({ id: 'pit2', activity: 'idle', lastDataReceivedAt: stale }),
+      ]);
+      rc.update();
+
+      expect(rc._pitLaneCount).toBe(2);
+      expect(resizeSpy).toHaveBeenCalled();
+    });
+
+    it('resizes when parking lot lane count changes', () => {
+      const resizeSpy = vi.spyOn(rc, 'resize');
+
+      rc.setAllRacers([
+        makeState({ id: 'a', activity: 'thinking' }),
+        makeState({ id: 'lot1', activity: 'complete' }),
+        makeState({ id: 'lot2', activity: 'errored' }),
+      ]);
+      rc.update();
+
+      expect(rc._parkingLotLaneCount).toBe(2);
+      expect(resizeSpy).toHaveBeenCalled();
+    });
+
+    it('only resizes when lane counts actually change', () => {
+      rc.setAllRacers([makeState({ id: 'a', activity: 'thinking' })]);
+      rc.update();
+
+      const resizeSpy = vi.spyOn(rc, 'resize');
+      rc.update();
+      expect(resizeSpy).not.toHaveBeenCalled();
+    });
+
+    it('defaults _activeLaneCount to 1 when all racers are off-track', () => {
+      rc.setAllRacers([makeState({ id: 'a', activity: 'complete' })]);
+      rc.update();
+      expect(rc._activeLaneCount).toBe(1);
+    });
+
+    it('height grows with all three zones populated', () => {
+      rc.setAllRacers([
+        makeState({ id: 'a1', activity: 'thinking', lane: 0 }),
+        makeState({ id: 'a2', activity: 'thinking', lane: 1 }),
+        makeState({ id: 'p1', activity: 'idle', lastDataReceivedAt: agoISO(20_000) }),
+        makeState({ id: 'l1', activity: 'complete' }),
+      ]);
+      rc.update();
+
+      expect(rc._activeLaneCount).toBe(2);
+      expect(rc._pitLaneCount).toBe(1);
+      expect(rc._parkingLotLaneCount).toBe(1);
+
+      const zonesHeight = rc.track.getRequiredHeight(2, 1, 1);
+      expect(rc.height).toBeGreaterThanOrEqual(zonesHeight);
+    });
+  });
+
+  describe('animation loop', () => {
+    it('requests an animation frame on construction', () => {
+      expect(requestAnimationFrame).toHaveBeenCalled();
+      expect(rc.animFrameId).toBe(42);
+    });
+
+    it('cancels animation frame on destroy', () => {
+      rc.destroy();
+      expect(cancelAnimationFrame).toHaveBeenCalledWith(42);
+      expect(rc.animFrameId).toBeNull();
+    });
+
+    it('cleans up event listeners on destroy', () => {
+      rc.destroy();
+      expect(window.removeEventListener).toHaveBeenCalledWith('resize', rc._resizeHandler);
+      expect(canvas.removeEventListener).toHaveBeenCalledWith('click', expect.any(Function));
+      expect(canvas.removeEventListener).toHaveBeenCalledWith('mousemove', expect.any(Function));
+    });
+
+    it('clears racers and particles on destroy', () => {
+      rc.setAllRacers([makeState({ id: 'a' })]);
+      expect(rc.racers.size).toBe(1);
+      rc.destroy();
+      expect(rc.racers.size).toBe(0);
+    });
+  });
+
+  describe('racer management', () => {
+    it('adds new racers via setAllRacers', () => {
+      rc.setAllRacers([makeState({ id: 'a' }), makeState({ id: 'b' })]);
+      expect(rc.racers.size).toBe(2);
+      expect(rc.racers.has('a')).toBe(true);
+      expect(rc.racers.has('b')).toBe(true);
+    });
+
+    it('removes racers no longer in the list', () => {
+      rc.setAllRacers([makeState({ id: 'a' }), makeState({ id: 'b' })]);
+      rc.setAllRacers([makeState({ id: 'b' })]);
+      expect(rc.racers.size).toBe(1);
+      expect(rc.racers.has('a')).toBe(false);
+    });
+
+    it('updates existing racers via setAllRacers', () => {
+      rc.setAllRacers([makeState({ id: 'a', activity: 'thinking' })]);
+      rc.setAllRacers([makeState({ id: 'a', activity: 'tool_use' })]);
+      const racer = rc.racers.get('a');
+      expect(racer.update).toHaveBeenCalled();
+    });
+
+    it('adds a racer via updateRacer', () => {
+      rc.updateRacer(makeState({ id: 'new' }));
+      expect(rc.racers.has('new')).toBe(true);
+    });
+
+    it('updates existing racer via updateRacer', () => {
+      rc.setAllRacers([makeState({ id: 'a' })]);
+      rc.updateRacer(makeState({ id: 'a', activity: 'complete' }));
+      expect(rc.racers.get('a').update).toHaveBeenCalled();
+    });
+
+    it('removes a racer via removeRacer', () => {
+      rc.setAllRacers([makeState({ id: 'a' })]);
+      rc.removeRacer('a');
+      expect(rc.racers.has('a')).toBe(false);
+    });
+  });
+
+  describe('event effects', () => {
+    it('onComplete sets flashAlpha', () => {
+      rc.setAllRacers([makeState({ id: 'a' })]);
+      rc.onComplete('a');
+      expect(rc.flashAlpha).toBe(0.3);
+    });
+
+    it('onError sets shake state', () => {
+      rc.setAllRacers([makeState({ id: 'a' })]);
+      rc.onError('a');
+      expect(rc.shakeIntensity).toBe(6);
+      expect(rc.shakeDuration).toBe(0.3);
+    });
+
+    it('onComplete resets confettiEmitted on the racer', () => {
+      rc.setAllRacers([makeState({ id: 'a' })]);
+      const racer = rc.racers.get('a');
+      racer.confettiEmitted = true;
+      rc.onComplete('a');
+      expect(racer.confettiEmitted).toBe(false);
+    });
+
+    it('onError resets error animation state on the racer', () => {
+      rc.setAllRacers([makeState({ id: 'a' })]);
+      const racer = rc.racers.get('a');
+      racer.smokeEmitted = true;
+      racer.skidEmitted = true;
+      racer.errorTimer = 5;
+      racer.errorStage = 3;
+      rc.onError('a');
+      expect(racer.smokeEmitted).toBe(false);
+      expect(racer.skidEmitted).toBe(false);
+      expect(racer.errorTimer).toBe(0);
+      expect(racer.errorStage).toBe(0);
+    });
+  });
+
+  describe('handleMouseMove', () => {
+    it('sets hovered on racer within hit radius', () => {
+      rc.setAllRacers([makeState({ id: 'r1', tmuxTarget: 'my-pane' })]);
+      rc.update();
+      const racer = rc.racers.get('r1');
+      racer.displayX = 200;
+      racer.displayY = 200;
+
+      rc.handleMouseMove({ clientX: 210, clientY: 200 });
+      expect(racer.hovered).toBe(true);
+      expect(canvas.style.cursor).toBe('pointer');
+    });
+
+    it('clears hovered on racer outside hit radius', () => {
+      rc.setAllRacers([makeState({ id: 'r1', tmuxTarget: 'my-pane' })]);
+      rc.update();
+      const racer = rc.racers.get('r1');
+      racer.displayX = 200;
+      racer.displayY = 200;
+
+      rc.handleMouseMove({ clientX: 300, clientY: 300 });
+      expect(racer.hovered).toBe(false);
+      expect(canvas.style.cursor).toBe('default');
+    });
+  });
+});
