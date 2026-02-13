@@ -293,20 +293,43 @@ export class Racer {
     const activity = this.state.activity;
 
     const S = CAR_SCALE;
+
+    // Burn rate drives exhaust intensity: higher burn = more/bigger flames
+    const burnRate = this.state.burnRatePerMinute || 0;
+    const burnIntensity = burnRate > 5000 ? 3 : burnRate > 2000 ? 2 : burnRate > 500 ? 1 : 0;
+
     switch (activity) {
       case 'thinking':
-        this.targetGlow = 0.08;
-        if (particles && speed > 0.5 && Math.random() > 0.5) {
-          particles.emit('exhaust', this.displayX - 17 * S, this.displayY + 1 * S, 1);
+        this.targetGlow = 0.08 + burnIntensity * 0.02;
+        if (particles && speed > 0.5) {
+          const exhaustChance = 0.5 - burnIntensity * 0.1; // more likely with higher burn
+          if (Math.random() > exhaustChance) {
+            if (burnIntensity >= 2 && Math.random() > 0.5) {
+              particles.emit('flame', this.displayX - 17 * S, this.displayY + 1 * S, 1 + burnIntensity);
+            } else {
+              particles.emit('exhaust', this.displayX - 17 * S, this.displayY + 1 * S, 1);
+            }
+          }
         }
         this.hammerActive = false; // Stop hammer animation
         break;
 
       case 'tool_use':
-        this.targetGlow = 0.12;
+        this.targetGlow = 0.12 + burnIntensity * 0.02;
         this.colorBrightness = Math.min(40, this.colorBrightness + 2 * dtScale);
-        if (particles && Math.random() > 0.5) {
-          particles.emit('exhaust', this.displayX - 17 * S, this.displayY + 1 * S, 1);
+        if (particles) {
+          const exhaustChance = 0.5 - burnIntensity * 0.1;
+          if (Math.random() > exhaustChance) {
+            if (burnIntensity >= 1) {
+              // Hot burn: emit flames
+              particles.emit('flame', this.displayX - 17 * S, this.displayY + 1 * S, 1 + burnIntensity);
+              if (burnIntensity >= 2) {
+                particles.emit('exhaust', this.displayX - 17 * S, this.displayY + 2 * S, 1);
+              }
+            } else {
+              particles.emit('exhaust', this.displayX - 17 * S, this.displayY + 1 * S, 1);
+            }
+          }
         }
         if (particles && Math.random() > 0.6) {
           particles.emit('sparks', this.displayX + 10 * S, this.displayY + 5 * S, 1);

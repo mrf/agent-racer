@@ -308,7 +308,7 @@ agent-racer/
 │       │   ├── claude_source.go  # Claude Code session discovery
 │       │   ├── codex_source.go   # OpenAI Codex CLI session discovery
 │       │   ├── gemini_source.go  # Google Gemini CLI session discovery
-│       │   ├── process.go        # Process scanning via /proc
+│       │   ├── process.go        # Process scanning via gopsutil
 │       │   ├── jsonl.go          # Incremental JSONL parser
 │       │   └── monitor.go        # Main poll loop + churning detection
 │       ├── mock/
@@ -331,7 +331,7 @@ agent-racer/
             └── Racer.js           # Car entity with activity animations
 ```
 
-**No build tools for the frontend.** Vanilla JS with ES modules, served directly. The backend is a single Go binary with two dependencies (`gorilla/websocket`, `yaml.v3`).
+**No build tools for the frontend.** Vanilla JS with ES modules, served directly. The backend is a single Go binary with minimal dependencies (`gorilla/websocket`, `gopsutil`, `yaml.v3`).
 
 **Frontend embedding:** The `frontend/` directory is the single source of truth. During builds (`make build`), it's copied to `backend/internal/frontend/static/` as a build artifact (git-ignored) for Go's embed directive.
 
@@ -361,7 +361,7 @@ cp agent-racer /usr/local/bin/
 ## Requirements
 
 - **Go 1.22+** for building
-- **Linux** for real mode (process discovery uses `/proc` filesystem; future macOS support planned)
+- **Linux or macOS** for real mode (process discovery via gopsutil)
 - Mock mode works on any platform
 - Modern browser with Canvas support
 

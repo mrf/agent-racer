@@ -37,6 +37,18 @@ export class ParticleSystem {
           decay: 0.015 + Math.random() * 0.01,
           sizeMultiplier: 'bloom',
         };
+      case 'flame':
+        // Hot flame for high burn rate sessions
+        return {
+          ...base,
+          vx: -2.0 - Math.random() * 2.5,
+          vy: (Math.random() - 0.5) * 1.5,
+          size: 5 + Math.random() * 6,
+          color: { r: 255, g: 200, b: 50 },   // bright yellow-orange
+          colorEnd: { r: 255, g: 80, b: 20 }, // fades to red-orange
+          decay: 0.02 + Math.random() * 0.015,
+          sizeMultiplier: 'bloom',
+        };
       case 'sparks':
         return {
           ...base,

@@ -679,3 +679,91 @@ func TestDetermineActivityFromReason(t *testing.T) {
 		})
 	}
 }
+
+func TestCalculateBurnRate(t *testing.T) {
+	m := newTestMonitor(config.TokenNormConfig{})
+
+	t.Run("single_snapshot_returns_zero", func(t *testing.T) {
+		ts := &trackedSession{}
+		now := time.Now()
+
+		rate := m.calculateBurnRate(ts, 10000, now)
+
+		if rate != 0 {
+			t.Errorf("calculateBurnRate() = %f, want 0 (need at least 2 snapshots)", rate)
+		}
+		if len(ts.tokenSnapshots) != 1 {
+			t.Errorf("tokenSnapshots len = %d, want 1", len(ts.tokenSnapshots))
+		}
+	})
+
+	t.Run("two_snapshots_calculates_rate", func(t *testing.T) {
+		ts := &trackedSession{}
+		now := time.Now()
+
+		// First snapshot: 10000 tokens
+		m.calculateBurnRate(ts, 10000, now)
+
+		// Second snapshot: 20000 tokens, 30 seconds later
+		// 10000 tokens in 0.5 minutes = 20000 tokens/minute
+		rate := m.calculateBurnRate(ts, 20000, now.Add(30*time.Second))
+
+		expectedRate := 20000.0
+		if rate < expectedRate*0.9 || rate > expectedRate*1.1 {
+			t.Errorf("calculateBurnRate() = %f, want ~%f", rate, expectedRate)
+		}
+	})
+
+	t.Run("less_than_5_seconds_returns_zero", func(t *testing.T) {
+		ts := &trackedSession{}
+		now := time.Now()
+
+		m.calculateBurnRate(ts, 10000, now)
+		rate := m.calculateBurnRate(ts, 20000, now.Add(3*time.Second))
+
+		if rate != 0 {
+			t.Errorf("calculateBurnRate() = %f, want 0 (< 5 second window)", rate)
+		}
+	})
+
+	t.Run("zero_tokens_returns_zero", func(t *testing.T) {
+		ts := &trackedSession{}
+		now := time.Now()
+
+		rate := m.calculateBurnRate(ts, 0, now)
+
+		if rate != 0 {
+			t.Errorf("calculateBurnRate() = %f, want 0 (zero tokens)", rate)
+		}
+	})
+
+	t.Run("old_snapshots_trimmed", func(t *testing.T) {
+		ts := &trackedSession{}
+		now := time.Now()
+
+		// Add snapshot from 2 minutes ago (older than 60s window)
+		m.calculateBurnRate(ts, 5000, now.Add(-2*time.Minute))
+		// Add current snapshot
+		m.calculateBurnRate(ts, 10000, now.Add(-30*time.Second))
+		// Add another current snapshot
+		m.calculateBurnRate(ts, 15000, now)
+
+		// Old snapshot should be trimmed; only 2 recent ones remain
+		if len(ts.tokenSnapshots) > 2 {
+			t.Errorf("tokenSnapshots len = %d, want <= 2 (old ones trimmed)", len(ts.tokenSnapshots))
+		}
+	})
+
+	t.Run("no_token_increase_returns_zero", func(t *testing.T) {
+		ts := &trackedSession{}
+		now := time.Now()
+
+		m.calculateBurnRate(ts, 10000, now)
+		// Same token count 30 seconds later
+		rate := m.calculateBurnRate(ts, 10000, now.Add(30*time.Second))
+
+		if rate != 0 {
+			t.Errorf("calculateBurnRate() = %f, want 0 (no token increase)", rate)
+		}
+	})
+}
