@@ -4,7 +4,7 @@ import { Dashboard } from './Dashboard.js';
 import { Racer } from '../entities/Racer.js';
 
 const TERMINAL_ACTIVITIES = new Set(['complete', 'errored', 'lost']);
-const HIT_RADIUS = 45;
+const HIT_RADIUS = 100;
 // How long after the last data receipt to keep a session on track.
 // Bridges brief gaps between parsed entries during active agent loops.
 const DATA_FRESHNESS_MS = 10_000;
