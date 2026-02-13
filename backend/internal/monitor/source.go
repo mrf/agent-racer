@@ -114,6 +114,10 @@ type SourceUpdate struct {
 	// means no new information.
 	WorkingDir string
 
+	// Branch is the git branch name for the session's working
+	// directory, if detectable. Empty means unknown.
+	Branch string
+
 	// MaxContextTokens is the model's context window size if the
 	// source can determine it from session data (e.g. a model metadata
 	// field, API lookup, or configuration). Zero means unknown -- the
@@ -135,5 +139,6 @@ func (u SourceUpdate) HasData() bool {
 		u.Activity != "" ||
 		!u.LastTime.IsZero() ||
 		u.WorkingDir != "" ||
+		u.Branch != "" ||
 		u.MaxContextTokens > 0
 }

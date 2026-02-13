@@ -951,12 +951,17 @@ export class Racer {
 
     // --- Directory flag: pennant on a pole from the rear spoiler ---
     // Fallback chain: workingDir basename → session name → source name
+    // When branch is available and differs from slug, show "slug | branch"
     const rawName = this.state.workingDir
       ? (this.state.workingDir.split('/').filter(Boolean).pop() || this.state.name || '')
       : (this.state.name || '');
-    const dirName = (rawName && rawName !== 'unknown')
+    const slug = (rawName && rawName !== 'unknown')
       ? rawName
       : (this.state.source || '');
+    const branch = this.state.branch || '';
+    const dirName = (slug && branch && branch !== slug)
+      ? `${slug} | ${branch}`
+      : slug;
 
     if (dirName) {
       ctx.font = 'bold 9px Courier New';
