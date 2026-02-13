@@ -234,6 +234,10 @@ function renderDetailFlyout(state) {
       <span class="value">${esc(state.workingDir) || '-'}</span>
     </div>
     <div class="detail-row">
+      <span class="label">Branch</span>
+      <span class="value">${esc(state.branch) || '-'}</span>
+    </div>
+    <div class="detail-row">
       <span class="label">Tmux</span>
       <span class="value">${state.tmuxTarget ? esc(state.tmuxTarget) : 'not in tmux'}</span>
     </div>

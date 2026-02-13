@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -202,12 +203,14 @@ func (m *Monitor) poll() {
 					Source:     h.Source,
 					StartedAt:  startedAt,
 					WorkingDir: workingDir,
+					Branch:     detectBranch(workingDir),
 				}
 			}
 
 			if update.WorkingDir != "" && update.WorkingDir != state.WorkingDir {
 				state.WorkingDir = update.WorkingDir
 				state.Name = nameFromPath(update.WorkingDir)
+				state.Branch = detectBranch(update.WorkingDir)
 			}
 
 			// Only classify activity when we have new data or a fresh session.
@@ -514,6 +517,7 @@ func (m *Monitor) handleSessionEnd(marker sessionEndMarker, now time.Time) {
 			Name:       nameFromPath(workingDir),
 			Source:     "claude",
 			WorkingDir: workingDir,
+			Branch:     detectBranch(workingDir),
 			StartedAt:  now,
 		}
 	}
@@ -710,6 +714,24 @@ func splitPath(path string) []string {
 		path = path[:len(path)-1]
 	}
 	return parts
+}
+
+// detectBranch runs git rev-parse in the given directory to determine
+// the current branch name. Returns empty string on any error.
+func detectBranch(dir string) string {
+	if dir == "" {
+		return ""
+	}
+	cmd := exec.Command("git", "-C", dir, "rev-parse", "--abbrev-ref", "HEAD")
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	branch := strings.TrimSpace(string(out))
+	if branch == "HEAD" {
+		return "" // detached HEAD, not useful
+	}
+	return branch
 }
 
 func workingDirFromFile(sessionFile string) string {

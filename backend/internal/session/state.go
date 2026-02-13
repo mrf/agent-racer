@@ -74,6 +74,7 @@ type SessionState struct {
 	CurrentTool        string     `json:"currentTool,omitempty"`
 	Model              string     `json:"model"`
 	WorkingDir         string     `json:"workingDir"`
+	Branch             string     `json:"branch,omitempty"`
 	StartedAt          time.Time  `json:"startedAt"`
 	LastActivityAt     time.Time  `json:"lastActivityAt"`
 	LastDataReceivedAt time.Time  `json:"lastDataReceivedAt"`
