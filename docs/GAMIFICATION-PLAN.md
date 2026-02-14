@@ -27,6 +27,49 @@ Everything needed to drive achievements is already tracked in `SessionState`:
 | Session duration | `StartedAt` to `CompletedAt` | "Marathon" (2h+ session) |
 | Message count | `MessageCount` | "Conversationalist" |
 
+## Visual Layout: Full Screen
+
+Where the new gamification elements sit relative to the existing UI:
+
+```
++============================================================================+
+|  Agent Racing Dashboard                    3 active / 7 total   [*]  [A]   |
+|                                                                  |    |    |
+|                                                          connected  achiev.|
++============================================================================+
+|  BATTLE PASS   Season 1: Ignition          Tier 4/10                       |
+|  [=============================>...............] 4,200 / 5,000 XP          |
+|  +150 XP "Session completed"    Weekly: Use 3 models (2/3)                 |
++----------------------------------------------------------------------------+
+|                                                                            |
+|  Spectators   oPo oTo oPo oTo oPo oTo oPo oTo oPo oTo oPo oTo             |
+|               oTo oPo oTo oPo oTo oPo oTo oPo oTo oPo oTo oPo             |
+|  ---- START --|------------|------------|------------|---- FINISH --------- |
+|               |   50K      |   100K     |   150K     |                     |
+|  Lane 1  [opus-refactor ~~~~>          ]  142K/200K  opus-4-5              |
+|  Lane 2  [sonnet-tests  ============>  ]  180K/200K  sonnet-4-5            |
+|  Lane 3  [haiku-quick =>              ]   38K/200K   haiku-4-5             |
+|                                                                            |
+|  - - - - - - - - - - - - PIT LANE - - - - - - - - - - - - - -             |
+|  [opus-debug  ]  (waiting)   [sonnet-idle]  (idle)                         |
+|                                                                            |
+|  = = = = = = = = = = = PARKING LOT = = = = = = = = = = = = =              |
+|  [opus-review ]  COMPLETE    [sonnet-fix ]  ERRORED                        |
+|                                                                            |
++----------------------------------------------------------------------------+
+|  RACING: 3  |  PIT: 2  |  PARKED: 2  |  TOKENS: 1.2M  |  TOOLS: 842      |
++----------------------------------------------------------------------------+
+|  # | Session         | Model     | Tokens | Context     | Time             |
+|  1 | sonnet-tests    | snnt-4-5  | 180K   | [======= ] 90%  | 45m          |
+|  2 | opus-refactor   | opus-4-5  | 142K   | [=====  ] 71%   | 1h12m        |
+|  3 | haiku-quick     | haik-4-5  |  38K   | [==     ] 19%   | 8m           |
++============================================================================+
+```
+
+The **battle pass bar** is a new row between the header and the track.
+The **[A] button** in the header toggles the achievement panel overlay.
+Everything else is the existing layout.
+
 ## Design
 
 ### Achievement System
@@ -43,6 +86,47 @@ Category:    grouping for the UI
 Condition:   function(stats) -> bool
 Reward:      what unlocks (cosmetic ID)
 ```
+
+#### Achievement Panel Layout (toggled with `A` key)
+
+Overlays the track area as a semi-transparent canvas panel:
+
+```
++========================================================================+
+|  ACHIEVEMENTS                                              [X] Close   |
+|------------------------------------------------------------------------|
+|  SESSION MILESTONES          SOURCE DIVERSITY       MODEL COLLECTION   |
+|  +----------+----------+    +----------+-------+   +----------+------+ |
+|  | (*)      | ( )      |    | (*)      | (*)   |   | (*)      | (*)  | |
+|  | First    | Pit      |    | Home     | Gemini|   | Opus     | Snnt | |
+|  | Lap      | Crew     |    | Turf     | Rising|   | Enthus.  | Fan  | |
+|  | BRONZE   | BRONZE   |    | BRONZE   | BRONZ |   | BRONZE   | BRNZ | |
+|  +----------+----------+    +----------+-------+   +----------+------+ |
+|  | ( )      | ( )      |    | [ ]      | [ ]   |   | [ ]      | [ ]  | |
+|  | Veteran  | Century  |    | Codex    | Triple|   | Haiku    | Full | |
+|  | Driver   | Club     |    | Curious  | Threat|   | Speedstr | Spec | |
+|  | SILVER   | GOLD     |    | BRONZE   | SILVR |   | BRONZE   | SLVR | |
+|  +----------+----------+    +----------+-------+   +----------+------+ |
+|  | [ ]      |          |    | [ ]      |       |   | [ ]      | [ ]  | |
+|  | Track    |          |    | Polyglot |       |   | Model    | Conn | |
+|  | Legend   |          |    |          |       |   | Collect. | oiss | |
+|  | PLATINUM |          |    | GOLD     |       |   | SILVER   | GOLD | |
+|  +----------+----------+    +----------+-------+   +----------+------+ |
+|                                                                        |
+|  PERFORMANCE & ENDURANCE     SPECTACLE              STREAKS            |
+|  +----------+----------+    +----------+-------+   +----------+------+ |
+|  | (*)      | [ ]      |    | (*)      | [ ]   |   | (*)      | [ ]  | |
+|  | Redline  | After-   |    | Grid     | Full  |   | Hat      | On a | |
+|  |          | burner   |    | Start    | Grid  |   | Trick    | Roll | |
+|  | BRONZE   | SILVER   |    | BRONZE   | SILVR |   | BRONZE   | SLVR | |
+|  +----------+----------+    +----------+-------+   +----------+------+ |
+|  ...                        ...                     ...                |
+|------------------------------------------------------------------------|
+|  (*)  = Unlocked       [ ]  = Locked       17 / 31 achievements        |
++========================================================================+
+```
+
+Each tile shows:  icon, name, tier color. Unlocked tiles are bright; locked are dimmed with a padlock. Hovering a tile shows the full description and condition as a tooltip.
 
 #### Categories & Achievements
 
@@ -111,6 +195,35 @@ Reward:      what unlocks (cosmetic ID)
 
 A rotating set of weekly/monthly challenges layered on top of permanent achievements. Each challenge awards XP that fills a progress bar through tiers.
 
+#### Battle Pass Bar Layout
+
+Sits between the header and the track. Compact single row, expands on hover/click:
+
+```
+Collapsed (default):
++============================================================================+
+|  BP  S1: Ignition  [=========>........] T4  4,200 XP   +25 completed!     |
++============================================================================+
+
+Expanded (on click):
++============================================================================+
+|  BATTLE PASS  Season 1: Ignition                              Tier 4 / 10 |
+|                                                                            |
+|  [===================================>..........................] 4,200 XP |
+|  T1       T2       T3       T4       T5       T6   T7   T8   T9   T10     |
+|  Paint    Badge    Trail    Sound    Paint    Body  Trk  Trl  Pnt  Title   |
+|  (done)   (done)   (done)   (NOW)    ----     ---   ---  ---  ---  ---     |
+|                                                                            |
+|  WEEKLY CHALLENGES                              RECENT XP                  |
+|  [x] Run 5 Haiku sessions (5/5)  +150 XP       +25  Session completed     |
+|  [ ] Hit 90% context x2   (1/2)                 +50  New model bonus       |
+|  [ ] 3 models in one day  (2/3)                 +15  50% context reached   |
++============================================================================+
+```
+
+Tier markers show what reward unlocks at each tier. Completed tiers are filled,
+the current tier pulses, future tiers are dimmed.
+
 **XP Sources:**
 
 | Action | XP |
@@ -152,6 +265,106 @@ Seasons can be time-based (monthly) or manually rotated via config. The first ve
 ### Reward Types
 
 All rewards are cosmetic and rendered on the existing Canvas 2D racetrack.
+
+#### Car Body Variants
+
+```
+Default (current):
+    ____________________
+   /                    \        O  O     <- wheels
+  |   [================] |       |  |
+   \____________________/        O  O
+         model badge
+
+Formula (low, wide):
+         __________________________
+   _____|                          |_____
+  O     |   [====================] |     O
+  O_____|__________________________|_____O
+              model badge
+
+Luxury (longer, rounded):
+      ______________________________
+     /        ____                  \
+    |   [====|wind|================] |
+  O  \________|____|________________/  O
+  O              model badge           O
+
+Armored (angular, aggressive):
+       /\________________________/\
+      /  |  [==================] |  \
+  O  |   |______________________|   |  O
+  O   \_/________________________\_/   O
+              model badge
+```
+
+#### Paint + Trail + Badge on a Racer
+
+How cosmetic layers compose on a single car:
+
+```
+                      [Claude logo]  <- badge (next to name)
+                    opus-refactor
+        ______________________________
+       / ############################ \       <- paint fill (e.g. chrome)
+      |  # [======================] # |
+   O   \ ########################## /   O
+   O    \__________________________/    O
+              opus-4-5  142K/200K
+    ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~                    <- trail (e.g. blue flame)
+       ~  ~  ~  ~  ~  ~
+          ~     ~     ~
+```
+
+#### Reward Selector UI
+
+Accessed from the achievement panel or detail flyout. Canvas-rendered overlay:
+
+```
++======================================================================+
+|  GARAGE                                                    [X] Close |
+|----------------------------------------------------------------------|
+|                                                                      |
+|  PAINT             TRAIL             BODY             BADGE          |
+|  +------------+   +------------+   +------------+   +------------+  |
+|  | ========== |   |  ~ ~ ~ ~   |   |  Default   |   |  [Claude]  |  |
+|  | Matte Black|   |  Blue Flame|   |  Standard  |   |  Logo      |  |
+|  | [EQUIPPED] |   |  [EQUIPPED]|   |  [EQUIPPED]|   |  [EQUIPPED]|  |
+|  +------------+   +------------+   +------------+   +------------+  |
+|  | ========== |   |  * * * *   |   |  ___/\___  |   |  [Wrench]  |  |
+|  | Chrome     |   |  Red Sparks|   |  Formula   |   |  Tool Fnd  |  |
+|  |   [EQUIP]  |   |   [EQUIP]  |   |   [EQUIP]  |   |   [EQUIP]  |  |
+|  +------------+   +------------+   +------------+   +------------+  |
+|  | ////////// |   | ~~*~~*~~   |   | /--------\ |   |            |  |
+|  | Gemini Teal|   | Rainbow    |   | Luxury     |   |            |  |
+|  |   [EQUIP]  |   |   [EQUIP]  |   |   [EQUIP]  |   |            |  |
+|  +------------+   +------------+   +------------+   +------------+  |
+|  | [LOCKED]   |   | [LOCKED]   |   | [LOCKED]   |                  |
+|  | Holographic|   | Confetti   |   | Armored    |                  |
+|  | Need: 500  |   | Need:Photo |   | Need: 25   |                  |
+|  | sessions   |   |    Finish  |   | streak     |                  |
+|  +------------+   +------------+   +------------+                  |
+|                                                                      |
+|  SOUND              TRACK THEME         TITLE                        |
+|  +------------+    +-------------+    +------------------+           |
+|  | Default    |    | Default     |    | (none)           |           |
+|  | [EQUIPPED] |    | [EQUIPPED]  |    | [EQUIPPED]       |           |
+|  +------------+    +-------------+    +------------------+           |
+|  | Engine Rev |    | [LOCKED]    |    | [LOCKED]         |           |
+|  |   [EQUIP]  |    | Stadium     |    | Track Legend      |          |
+|  +------------+    | Need: 10   |    | Need: 500 sess   |           |
+|  | [LOCKED]   |    | concurrent  |    +------------------+           |
+|  | Crowd Roar |    +-------------+                                   |
+|  | Need: Full |                                                      |
+|  | Grid       |                                                      |
+|  +------------+                                                      |
++======================================================================+
+```
+
+Locked items show the achievement needed to unlock them. Equipped items
+have a highlighted border. Only one item per slot can be equipped.
+
+#### Reward Descriptions
 
 **Paints** -- change the car's base fill color or add patterns.
 
@@ -253,6 +466,66 @@ Schema:
 
 ### Update Flow
 
+```
+  ~/.claude/projects/        ~/.gemini/tmp/         ~/.codex/sessions/
+       *.jsonl                 chats/*.json           rollout-*.jsonl
+         |                        |                        |
+         v                        v                        v
+   +------------------------------------------------------------------+
+   |                     Monitor Loop (1s poll)                        |
+   |  ClaudeSource.Parse()  GeminiSource.Parse()  CodexSource.Parse() |
+   +------------------------------|------------------------------------+
+                                  |
+                      SessionState change detected
+                      (new / complete / error / etc.)
+                                  |
+                                  v
+   +------------------------------------------------------------------+
+   |                      StatsTracker                                 |
+   |                                                                   |
+   |  - Increment session/model/source counters                        |
+   |  - Update peak metrics (max utilization, max burn rate, etc.)     |
+   |  - Track streak state (consecutive completions)                   |
+   |  - Snapshot concurrent active count                               |
+   +------------------------------|------------------------------------+
+                                  |
+                          updated CumulativeStats
+                                  |
+              +-------------------+-------------------+
+              |                                       |
+              v                                       v
+   +------------------------+            +--------------------------+
+   |   AchievementEngine    |            |      BattlePass          |
+   |                        |            |                          |
+   |  for each locked achv: |            |  +XP for the trigger     |
+   |    if condition(stats)  |            |  check weekly challenges |
+   |      -> unlock!        |            |  advance tier if needed  |
+   +-----------|------------+            +-------------|------------+
+               |                                       |
+               v                                       v
+   +------------------------------------------------------------------+
+   |                   WebSocket Broadcaster                           |
+   |                                                                   |
+   |   { type: "achievement_unlocked", ... }                           |
+   |   { type: "battlepass_progress", ... }                            |
+   +------------------------------|------------------------------------+
+                                  |
+                                  v
+   +------------------------------------------------------------------+
+   |                        Frontend                                   |
+   |                                                                   |
+   |   UnlockToast  ->  achievement notification popup                 |
+   |   BattlePassBar ->  XP bar update + tier animation                |
+   |   AchievementPanel ->  tile state refresh                         |
+   +------------------------------------------------------------------+
+                                  |
+                          (debounced 30s)
+                                  v
+                   ~/.local/state/agent-racer/stats.json
+```
+
+Step by step:
+
 1. Monitor loop detects session state change (new session, completion, error, etc.)
 2. Backend `StatsTracker` updates cumulative stats
 3. `AchievementEngine` evaluates all locked achievements against current stats
@@ -295,6 +568,50 @@ frontend/src/
 - `Particles.js` adds new particle presets for trail rewards.
 - `SoundEngine.js` loads alternate SFX sets when equipped.
 - New keyboard shortcut: `A` to toggle achievement panel.
+
+#### Achievement Unlock Toast
+
+Appears top-center, slides in and auto-dismisses after 5s. Stacks if multiple
+achievements unlock simultaneously:
+
+```
+                  +------------------------------------------+
+                  |  *  ACHIEVEMENT UNLOCKED  *              |
+                  |                                          |
+                  |  [BRONZE]  Gemini Rising                 |
+                  |  "Complete your first Gemini session"    |
+                  |                                          |
+                  |  Reward unlocked: Paint - Gemini Teal    |
+                  +------------------------------------------+
+                  |  *  ACHIEVEMENT UNLOCKED  *              |
+                  |                                          |
+                  |  [SILVER]  Triple Threat                 |
+                  |  "Use all 3 agent sources"               |
+                  |                                          |
+                  |  Reward unlocked: Trail - Rainbow        |
+                  +------------------------------------------+
+```
+
+The tier badge pulses with tier color (bronze = #cd7f32, silver = #c0c0c0,
+gold = #ffd700, platinum = #e5e4e2). A short celebratory SFX plays on each
+unlock (reuses the existing completion chime, pitch-shifted by tier).
+
+#### Leaderboard with Badges & Titles
+
+The existing leaderboard gains two new columns: badge icon and title prefix:
+
+```
++------------------------------------------------------------------------+
+|  #  | Badge | Session              | Model    | Tokens | Context | Time|
++------------------------------------------------------------------------+
+|  1  |  [C]  | opus-refactor        | opus-4-5 | 180K   | [====] 90% | 1h|
+|  2  |  [W]  | Track Legend sonnet-t | snnt-4-5 | 142K   | [=== ] 71% |45m|
+|  3  |       | haiku-quick          | haik-4-5 |  38K   | [=   ] 19% | 8m|
++------------------------------------------------------------------------+
+  ^       ^           ^
+  rank    badge       title prefix (if equipped)
+          emoji       shown before session name
+```
 
 ### WebSocket Protocol Additions
 
