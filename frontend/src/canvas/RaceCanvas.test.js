@@ -3,86 +3,89 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // Mocks -- keep RaceCanvas from touching the real DOM / rAF
 
 vi.mock('./Particles.js', () => ({
-  ParticleSystem: vi.fn(() => ({
-    update: vi.fn(),
-    drawBehind: vi.fn(),
-    drawFront: vi.fn(),
-    clear: vi.fn(),
-    emit: vi.fn(),
-    emitWithColor: vi.fn(),
-  })),
+  ParticleSystem: vi.fn(function () {
+    this.update = vi.fn();
+    this.drawBehind = vi.fn();
+    this.drawFront = vi.fn();
+    this.clear = vi.fn();
+    this.emit = vi.fn();
+    this.emitWithColor = vi.fn();
+  }),
 }));
 
 vi.mock('./Track.js', () => ({
-  Track: vi.fn(() => ({
-    getRequiredHeight: vi.fn((active, pit = 0, parking = 0) => {
+  Track: vi.fn(function () {
+    this.trackPadding = { left: 200, right: 60, top: 60, bottom: 40 };
+    this.updateViewport = vi.fn();
+    this.getRequiredHeight = vi.fn((active, pit = 0, parking = 0) => {
       // Simplified formula matching real Track layout constants
       let h = 60 + active * 80 + 40;
       if (pit > 0) h += 30 + pit * 50 + 40;
+      else h += 30 + 14 + 8; // collapsed pit
       if (parking > 0) h += 20 + parking * 45 + 40;
       return h;
-    }),
-    getTrackBounds: vi.fn((w, h, lanes) => ({
+    });
+    this.getTrackBounds = vi.fn((w, h, lanes) => ({
       x: 200, y: 60, width: w - 260, height: lanes * 80, laneHeight: 80,
-    })),
-    getPitBounds: vi.fn((w, h, active, pitCount) => ({
+    }));
+    this.getPitBounds = vi.fn((w, h, active, pitCount) => ({
       x: 200, y: 60 + active * 80 + 40 + 30,
       width: w - 260, height: pitCount * 50, laneHeight: 50,
-    })),
-    getParkingLotBounds: vi.fn((w, h, active, pit, lot) => ({
+    }));
+    this.getParkingLotBounds = vi.fn((w, h, active, pit, lot) => ({
       x: 200,
       y: 60 + active * 80 + 40 + (pit > 0 ? 30 + pit * 50 + 40 : 0) + 20,
       width: w - 260, height: lot * 45, laneHeight: 45,
-    })),
-    getLaneY: vi.fn((bounds, lane) => bounds.y + lane * bounds.laneHeight + bounds.laneHeight / 2),
-    getPositionX: vi.fn((bounds, util) => bounds.x + util * bounds.width),
-    getPitEntryX: vi.fn((bounds) => bounds.x - 60),
-    draw: vi.fn(),
-    drawPit: vi.fn(),
-    drawParkingLot: vi.fn(),
-  })),
+    }));
+    this.getLaneY = vi.fn((bounds, lane) => bounds.y + lane * bounds.laneHeight + bounds.laneHeight / 2);
+    this.getPositionX = vi.fn((bounds, util) => bounds.x + util * bounds.width);
+    this.getPitEntryX = vi.fn((bounds) => bounds.x - 60);
+    this.draw = vi.fn();
+    this.drawPit = vi.fn();
+    this.drawParkingLot = vi.fn();
+  }),
 }));
 
 vi.mock('./Dashboard.js', () => ({
-  Dashboard: vi.fn(() => ({
-    getRequiredHeight: vi.fn(() => 160),
-    getBounds: vi.fn(),
-    draw: vi.fn(),
-  })),
+  Dashboard: vi.fn(function () {
+    this.getRequiredHeight = vi.fn(() => 160);
+    this.getBounds = vi.fn();
+    this.draw = vi.fn();
+  }),
 }));
 
 vi.mock('../entities/Racer.js', () => ({
-  Racer: vi.fn((state) => ({
-    id: state.id,
-    state,
-    displayX: 0,
-    displayY: 0,
-    targetX: 0,
-    targetY: 0,
-    springY: 0,
-    initialized: false,
-    inPit: false,
-    inParkingLot: false,
-    pitDimTarget: 0,
-    parkingLotDimTarget: 0,
-    glowIntensity: 0,
-    hovered: false,
-    hasTmux: !!state.tmuxTarget,
-    confettiEmitted: false,
-    smokeEmitted: false,
-    skidEmitted: false,
-    errorTimer: 0,
-    errorStage: 0,
-    update: vi.fn(function (s) { this.state = s; this.hasTmux = !!s.tmuxTarget; }),
-    setTarget: vi.fn(function (x, y) {
+  Racer: vi.fn(function (state) {
+    this.id = state.id;
+    this.state = state;
+    this.displayX = 0;
+    this.displayY = 0;
+    this.targetX = 0;
+    this.targetY = 0;
+    this.springY = 0;
+    this.initialized = false;
+    this.inPit = false;
+    this.inParkingLot = false;
+    this.pitDimTarget = 0;
+    this.parkingLotDimTarget = 0;
+    this.glowIntensity = 0;
+    this.hovered = false;
+    this.hasTmux = !!state.tmuxTarget;
+    this.confettiEmitted = false;
+    this.smokeEmitted = false;
+    this.skidEmitted = false;
+    this.errorTimer = 0;
+    this.errorStage = 0;
+    this.update = vi.fn(function (s) { this.state = s; this.hasTmux = !!s.tmuxTarget; });
+    this.setTarget = vi.fn(function (x, y) {
       this.targetX = x;
       this.targetY = y;
       if (!this.initialized) { this.displayX = x; this.displayY = y; this.initialized = true; }
-    }),
-    animate: vi.fn(),
-    draw: vi.fn(),
-    startZoneTransition: vi.fn(),
-  })),
+    });
+    this.animate = vi.fn();
+    this.draw = vi.fn();
+    this.startZoneTransition = vi.fn();
+  }),
 }));
 
 // Stub factories
