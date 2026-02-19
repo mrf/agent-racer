@@ -268,10 +268,6 @@ func parseGeminiSession(data []byte) SourceUpdate {
 		update.Model = extractGeminiModel(data)
 	}
 
-	if update.Model != "" {
-		update.MaxContextTokens = geminiContextWindow(update.Model)
-	}
-
 	return update
 }
 
@@ -340,27 +336,6 @@ func findGeminiModel(value any, depth int) string {
 		}
 	}
 	return ""
-}
-
-// geminiContextWindow returns the known context window size for a Gemini
-// model. The Gemini CLI itself hardcodes 1,048,576 for all current models
-// (see packages/core/src/core/tokenLimits.ts). We mirror that here and
-// handle newer models as they appear.
-func geminiContextWindow(model string) int {
-	switch {
-	case strings.HasPrefix(model, "gemini-2.5-"),
-		strings.HasPrefix(model, "gemini-2.0-"):
-		return 1_048_576
-	case strings.HasPrefix(model, "gemini-3-"):
-		return 1_000_000
-	case strings.HasPrefix(model, "gemini-1.5-pro"):
-		return 2_097_152
-	case strings.HasPrefix(model, "gemini-1.5-flash"):
-		return 1_048_576
-	default:
-		// Match the Gemini CLI default.
-		return 1_048_576
-	}
 }
 
 // geminiMessage represents a message in a Gemini session JSON file.

@@ -147,8 +147,8 @@ func TestLoadOrDefaultMissingFile(t *testing.T) {
 	if cfg.Sources.Codex {
 		t.Error("Sources.Codex = true, want default false")
 	}
-	if cfg.Models["default"] != 200000 {
-		t.Errorf("Models[default] = %d, want default 200000", cfg.Models["default"])
+	if cfg.Models["default"] != DefaultContextWindow {
+		t.Errorf("Models[default] = %d, want default %d", cfg.Models["default"], DefaultContextWindow)
 	}
 }
 
@@ -229,19 +229,74 @@ func TestMaxContextTokens(t *testing.T) {
 			name:   "no default key falls back to hardcoded",
 			models: map[string]int{"claude-opus-4-5": 200000},
 			model:  "unknown-model",
-			want:   200000,
+			want:   DefaultContextWindow,
 		},
 		{
 			name:   "nil map falls back to hardcoded",
 			models: nil,
 			model:  "anything",
-			want:   200000,
+			want:   DefaultContextWindow,
 		},
 		{
 			name:   "empty map falls back to hardcoded",
 			models: map[string]int{},
 			model:  "anything",
+			want:   DefaultContextWindow,
+		},
+		// Prefix matching tests
+		{
+			name:   "prefix match with wildcard",
+			models: map[string]int{"claude-*": 200000, "default": 128000},
+			model:  "claude-opus-4-5-20251101",
 			want:   200000,
+		},
+		{
+			name:   "longest prefix wins",
+			models: map[string]int{"gemini-*": 500000, "gemini-2.5-*": 1048576},
+			model:  "gemini-2.5-pro",
+			want:   1048576,
+		},
+		{
+			name:   "shorter prefix matches when longer doesn't",
+			models: map[string]int{"gemini-*": 500000, "gemini-2.5-*": 1048576},
+			model:  "gemini-3-pro-preview",
+			want:   500000,
+		},
+		{
+			name:   "exact match beats prefix",
+			models: map[string]int{"claude-*": 200000, "claude-opus-4-5": 300000},
+			model:  "claude-opus-4-5",
+			want:   300000,
+		},
+		{
+			name:   "prefix with no trailing separator",
+			models: map[string]int{"gemini-1.5-pro*": 2097152},
+			model:  "gemini-1.5-pro-latest",
+			want:   2097152,
+		},
+		{
+			name:   "no prefix match falls to default",
+			models: map[string]int{"claude-*": 200000, "default": 128000},
+			model:  "gpt-4",
+			want:   128000,
+		},
+		{
+			name:   "gemini prefix replaces hardcoded switch",
+			models: map[string]int{"gemini-2.5-*": 1048576, "gemini-2.0-*": 1048576, "gemini-3-*": 1000000, "gemini-1.5-pro*": 2097152, "gemini-1.5-flash*": 1048576, "default": 200000},
+			model:  "gemini-2.5-pro",
+			want:   1048576,
+		},
+		{
+			name:   "gemini 1.5 pro prefix",
+			models: map[string]int{"gemini-1.5-pro*": 2097152, "gemini-1.5-flash*": 1048576, "default": 200000},
+			model:  "gemini-1.5-pro-latest",
+			want:   2097152,
+		},
+		{
+			name:   "gemini 3 prefix",
+			models: map[string]int{"gemini-2.5-*": 1048576, "gemini-3-*": 1000000, "default": 200000},
+			model:  "gemini-3-flash-preview",
+			want:   1000000,
 		},
 	}
 

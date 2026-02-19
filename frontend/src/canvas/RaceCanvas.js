@@ -3,6 +3,7 @@ import { Track } from './Track.js';
 import { Dashboard } from './Dashboard.js';
 import { Racer } from '../entities/Racer.js';
 
+const DEFAULT_CONTEXT_WINDOW = 200000;
 const TERMINAL_ACTIVITIES = new Set(['complete', 'errored', 'lost']);
 
 // Rectangular hit area matching the limo's elongated shape.
@@ -227,15 +228,27 @@ export class RaceCanvas {
       this.resize();
     }
 
+    // Compute globalMaxTokens from ALL racers (track + pit + parking lot)
+    // so the scale stays stable even when sessions move between zones.
+    let globalMaxTokens = DEFAULT_CONTEXT_WINDOW;
+    for (const racer of this.racers.values()) {
+      const max = racer.state.maxContextTokens || DEFAULT_CONTEXT_WINDOW;
+      if (max > globalMaxTokens) globalMaxTokens = max;
+    }
+    this._globalMaxTokens = globalMaxTokens;
+
     // Position track racers
     const bounds = this.track.getTrackBounds(this.width, this.height, activeLaneCount);
     const sortedTrack = trackRacers.sort((a, b) => a.state.lane - b.state.lane);
 
     const entryX = this.track.getPitEntryX(bounds);
 
+    // Build per-lane maxTokens array for track racers
+    this._trackLaneMaxTokens = sortedTrack.map(r => r.state.maxContextTokens || DEFAULT_CONTEXT_WINDOW);
+
     for (let i = 0; i < sortedTrack.length; i++) {
       const racer = sortedTrack[i];
-      const targetX = this.track.getPositionX(bounds, racer.state.contextUtilization);
+      const targetX = this.track.getTokenX(bounds, racer.state.tokensUsed || 0, globalMaxTokens);
       const targetY = this.track.getLaneY(bounds, i);
 
       // Detect leaving pit or parking lot -> track transition
@@ -275,7 +288,7 @@ export class RaceCanvas {
 
       for (let i = 0; i < sortedPit.length; i++) {
         const racer = sortedPit[i];
-        const targetX = this.track.getPositionX(pitBounds, racer.state.contextUtilization);
+        const targetX = this.track.getTokenX(pitBounds, racer.state.tokensUsed || 0, globalMaxTokens);
         const targetY = this.track.getLaneY(pitBounds, i);
 
         // Detect entering pit from track or parking lot
@@ -319,7 +332,7 @@ export class RaceCanvas {
 
       for (let i = 0; i < sortedLot.length; i++) {
         const racer = sortedLot[i];
-        const targetX = this.track.getPositionX(lotBounds, racer.state.contextUtilization);
+        const targetX = this.track.getTokenX(lotBounds, racer.state.tokensUsed || 0, globalMaxTokens);
         const targetY = this.track.getLaneY(lotBounds, i);
 
         // Detect entering parking lot from track or pit
@@ -384,7 +397,9 @@ export class RaceCanvas {
     const parkingLotLaneCount = this._parkingLotLaneCount;
 
     const excitement = this.engine ? this.engine.currentExcitement : 0;
-    this.track.draw(ctx, this.width, this.height, activeLaneCount, 200000, excitement);
+    const globalMax = this._globalMaxTokens || DEFAULT_CONTEXT_WINDOW;
+    const laneMaxTokens = this._trackLaneMaxTokens || null;
+    this.track.draw(ctx, this.width, this.height, activeLaneCount, globalMax, excitement, laneMaxTokens);
 
     // Draw pit area (always visible, even when empty)
     this.track.drawPit(ctx, this.width, this.height, activeLaneCount, pitLaneCount);
