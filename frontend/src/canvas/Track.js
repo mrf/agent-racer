@@ -22,6 +22,12 @@ const PIT_PADDING_LEFT = 40;
 const PIT_BOTTOM_PADDING = 40;
 const PIT_ENTRY_OFFSET = 60;
 const PIT_ENTRY_WIDTH = 40;
+const PIT_COLLAPSED_HEIGHT = 14;
+const PIT_COLLAPSED_PADDING = 8;
+
+// Viewport height breakpoints for crowd visibility
+const CROWD_FULL_MIN_HEIGHT = 500;
+const CROWD_COMPACT_MIN_HEIGHT = 350;
 
 const PARKING_LOT_LANE_HEIGHT = 45;
 const PARKING_LOT_GAP = 20;
@@ -39,6 +45,26 @@ export class Track {
     this._lastWidth = 0;
     this._lastHeight = 0;
     this._lastLaneCount = 0;
+    // Crowd visibility: 'full', 'compact', 'hidden'
+    this._crowdMode = 'full';
+  }
+
+  updateViewport(viewportHeight) {
+    let mode;
+    if (viewportHeight >= CROWD_FULL_MIN_HEIGHT) {
+      mode = 'full';
+      this.trackPadding.top = 60;
+    } else if (viewportHeight >= CROWD_COMPACT_MIN_HEIGHT) {
+      mode = 'compact';
+      this.trackPadding.top = 40;
+    } else {
+      mode = 'hidden';
+      this.trackPadding.top = 20;
+    }
+    if (mode !== this._crowdMode) {
+      this._crowdMode = mode;
+      this._spectators = null;
+    }
   }
 
   getRequiredHeight(laneCount, pitLaneCount = 0, parkingLotLaneCount = 0) {
@@ -48,8 +74,10 @@ export class Track {
   }
 
   getRequiredPitHeight(pitLaneCount) {
-    const lanes = Math.max(pitLaneCount, 1);
-    return PIT_GAP + lanes * PIT_LANE_HEIGHT + PIT_BOTTOM_PADDING;
+    if (pitLaneCount <= 0) {
+      return PIT_GAP + PIT_COLLAPSED_HEIGHT + PIT_COLLAPSED_PADDING;
+    }
+    return PIT_GAP + pitLaneCount * PIT_LANE_HEIGHT + PIT_BOTTOM_PADDING;
   }
 
   getTrackBounds(canvasWidth, canvasHeight, laneCount) {
@@ -77,12 +105,20 @@ export class Track {
   }
 
   getPitBounds(canvasWidth, canvasHeight, activeLaneCount, pitLaneCount) {
-    const lanes = Math.max(pitLaneCount, 1);
     const trackBounds = this.getTrackBounds(canvasWidth, canvasHeight, activeLaneCount);
     const pitTop = trackBounds.y + trackBounds.height + PIT_GAP;
     const pitX = trackBounds.x + PIT_PADDING_LEFT;
     const pitWidth = trackBounds.width - PIT_PADDING_LEFT;
-    const pitHeight = lanes * PIT_LANE_HEIGHT;
+    if (pitLaneCount <= 0) {
+      return {
+        x: pitX,
+        y: pitTop,
+        width: pitWidth,
+        height: PIT_COLLAPSED_HEIGHT,
+        laneHeight: PIT_COLLAPSED_HEIGHT,
+      };
+    }
+    const pitHeight = pitLaneCount * PIT_LANE_HEIGHT;
     return {
       x: pitX,
       y: pitTop,
@@ -148,10 +184,13 @@ export class Track {
   }
 
   _prerenderCrowd(bounds) {
-    const w = bounds.width + 20;
     this._spectators = [];
+    if (this._crowdMode === 'hidden') return;
 
-    for (const row of CROWD_ROWS) {
+    const rows = this._crowdMode === 'compact' ? [CROWD_ROWS[1]] : CROWD_ROWS;
+    const w = bounds.width + 20;
+
+    for (const row of rows) {
       const count = Math.floor(w / row.spacing);
       for (let i = 0; i < count; i++) {
         this._spectators.push({
@@ -259,6 +298,29 @@ export class Track {
 
   drawPit(ctx, canvasWidth, canvasHeight, activeLaneCount, pitLaneCount) {
     const pitBounds = this.getPitBounds(canvasWidth, canvasHeight, activeLaneCount, pitLaneCount);
+
+    if (pitLaneCount <= 0) {
+      // Collapsed pit: thin dashed line with label
+      const midY = pitBounds.y + pitBounds.height / 2;
+      ctx.strokeStyle = '#444';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([6, 8]);
+      ctx.beginPath();
+      ctx.moveTo(pitBounds.x, midY);
+      ctx.lineTo(pitBounds.x + pitBounds.width, midY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      ctx.fillStyle = '#444';
+      ctx.font = 'bold 11px Courier New';
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('PIT', pitBounds.x - 10, midY);
+      ctx.textBaseline = 'alphabetic';
+      ctx.textAlign = 'center';
+      return pitBounds;
+    }
+
     const trackBounds = this.getTrackBounds(canvasWidth, canvasHeight, activeLaneCount);
 
     // Connecting lane between track and pit at the entry point
@@ -520,7 +582,7 @@ export class Track {
   }
 
   _drawCrowd(ctx, bounds, excitement) {
-    if (!this._spectators) return;
+    if (!this._spectators || this._crowdMode === 'hidden') return;
 
     // Spectators positioned above the track, just above the pennant line
     const baseY = bounds.y - 14;

@@ -140,9 +140,9 @@ describe('Track', () => {
       expect(pit3.height).toBe(150);
     });
 
-    it('clamps pit lane count to minimum of 1', () => {
+    it('returns collapsed bounds when pit lane count is 0', () => {
       const pit = track.getPitBounds(CANVAS_W, CANVAS_H, LANE_COUNT, 0);
-      expect(pit.height).toBe(50);
+      expect(pit.height).toBe(14); // PIT_COLLAPSED_HEIGHT
     });
 
     it('pit position changes with active lane count', () => {
@@ -196,7 +196,7 @@ describe('Track', () => {
   describe('getRequiredHeight', () => {
     it('accounts for track + padding with no pit or parking', () => {
       const h = track.getRequiredHeight(LANE_COUNT);
-      expect(h).toBe(3 * 80 + 60 + 40 + 30 + 50 + 40); // track + pit(default 1 lane)
+      expect(h).toBe(3 * 80 + 60 + 40 + 30 + 14 + 8); // track + collapsed pit
     });
 
     it('includes pit height based on pit lane count', () => {
@@ -227,8 +227,8 @@ describe('Track', () => {
       expect(track.getRequiredPitHeight(2)).toBe(30 + 100 + 40);
     });
 
-    it('clamps to minimum 1 lane', () => {
-      expect(track.getRequiredPitHeight(0)).toBe(30 + 50 + 40);
+    it('returns collapsed height for 0 lanes', () => {
+      expect(track.getRequiredPitHeight(0)).toBe(30 + 14 + 8); // PIT_GAP + PIT_COLLAPSED_HEIGHT + PIT_COLLAPSED_PADDING
     });
   });
 

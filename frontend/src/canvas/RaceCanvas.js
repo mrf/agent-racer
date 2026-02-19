@@ -84,6 +84,8 @@ export class RaceCanvas {
     const viewportWidth = rect.width;
     const viewportHeight = rect.height;
 
+    this.track.updateViewport(viewportHeight);
+
     // Track zones height (track + pit + parking lot)
     const zonesHeight = this.track.getRequiredHeight(this._activeLaneCount, this._pitLaneCount, this._parkingLotLaneCount);
 
