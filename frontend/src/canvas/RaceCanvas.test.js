@@ -301,59 +301,64 @@ describe('RaceCanvas', () => {
     });
   });
 
-  describe('hit testing', () => {
+  describe('hit testing (rectangular hitbox)', () => {
     function clickEvent(clientX, clientY) {
       return { clientX, clientY };
     }
 
-    it('detects a hit within the 45px radius', () => {
+    // Place a single racer at (400, 300) and return it.
+    function placeRacer() {
       rc.setAllRacers([makeState({ id: 'r1' })]);
       rc.update();
       const racer = rc.racers.get('r1');
       racer.displayX = 400;
       racer.displayY = 300;
+      return racer;
+    }
 
-      const result = rc._hitTest(clickEvent(430, 300)); // 30px away
+    it('detects a hit near the center of the car', () => {
+      const racer = placeRacer();
+      const result = rc._hitTest(clickEvent(430, 300)); // 30px right
       expect(result).toBe(racer);
     });
 
-    it('returns null for clicks outside the 100px radius', () => {
-      rc.setAllRacers([makeState({ id: 'r1' })]);
-      rc.update();
-      const racer = rc.racers.get('r1');
-      racer.displayX = 400;
-      racer.displayY = 300;
+    it('detects a hit at the rear of the limo', () => {
+      const racer = placeRacer();
+      // 120px left of center — within HIT_LEFT=125
+      const result = rc._hitTest(clickEvent(280, 300));
+      expect(result).toBe(racer);
+    });
 
-      const result = rc._hitTest(clickEvent(510, 300)); // 110px away
+    it('misses beyond the rear of the limo', () => {
+      placeRacer();
+      // 130px left of center — outside HIT_LEFT=125
+      const result = rc._hitTest(clickEvent(270, 300));
+      expect(result).toBeNull();
+    });
+
+    it('misses beyond the front of the car', () => {
+      placeRacer();
+      // 65px right of center — outside HIT_RIGHT=60
+      const result = rc._hitTest(clickEvent(465, 300));
+      expect(result).toBeNull();
+    });
+
+    it('detects a hit at the top edge of the car', () => {
+      const racer = placeRacer();
+      // 25px above — within HIT_TOP=28
+      const result = rc._hitTest(clickEvent(400, 275));
+      expect(result).toBe(racer);
+    });
+
+    it('misses above the car', () => {
+      placeRacer();
+      // 30px above — outside HIT_TOP=28
+      const result = rc._hitTest(clickEvent(400, 270));
       expect(result).toBeNull();
     });
 
     it('returns null when there are no racers', () => {
       const result = rc._hitTest(clickEvent(400, 300));
-      expect(result).toBeNull();
-    });
-
-    it('detects a hit at the exact boundary (just under 100px)', () => {
-      rc.setAllRacers([makeState({ id: 'r1' })]);
-      rc.update();
-      const racer = rc.racers.get('r1');
-      racer.displayX = 400;
-      racer.displayY = 300;
-
-      // Distance = sqrt(70^2 + 70^2) ≈ 98.99 < 100
-      const result = rc._hitTest(clickEvent(470, 370));
-      expect(result).toBe(racer);
-    });
-
-    it('misses at just beyond the 100px boundary', () => {
-      rc.setAllRacers([makeState({ id: 'r1' })]);
-      rc.update();
-      const racer = rc.racers.get('r1');
-      racer.displayX = 400;
-      racer.displayY = 300;
-
-      // Distance = sqrt(72^2 + 72^2) ≈ 101.8 > 100
-      const result = rc._hitTest(clickEvent(472, 372));
       expect(result).toBeNull();
     });
 
@@ -374,27 +379,18 @@ describe('RaceCanvas', () => {
       expect(result).toBe(r1);
     });
 
-    it('handles diagonal distance correctly', () => {
-      rc.setAllRacers([makeState({ id: 'r1' })]);
-      rc.update();
-      const racer = rc.racers.get('r1');
-      racer.displayX = 100;
-      racer.displayY = 100;
-
-      // sqrt(70^2 + 70^2) = 98.99 < 100 → hit
-      expect(rc._hitTest(clickEvent(170, 170))).toBe(racer);
-      // sqrt(72^2 + 72^2) = 101.8 > 100 → miss
-      expect(rc._hitTest(clickEvent(172, 172))).toBeNull();
+    it('catches rear corner clicks the old circular hitbox missed', () => {
+      const racer = placeRacer();
+      // 120px left, 15px up — circular distance ~121px (miss with old radius)
+      // but within rectangular bounds (HIT_LEFT=125, HIT_TOP=28)
+      const result = rc._hitTest(clickEvent(280, 285));
+      expect(result).toBe(racer);
     });
 
     it('handleClick invokes onRacerClick callback on hit', () => {
       const cb = vi.fn();
       rc.onRacerClick = cb;
-      rc.setAllRacers([makeState({ id: 'r1' })]);
-      rc.update();
-      const racer = rc.racers.get('r1');
-      racer.displayX = 400;
-      racer.displayY = 300;
+      const racer = placeRacer();
 
       rc.handleClick(clickEvent(400, 300));
       expect(cb).toHaveBeenCalledWith(racer.state);

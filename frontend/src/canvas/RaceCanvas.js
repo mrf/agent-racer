@@ -4,7 +4,18 @@ import { Dashboard } from './Dashboard.js';
 import { Racer } from '../entities/Racer.js';
 
 const TERMINAL_ACTIVITIES = new Set(['complete', 'errored', 'lost']);
-const HIT_RADIUS = 100;
+
+// Rectangular hit area matching the limo's elongated shape.
+// Derived from car geometry: CAR_SCALE=2.3, LIMO_STRETCH=35.
+const HIT_LEFT = 125;   // rear of limo: (17+35)*2.3 ≈ 120 + padding
+const HIT_RIGHT = 60;   // nose of car: 23*2.3 ≈ 53 + padding
+const HIT_TOP = 28;     // roof: 9*2.3 ≈ 21 + padding
+const HIT_BOTTOM = 28;  // wheels: 10*2.3 ≈ 23 + padding
+
+function isInsideHitbox(dx, dy) {
+  return dx >= -HIT_LEFT && dx <= HIT_RIGHT && dy >= -HIT_TOP && dy <= HIT_BOTTOM;
+}
+
 // How long after the last data receipt to keep a session on track.
 // Bridges brief gaps between parsed entries during active agent loops.
 const DATA_FRESHNESS_MS = 10_000;
@@ -522,7 +533,7 @@ export class RaceCanvas {
     for (const racer of this.racers.values()) {
       const dx = mx - racer.displayX;
       const dy = my - racer.displayY;
-      racer.hovered = Math.sqrt(dx * dx + dy * dy) < HIT_RADIUS;
+      racer.hovered = isInsideHitbox(dx, dy);
       if (racer.hovered && racer.hasTmux) hoveredAny = true;
     }
     this.canvas.style.cursor = hoveredAny ? 'pointer' : 'default';
@@ -536,7 +547,7 @@ export class RaceCanvas {
     for (const racer of this.racers.values()) {
       const dx = mx - racer.displayX;
       const dy = my - racer.displayY;
-      if (Math.sqrt(dx * dx + dy * dy) < HIT_RADIUS) {
+      if (isInsideHitbox(dx, dy)) {
         return racer;
       }
     }
