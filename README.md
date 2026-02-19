@@ -101,6 +101,8 @@ sources:
   gemini: true
 ```
 
+See `docs/multi-agent-guide.md` for detailed documentation on supported CLIs, configuration options, how to add new sources, and a manual validation checklist.
+
 ## Visualization
 
 ### Cars
