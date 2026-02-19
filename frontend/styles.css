@@ -287,6 +287,31 @@ header {
   font-family: 'Courier New', monospace;
 }
 
+.session-id-value {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.copy-btn {
+  background: none;
+  border: 1px solid #555;
+  color: #aaa;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  line-height: 1;
+  flex-shrink: 0;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.copy-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
 .detail-progress {
   margin: 12px 0;
   background: #222;

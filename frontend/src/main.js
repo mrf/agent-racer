@@ -101,6 +101,10 @@ function esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+function basename(path) {
+  return path.split('/').pop();
+}
+
 function formatElapsed(startStr) {
   if (!startStr) return '-';
   const start = new Date(startStr);
@@ -234,7 +238,9 @@ function renderDetailFlyout(state) {
     </div>
     <div class="detail-row">
       <span class="label">Working Dir</span>
-      <span class="value">${esc(state.workingDir) || '-'}</span>
+      <span class="value" title="${esc(state.workingDir) || ''}">${
+        state.workingDir ? esc(basename(state.workingDir)) : '-'
+      }</span>
     </div>
     <div class="detail-row">
       <span class="label">Branch</span>
@@ -246,7 +252,10 @@ function renderDetailFlyout(state) {
     </div>
     <div class="detail-row">
       <span class="label">Session ID</span>
-      <span class="value">${esc(state.id)}</span>
+      <span class="value session-id-value">
+        <span class="session-id-text" title="${esc(state.id)}">${esc(state.id).slice(0, 12)}</span>
+        <button class="copy-btn" data-copy="${esc(state.id)}" title="Copy full ID">&#x2398;</button>
+      </span>
     </div>
     <div class="detail-row">
       <span class="label">PID</span>
@@ -441,6 +450,17 @@ flyoutClose.addEventListener('click', () => {
   flyoutAnchor = null;
   flyoutCurrentX = null;
   flyoutCurrentY = null;
+});
+
+// Copy button in flyout
+detailFlyout.addEventListener('click', (e) => {
+  const btn = e.target.closest('.copy-btn');
+  if (!btn) return;
+  const text = btn.dataset.copy;
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = '\u2713';
+    setTimeout(() => { btn.innerHTML = '&#x2398;'; }, 1500);
+  });
 });
 
 // Debug panel close
