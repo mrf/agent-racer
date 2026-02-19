@@ -28,6 +28,9 @@ const PARKING_LOT_GAP = 20;
 const PARKING_LOT_PADDING_LEFT = 40;
 const PARKING_LOT_BOTTOM_PADDING = 40;
 
+const TRACK_GROUP_GAP = 20;
+const TRACK_GROUP_LABEL_HEIGHT = 16;
+
 export class Track {
   constructor() {
     this.trackPadding = { left: 200, right: 60, top: 60, bottom: 40 };
@@ -61,10 +64,18 @@ export class Track {
     }
   }
 
-  getRequiredHeight(laneCount, pitLaneCount = 0, parkingLotLaneCount = 0) {
-    const maxLanes = Math.max(laneCount, 1);
-    const trackHeight = maxLanes * this.laneHeight + this.trackPadding.top + this.trackPadding.bottom;
-    return trackHeight + this.getRequiredPitHeight(pitLaneCount) + this.getRequiredParkingLotHeight(parkingLotLaneCount);
+  getRequiredHeight(laneCountOrGroups, pitLaneCount = 0, parkingLotLaneCount = 0) {
+    let trackZoneHeight;
+    if (Array.isArray(laneCountOrGroups)) {
+      const groups = laneCountOrGroups;
+      const totalLanes = groups.reduce((sum, g) => sum + Math.max(g.laneCount, 1), 0);
+      const gaps = groups.length > 1 ? (groups.length - 1) * (TRACK_GROUP_GAP + TRACK_GROUP_LABEL_HEIGHT) : 0;
+      trackZoneHeight = totalLanes * this.laneHeight + this.trackPadding.top + this.trackPadding.bottom + gaps;
+    } else {
+      const maxLanes = Math.max(laneCountOrGroups, 1);
+      trackZoneHeight = maxLanes * this.laneHeight + this.trackPadding.top + this.trackPadding.bottom;
+    }
+    return trackZoneHeight + this.getRequiredPitHeight(pitLaneCount) + this.getRequiredParkingLotHeight(parkingLotLaneCount);
   }
 
   getRequiredPitHeight(pitLaneCount) {
@@ -103,11 +114,51 @@ export class Track {
     return bounds.x + (tokens / globalMaxTokens) * bounds.width;
   }
 
-  getPitBounds(canvasWidth, canvasHeight, activeLaneCount, pitLaneCount) {
-    const trackBounds = this.getTrackBounds(canvasWidth, canvasHeight, activeLaneCount);
-    const pitTop = trackBounds.y + trackBounds.height + PIT_GAP;
-    const pitX = trackBounds.x + PIT_PADDING_LEFT;
-    const pitWidth = trackBounds.width - PIT_PADDING_LEFT;
+  getMultiTrackLayout(canvasWidth, groups) {
+    const trackWidth = canvasWidth - this.trackPadding.left - this.trackPadding.right;
+    const layouts = [];
+    let currentY = this.trackPadding.top;
+
+    for (let i = 0; i < groups.length; i++) {
+      if (i > 0) {
+        currentY += TRACK_GROUP_GAP + TRACK_GROUP_LABEL_HEIGHT;
+      }
+      const laneCount = Math.max(groups[i].laneCount, 1);
+      const trackHeight = laneCount * this.laneHeight;
+
+      layouts.push({
+        x: this.trackPadding.left,
+        y: currentY,
+        width: trackWidth,
+        height: trackHeight,
+        laneHeight: this.laneHeight,
+        maxTokens: groups[i].maxTokens,
+        laneCount,
+      });
+
+      currentY += trackHeight;
+    }
+
+    return layouts;
+  }
+
+  _getTrackBottomY(canvasWidth, canvasHeight, activeLaneCountOrGroups) {
+    if (Array.isArray(activeLaneCountOrGroups)) {
+      const layouts = this.getMultiTrackLayout(canvasWidth, activeLaneCountOrGroups);
+      if (layouts.length === 0) return this.trackPadding.top;
+      const last = layouts[layouts.length - 1];
+      return last.y + last.height;
+    }
+    const bounds = this.getTrackBounds(canvasWidth, canvasHeight, activeLaneCountOrGroups);
+    return bounds.y + bounds.height;
+  }
+
+  getPitBounds(canvasWidth, canvasHeight, activeLaneCountOrGroups, pitLaneCount) {
+    const trackBottom = this._getTrackBottomY(canvasWidth, canvasHeight, activeLaneCountOrGroups);
+    const trackWidth = canvasWidth - this.trackPadding.left - this.trackPadding.right;
+    const pitTop = trackBottom + PIT_GAP;
+    const pitX = this.trackPadding.left + PIT_PADDING_LEFT;
+    const pitWidth = trackWidth - PIT_PADDING_LEFT;
     if (pitLaneCount <= 0) {
       return {
         x: pitX,
@@ -136,13 +187,14 @@ export class Track {
     return PARKING_LOT_GAP + parkingLotLaneCount * PARKING_LOT_LANE_HEIGHT + PARKING_LOT_BOTTOM_PADDING;
   }
 
-  getParkingLotBounds(canvasWidth, canvasHeight, activeLaneCount, pitLaneCount, parkingLotLaneCount) {
+  getParkingLotBounds(canvasWidth, canvasHeight, activeLaneCountOrGroups, pitLaneCount, parkingLotLaneCount) {
     if (parkingLotLaneCount <= 0) return null;
-    const trackBounds = this.getTrackBounds(canvasWidth, canvasHeight, activeLaneCount);
+    const trackBottom = this._getTrackBottomY(canvasWidth, canvasHeight, activeLaneCountOrGroups);
+    const trackWidth = canvasWidth - this.trackPadding.left - this.trackPadding.right;
     const pitHeight = this.getRequiredPitHeight(pitLaneCount);
-    const lotTop = trackBounds.y + trackBounds.height + pitHeight + PARKING_LOT_GAP;
-    const lotX = trackBounds.x + PARKING_LOT_PADDING_LEFT;
-    const lotWidth = trackBounds.width - PARKING_LOT_PADDING_LEFT;
+    const lotTop = trackBottom + pitHeight + PARKING_LOT_GAP;
+    const lotX = this.trackPadding.left + PARKING_LOT_PADDING_LEFT;
+    const lotWidth = trackWidth - PARKING_LOT_PADDING_LEFT;
     const lotHeight = parkingLotLaneCount * PARKING_LOT_LANE_HEIGHT;
     return {
       x: lotX,
@@ -207,19 +259,56 @@ export class Track {
     }
   }
 
-  draw(ctx, canvasWidth, canvasHeight, laneCount, globalMaxTokens = 200000, excitement = 0, laneMaxTokens = null) {
-    const bounds = this.getTrackBounds(canvasWidth, canvasHeight, laneCount);
+  draw(ctx, canvasWidth, canvasHeight, laneCount, globalMaxTokens = 200000, excitement = 0) {
+    const groups = [{ maxTokens: globalMaxTokens, laneCount: Math.max(laneCount, 1) }];
+    const layouts = this.drawMultiTrack(ctx, canvasWidth, canvasHeight, groups, excitement);
+    return layouts.length > 0 ? layouts[0] : this.getTrackBounds(canvasWidth, canvasHeight, laneCount);
+  }
+
+  drawMultiTrack(ctx, canvasWidth, canvasHeight, groups, excitement = 0) {
+    const layouts = this.getMultiTrackLayout(canvasWidth, groups);
+    if (layouts.length === 0) return layouts;
+
     this.time += 0.016; // ~60fps tick
 
-    // Pre-render static elements on resize/lane change
-    if (this._needsPrerender(canvasWidth, canvasHeight, laneCount)) {
-      this._prerenderTexture(bounds);
-      this._prerenderCrowd(bounds);
+    // Pre-render static elements when layout changes
+    const totalLanes = groups.reduce((sum, g) => sum + Math.max(g.laneCount, 1), 0);
+    if (this._needsPrerender(canvasWidth, canvasHeight, totalLanes)) {
+      const maxHeight = Math.max(...layouts.map(l => l.height));
+      this._prerenderTexture({ width: layouts[0].width, height: maxHeight });
+      this._prerenderCrowd(layouts[0]);
       this._lastWidth = canvasWidth;
       this._lastHeight = canvasHeight;
-      this._lastLaneCount = laneCount;
+      this._lastLaneCount = totalLanes;
     }
 
+    // Draw each track group
+    for (let i = 0; i < layouts.length; i++) {
+      const layout = layouts[i];
+
+      this._drawTrackSurface(ctx, layout);
+      this._drawLaneDividers(ctx, layout, layout.laneCount);
+      this._drawStartLine(ctx, layout);
+      this._drawFinishLine(ctx, layout, layout.maxTokens);
+      this._drawTokenMarkers(ctx, layout, layout.maxTokens);
+
+      // Group separators and labels (multi-group only)
+      if (layouts.length > 1) {
+        if (i > 0) {
+          this._drawGroupSeparator(ctx, layouts[i - 1], layout);
+        }
+        this._drawGroupLabel(ctx, layout);
+      }
+    }
+
+    // Crowd and pennants above first track only
+    this._drawCrowd(ctx, layouts[0], excitement);
+    this._drawPennants(ctx, layouts[0]);
+
+    return layouts;
+  }
+
+  _drawTrackSurface(ctx, bounds) {
     // Track background (asphalt)
     ctx.fillStyle = '#2a2a3a';
     ctx.fillRect(bounds.x - 10, bounds.y - 10, bounds.width + 20, bounds.height + 20);
@@ -232,9 +321,14 @@ export class Track {
     ctx.fillStyle = trackGrad;
     ctx.fillRect(bounds.x, bounds.y, bounds.width, bounds.height);
 
-    // Asphalt texture overlay
+    // Asphalt texture overlay (clipped to group bounds)
     if (this._textureCanvas) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(bounds.x - 10, bounds.y - 10, bounds.width + 20, bounds.height + 20);
+      ctx.clip();
       ctx.drawImage(this._textureCanvas, bounds.x - 10, bounds.y - 10);
+      ctx.restore();
     }
 
     // Track edge shadows for depth
@@ -263,40 +357,44 @@ export class Track {
     ctx.moveTo(bounds.x, bounds.y + bounds.height + 1);
     ctx.lineTo(bounds.x + bounds.width, bounds.y + bounds.height + 1);
     ctx.stroke();
+  }
 
-    // White dashed lane dividers
+  _drawLaneDividers(ctx, bounds, laneCount) {
     ctx.strokeStyle = '#ccccdd';
     ctx.lineWidth = 1;
     ctx.setLineDash([12, 8]);
     for (let i = 1; i < laneCount; i++) {
-      const y = bounds.y + i * this.laneHeight;
+      const y = bounds.y + i * bounds.laneHeight;
       ctx.beginPath();
       ctx.moveTo(bounds.x, y);
       ctx.lineTo(bounds.x + bounds.width, y);
       ctx.stroke();
     }
     ctx.setLineDash([]);
+  }
 
-    // Start line + checkerboard
-    this._drawStartLine(ctx, bounds);
+  _drawGroupLabel(ctx, layout) {
+    const label = this._formatTokenLabel(layout.maxTokens);
+    ctx.fillStyle = '#666';
+    ctx.font = 'bold 12px Courier New';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, layout.x - 55, layout.y + layout.height / 2);
+    ctx.textBaseline = 'alphabetic';
+    ctx.textAlign = 'center';
+  }
 
-    // Per-lane finish lines at each session's maxContextTokens
-    if (laneMaxTokens && laneMaxTokens.length > 0) {
-      this._drawLaneFinishLines(ctx, bounds, globalMaxTokens, laneMaxTokens);
-    } else {
-      this._drawFinishLine(ctx, bounds, globalMaxTokens);
-    }
-
-    // Token markers scaled to globalMaxTokens
-    this._drawTokenMarkers(ctx, bounds, globalMaxTokens);
-
-    // Animated spectators above the track
-    this._drawCrowd(ctx, bounds, excitement);
-
-    // Pennant flags along top edge (drawn on top of spectators as barrier)
-    this._drawPennants(ctx, bounds);
-
-    return bounds;
+  _drawGroupSeparator(ctx, upperLayout, lowerLayout) {
+    const upperBottom = upperLayout.y + upperLayout.height;
+    const separatorY = (upperBottom + lowerLayout.y) / 2;
+    ctx.strokeStyle = '#444';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([6, 8]);
+    ctx.beginPath();
+    ctx.moveTo(upperLayout.x, separatorY);
+    ctx.lineTo(upperLayout.x + upperLayout.width, separatorY);
+    ctx.stroke();
+    ctx.setLineDash([]);
   }
 
   drawPit(ctx, canvasWidth, canvasHeight, activeLaneCount, pitLaneCount) {
@@ -324,12 +422,12 @@ export class Track {
       return pitBounds;
     }
 
-    const trackBounds = this.getTrackBounds(canvasWidth, canvasHeight, activeLaneCount);
+    const trackBottom = this._getTrackBottomY(canvasWidth, canvasHeight, activeLaneCount);
 
     // Connecting lane between track and pit at the entry point
-    const entryX = this.getPitEntryX(trackBounds);
+    const entryX = this.trackPadding.left + PIT_ENTRY_OFFSET;
     const laneLeft = entryX - PIT_ENTRY_WIDTH / 2;
-    const gapTop = trackBounds.y + trackBounds.height;
+    const gapTop = trackBottom;
     const gapBottom = pitBounds.y;
     const gapHeight = gapBottom - gapTop;
 
@@ -508,69 +606,7 @@ export class Track {
     // Token count label
     ctx.fillStyle = '#e94560';
     ctx.font = 'bold 12px Courier New';
-    ctx.fillText(`${Math.round(maxTokens / 1000)}K`, finishX, bounds.y - 8);
-  }
-
-  _drawLaneFinishLines(ctx, bounds, globalMaxTokens, laneMaxTokens) {
-    // Deduplicate: group lanes by maxTokens value to avoid drawing
-    // overlapping finish markers.
-    const byMax = new Map();
-    for (let i = 0; i < laneMaxTokens.length; i++) {
-      const max = laneMaxTokens[i];
-      if (!byMax.has(max)) byMax.set(max, []);
-      byMax.get(max).push(i);
-    }
-
-    for (const [maxTokens, lanes] of byMax) {
-      const finishX = this.getTokenX(bounds, maxTokens, globalMaxTokens);
-
-      // If this is at the track edge (max session), draw the full finish treatment
-      const atEdge = Math.abs(finishX - (bounds.x + bounds.width)) < 2;
-
-      if (atEdge) {
-        this._drawFinishLine(ctx, bounds, maxTokens);
-        continue;
-      }
-
-      // Per-lane finish markers: short dashed line spanning only the
-      // lane(s) that share this maxTokens, with a compact label.
-      const laneTop = bounds.y + Math.min(...lanes) * this.laneHeight;
-      const laneBottom = bounds.y + (Math.max(...lanes) + 1) * this.laneHeight;
-
-      ctx.strokeStyle = '#e94560';
-      ctx.lineWidth = 2;
-      ctx.setLineDash([6, 4]);
-      ctx.beginPath();
-      ctx.moveTo(finishX, laneTop);
-      ctx.lineTo(finishX, laneBottom);
-      ctx.stroke();
-      ctx.setLineDash([]);
-
-      // Mini checkerboard (2 cols) in the lane
-      const checkSize = 6;
-      const cols = 2;
-      for (let row = 0; row < Math.ceil((laneBottom - laneTop) / checkSize); row++) {
-        for (let col = 0; col < cols; col++) {
-          ctx.fillStyle = (row + col) % 2 === 0 ? '#e94560' : '#1a1a2e';
-          ctx.globalAlpha = 0.6;
-          ctx.fillRect(
-            finishX - cols * checkSize + col * checkSize,
-            laneTop + row * checkSize,
-            checkSize, checkSize
-          );
-        }
-      }
-      ctx.globalAlpha = 1.0;
-
-      // Token label above the lanes
-      const label = this._formatTokenLabel(maxTokens);
-      ctx.fillStyle = '#e94560';
-      ctx.font = 'bold 10px Courier New';
-      ctx.textAlign = 'center';
-      ctx.globalAlpha = 0.8;
-      ctx.fillText(label, finishX, laneTop - 3);
-      ctx.globalAlpha = 1.0;
-    }
+    ctx.fillText(this._formatTokenLabel(maxTokens), finishX, bounds.y - 8);
   }
 
   _formatTokenLabel(tokens) {

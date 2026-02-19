@@ -314,4 +314,138 @@ describe('Track', () => {
       expect(lotBounds.y).toBeGreaterThan(pitBottom);
     });
   });
+
+  describe('getMultiTrackLayout', () => {
+    it('returns single layout matching getTrackBounds for one group', () => {
+      const groups = [{ maxTokens: 200000, laneCount: 3 }];
+      const layouts = track.getMultiTrackLayout(CANVAS_W, groups);
+      const bounds = track.getTrackBounds(CANVAS_W, CANVAS_H, 3);
+
+      expect(layouts).toHaveLength(1);
+      expect(layouts[0].x).toBe(bounds.x);
+      expect(layouts[0].y).toBe(bounds.y);
+      expect(layouts[0].width).toBe(bounds.width);
+      expect(layouts[0].height).toBe(bounds.height);
+      expect(layouts[0].laneHeight).toBe(bounds.laneHeight);
+    });
+
+    it('stacks multiple groups vertically with gaps', () => {
+      const groups = [
+        { maxTokens: 200000, laneCount: 2 },
+        { maxTokens: 1000000, laneCount: 1 },
+      ];
+      const layouts = track.getMultiTrackLayout(CANVAS_W, groups);
+
+      expect(layouts).toHaveLength(2);
+      expect(layouts[0].y).toBe(60); // trackPadding.top
+      expect(layouts[0].height).toBe(160); // 2 * 80
+
+      // Second group offset by group 0 height + gap (20) + label (16)
+      expect(layouts[1].y).toBe(60 + 160 + 20 + 16);
+      expect(layouts[1].height).toBe(80); // 1 * 80
+    });
+
+    it('preserves maxTokens and laneCount on layout objects', () => {
+      const groups = [
+        { maxTokens: 200000, laneCount: 2 },
+        { maxTokens: 1000000, laneCount: 3 },
+      ];
+      const layouts = track.getMultiTrackLayout(CANVAS_W, groups);
+
+      expect(layouts[0].maxTokens).toBe(200000);
+      expect(layouts[0].laneCount).toBe(2);
+      expect(layouts[1].maxTokens).toBe(1000000);
+      expect(layouts[1].laneCount).toBe(3);
+    });
+
+    it('all groups share the same x, width, and laneHeight', () => {
+      const groups = [
+        { maxTokens: 200000, laneCount: 1 },
+        { maxTokens: 500000, laneCount: 2 },
+        { maxTokens: 1000000, laneCount: 1 },
+      ];
+      const layouts = track.getMultiTrackLayout(CANVAS_W, groups);
+
+      for (const layout of layouts) {
+        expect(layout.x).toBe(200);
+        expect(layout.width).toBe(740);
+        expect(layout.laneHeight).toBe(80);
+      }
+    });
+
+    it('clamps laneCount to minimum of 1', () => {
+      const groups = [{ maxTokens: 200000, laneCount: 0 }];
+      const layouts = track.getMultiTrackLayout(CANVAS_W, groups);
+      expect(layouts[0].height).toBe(80);
+      expect(layouts[0].laneCount).toBe(1);
+    });
+
+    it('returns empty array for empty groups', () => {
+      expect(track.getMultiTrackLayout(CANVAS_W, [])).toEqual([]);
+    });
+  });
+
+  describe('getRequiredHeight with groups array', () => {
+    it('matches number-based call for single group', () => {
+      const groups = [{ maxTokens: 200000, laneCount: 3 }];
+      expect(track.getRequiredHeight(groups)).toBe(track.getRequiredHeight(3));
+    });
+
+    it('adds inter-group gaps for multiple groups', () => {
+      const single = track.getRequiredHeight(3); // 3 lanes total
+      const multi = track.getRequiredHeight([
+        { maxTokens: 200000, laneCount: 2 },
+        { maxTokens: 1000000, laneCount: 1 },
+      ]);
+      // Same total lanes but multi has one gap (20 + 16 = 36)
+      expect(multi).toBe(single + 36);
+    });
+
+    it('includes pit and parking lot heights', () => {
+      const groups = [
+        { maxTokens: 200000, laneCount: 1 },
+        { maxTokens: 1000000, laneCount: 1 },
+      ];
+      const h = track.getRequiredHeight(groups, 2, 1);
+      const trackZone = 2 * 80 + 60 + 40 + 36; // 2 lanes + padding + 1 gap
+      const pitZone = 30 + 2 * 50 + 40;
+      const lotZone = 20 + 1 * 45 + 40;
+      expect(h).toBe(trackZone + pitZone + lotZone);
+    });
+  });
+
+  describe('multi-track pit/parking bounds', () => {
+    const twoGroups = [
+      { maxTokens: 200000, laneCount: 2 },
+      { maxTokens: 1000000, laneCount: 1 },
+    ];
+
+    it('pit positioned below last track group', () => {
+      const pitFromGroups = track.getPitBounds(CANVAS_W, CANVAS_H, twoGroups, 1);
+      const layouts = track.getMultiTrackLayout(CANVAS_W, twoGroups);
+      const lastLayout = layouts[layouts.length - 1];
+      expect(pitFromGroups.y).toBe(lastLayout.y + lastLayout.height + 30);
+    });
+
+    it('parking lot positioned below pit with groups', () => {
+      const lotFromGroups = track.getParkingLotBounds(CANVAS_W, CANVAS_H, twoGroups, 1, 1);
+      const pitHeight = track.getRequiredPitHeight(1);
+      const layouts = track.getMultiTrackLayout(CANVAS_W, twoGroups);
+      const lastLayout = layouts[layouts.length - 1];
+      expect(lotFromGroups.y).toBe(lastLayout.y + lastLayout.height + pitHeight + 20);
+    });
+
+    it('multi-track areas stack without overlap', () => {
+      const layouts = track.getMultiTrackLayout(CANVAS_W, twoGroups);
+      const lastLayout = layouts[layouts.length - 1];
+      const pitBounds = track.getPitBounds(CANVAS_W, CANVAS_H, twoGroups, 2);
+      const lotBounds = track.getParkingLotBounds(CANVAS_W, CANVAS_H, twoGroups, 2, 2);
+
+      const trackBottom = lastLayout.y + lastLayout.height;
+      const pitBottom = pitBounds.y + pitBounds.height;
+
+      expect(pitBounds.y).toBeGreaterThan(trackBottom);
+      expect(lotBounds.y).toBeGreaterThan(pitBottom);
+    });
+  });
 });

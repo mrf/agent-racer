@@ -16,10 +16,17 @@ vi.mock('./Particles.js', () => ({
 vi.mock('./Track.js', () => ({
   Track: vi.fn(function () {
     this.trackPadding = { left: 200, right: 60, top: 60, bottom: 40 };
+    this.laneHeight = 80;
     this.updateViewport = vi.fn();
-    this.getRequiredHeight = vi.fn((active, pit = 0, parking = 0) => {
+    this.getRequiredHeight = vi.fn((activeOrGroups, pit = 0, parking = 0) => {
       // Simplified formula matching real Track layout constants
-      let h = 60 + active * 80 + 40;
+      let totalLanes;
+      if (Array.isArray(activeOrGroups)) {
+        totalLanes = activeOrGroups.reduce((sum, g) => sum + g.laneCount, 0) || 1;
+      } else {
+        totalLanes = activeOrGroups;
+      }
+      let h = 60 + totalLanes * 80 + 40;
       if (pit > 0) h += 30 + pit * 50 + 40;
       else h += 30 + 14 + 8; // collapsed pit
       if (parking > 0) h += 20 + parking * 45 + 40;
@@ -28,19 +35,55 @@ vi.mock('./Track.js', () => ({
     this.getTrackBounds = vi.fn((w, h, lanes) => ({
       x: 200, y: 60, width: w - 260, height: lanes * 80, laneHeight: 80,
     }));
-    this.getPitBounds = vi.fn((w, h, active, pitCount) => ({
-      x: 200, y: 60 + active * 80 + 40 + 30,
-      width: w - 260, height: pitCount * 50, laneHeight: 50,
-    }));
-    this.getParkingLotBounds = vi.fn((w, h, active, pit, lot) => ({
-      x: 200,
-      y: 60 + active * 80 + 40 + (pit > 0 ? 30 + pit * 50 + 40 : 0) + 20,
-      width: w - 260, height: lot * 45, laneHeight: 45,
-    }));
+    this.getMultiTrackLayout = vi.fn((w, groups) => {
+      let currentY = 60;
+      return groups.map((g, i) => {
+        if (i > 0) currentY += 36; // TRACK_GROUP_GAP + TRACK_GROUP_LABEL_HEIGHT
+        const layout = {
+          x: 200, y: currentY, width: w - 260,
+          height: g.laneCount * 80, laneHeight: 80,
+          maxTokens: g.maxTokens, laneCount: g.laneCount,
+        };
+        currentY += g.laneCount * 80;
+        return layout;
+      });
+    });
+    this.getPitBounds = vi.fn((w, h, activeOrGroups, pitCount) => {
+      let trackBottom;
+      if (Array.isArray(activeOrGroups)) {
+        const totalLanes = activeOrGroups.reduce((sum, g) => sum + g.laneCount, 0) || 1;
+        trackBottom = 60 + totalLanes * 80;
+      } else {
+        trackBottom = 60 + activeOrGroups * 80;
+      }
+      return {
+        x: 200, y: trackBottom + 30,
+        width: w - 260, height: pitCount * 50, laneHeight: 50,
+      };
+    });
+    this.getParkingLotBounds = vi.fn((w, h, activeOrGroups, pit, lot) => {
+      let trackBottom;
+      if (Array.isArray(activeOrGroups)) {
+        const totalLanes = activeOrGroups.reduce((sum, g) => sum + g.laneCount, 0) || 1;
+        trackBottom = 60 + totalLanes * 80;
+      } else {
+        trackBottom = 60 + activeOrGroups * 80;
+      }
+      return {
+        x: 200,
+        y: trackBottom + (pit > 0 ? 30 + pit * 50 + 40 : 0) + 20,
+        width: w - 260, height: lot * 45, laneHeight: 45,
+      };
+    });
     this.getLaneY = vi.fn((bounds, lane) => bounds.y + lane * bounds.laneHeight + bounds.laneHeight / 2);
     this.getPositionX = vi.fn((bounds, util) => bounds.x + util * bounds.width);
-    this.getPitEntryX = vi.fn((bounds) => bounds.x - 60);
+    this.getTokenX = vi.fn((bounds, tokens, max) => {
+      if (max <= 0) return bounds.x;
+      return bounds.x + (tokens / max) * bounds.width;
+    });
+    this.getPitEntryX = vi.fn((bounds) => bounds.x + 60);
     this.draw = vi.fn();
+    this.drawMultiTrack = vi.fn();
     this.drawPit = vi.fn();
     this.drawParkingLot = vi.fn();
   }),
@@ -590,6 +633,119 @@ describe('RaceCanvas', () => {
       expect(racer.skidEmitted).toBe(false);
       expect(racer.errorTimer).toBe(0);
       expect(racer.errorStage).toBe(0);
+    });
+  });
+
+  describe('track grouping by context window', () => {
+    it('groups racers with same maxContextTokens into one track group', () => {
+      rc.setAllRacers([
+        makeState({ id: 'a', activity: 'thinking', maxContextTokens: 200000 }),
+        makeState({ id: 'b', activity: 'thinking', maxContextTokens: 200000 }),
+      ]);
+      rc.update();
+
+      expect(rc._trackGroups).toEqual([{ maxTokens: 200000, laneCount: 2 }]);
+    });
+
+    it('creates separate groups for different maxContextTokens', () => {
+      rc.setAllRacers([
+        makeState({ id: 'a', activity: 'thinking', maxContextTokens: 200000 }),
+        makeState({ id: 'b', activity: 'thinking', maxContextTokens: 1000000 }),
+      ]);
+      rc.update();
+
+      expect(rc._trackGroups).toEqual([
+        { maxTokens: 200000, laneCount: 1 },
+        { maxTokens: 1000000, laneCount: 1 },
+      ]);
+    });
+
+    it('sorts groups by maxTokens ascending', () => {
+      rc.setAllRacers([
+        makeState({ id: 'a', activity: 'thinking', maxContextTokens: 1000000 }),
+        makeState({ id: 'b', activity: 'thinking', maxContextTokens: 200000 }),
+        makeState({ id: 'c', activity: 'thinking', maxContextTokens: 500000 }),
+      ]);
+      rc.update();
+
+      expect(rc._trackGroups.map(g => g.maxTokens)).toEqual([200000, 500000, 1000000]);
+    });
+
+    it('defaults to DEFAULT_CONTEXT_WINDOW when maxContextTokens is missing', () => {
+      rc.setAllRacers([
+        makeState({ id: 'a', activity: 'thinking' }),
+      ]);
+      rc.update();
+
+      expect(rc._trackGroups).toEqual([{ maxTokens: 200000, laneCount: 1 }]);
+    });
+
+    it('uses single default group when no track racers exist', () => {
+      rc.setAllRacers([
+        makeState({ id: 'a', activity: 'complete' }),
+      ]);
+      rc.update();
+
+      expect(rc._trackGroups).toEqual([{ maxTokens: 200000, laneCount: 1 }]);
+    });
+
+    it('calls getMultiTrackLayout with groups', () => {
+      rc.setAllRacers([
+        makeState({ id: 'a', activity: 'thinking', maxContextTokens: 200000 }),
+        makeState({ id: 'b', activity: 'thinking', maxContextTokens: 1000000 }),
+      ]);
+      rc.update();
+
+      expect(rc.track.getMultiTrackLayout).toHaveBeenCalledWith(
+        rc.width,
+        [
+          { maxTokens: 200000, laneCount: 1 },
+          { maxTokens: 1000000, laneCount: 1 },
+        ]
+      );
+    });
+
+    it('passes groups to drawMultiTrack in draw()', () => {
+      rc.setAllRacers([
+        makeState({ id: 'a', activity: 'thinking', maxContextTokens: 200000 }),
+        makeState({ id: 'b', activity: 'thinking', maxContextTokens: 1000000 }),
+      ]);
+      rc.update();
+      rc.draw();
+
+      expect(rc.track.drawMultiTrack).toHaveBeenCalled();
+      const callArgs = rc.track.drawMultiTrack.mock.calls[0];
+      expect(callArgs[3]).toEqual([
+        { maxTokens: 200000, laneCount: 1 },
+        { maxTokens: 1000000, laneCount: 1 },
+      ]);
+    });
+
+    it('resizes when group composition changes', () => {
+      rc.setAllRacers([
+        makeState({ id: 'a', activity: 'thinking', maxContextTokens: 200000 }),
+      ]);
+      rc.update();
+
+      const resizeSpy = vi.spyOn(rc, 'resize');
+      rc.setAllRacers([
+        makeState({ id: 'a', activity: 'thinking', maxContextTokens: 200000 }),
+        makeState({ id: 'b', activity: 'thinking', maxContextTokens: 1000000 }),
+      ]);
+      rc.update();
+
+      expect(resizeSpy).toHaveBeenCalled();
+    });
+
+    it('does not resize when groups are unchanged', () => {
+      rc.setAllRacers([
+        makeState({ id: 'a', activity: 'thinking', maxContextTokens: 200000 }),
+      ]);
+      rc.update();
+
+      const resizeSpy = vi.spyOn(rc, 'resize');
+      rc.update();
+      expect(resizeSpy).not.toHaveBeenCalled();
     });
   });
 
