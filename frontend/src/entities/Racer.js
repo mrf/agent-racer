@@ -494,11 +494,14 @@ export class Racer {
       }
     }
 
-    // Car shadow
+    // Car shadow — sized to match car body extents (rear=17, front=23)
     const S = CAR_SCALE;
+    const carLength = 17 + LIMO_STRETCH + 23;
+    const shadowRx = carLength / 2 * S;
+    const shadowCx = x + (23 - 17 - LIMO_STRETCH) / 2 * S + 2;
     ctx.fillStyle = 'rgba(0,0,0,0.2)';
     ctx.beginPath();
-    ctx.ellipse(x + 2, y + 12 * S, 18 * S, 3 * S, 0, 0, Math.PI * 2);
+    ctx.ellipse(shadowCx, y + 12 * S, shadowRx, 3 * S, 0, 0, Math.PI * 2);
     ctx.fill();
 
     // Glow aura
