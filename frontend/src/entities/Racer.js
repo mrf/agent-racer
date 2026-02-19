@@ -1140,15 +1140,31 @@ export class Racer {
     const S = CAR_SCALE;
     const label = this._buildMetricsLabel(state);
 
-    // Position on limo body, below model name decal
+    // Centered on limo side panel, offset below the model name decal
     const labelX = x - (6 + LIMO_STRETCH / 2) * S;
-    const labelY = y - 4.5 * S + 16;
+    const labelY = y - 4.5 * S + 12;
 
-    // Metrics text spread across limo body
-    ctx.font = 'bold 11px Courier New';
-    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.font = 'bold 9px Courier New';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
+
+    const textW = ctx.measureText(label).width;
+    const textH = 10;
+    const padX = 4;
+    const padY = 3;
+
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.beginPath();
+    ctx.roundRect(
+      labelX - textW / 2 - padX,
+      labelY - textH / 2 - padY,
+      textW + padX * 2,
+      textH + padY * 2,
+      2,
+    );
+    ctx.fill();
+
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
     ctx.fillText(label, labelX, labelY);
   }
 
