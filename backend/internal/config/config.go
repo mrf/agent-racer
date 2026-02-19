@@ -3,11 +3,16 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/agent-racer/backend/internal/session"
 	"gopkg.in/yaml.v3"
 )
+
+// DefaultContextWindow is the fallback context window size (in tokens) used
+// when no model-specific entry or "default" key is found in the config.
+const DefaultContextWindow = 200000
 
 type Config struct {
 	Server    ServerConfig    `yaml:"server"`
@@ -156,7 +161,7 @@ func defaultConfig() *Config {
 			Gemini: false,
 		},
 		Models: map[string]int{
-			"default": 200000,
+			"default": DefaultContextWindow,
 		},
 		Sound: SoundConfig{
 			Enabled:       true,
@@ -178,14 +183,38 @@ func defaultConfig() *Config {
 	}
 }
 
+// MaxContextTokens resolves the context window size for a model.
+// Resolution order: exact match → longest prefix match → "default" key → DefaultContextWindow.
+// Config keys ending with "*" are treated as prefix patterns (e.g. "claude-*"
+// matches "claude-opus-4-5-20251101"). The longest matching prefix wins.
 func (c *Config) MaxContextTokens(model string) int {
+	// 1. Exact match
 	if n, ok := c.Models[model]; ok {
 		return n
 	}
+
+	// 2. Longest prefix match (keys ending with *)
+	bestLen := 0
+	bestVal := 0
+	for key, val := range c.Models {
+		if !strings.HasSuffix(key, "*") {
+			continue
+		}
+		prefix := strings.TrimSuffix(key, "*")
+		if strings.HasPrefix(model, prefix) && len(prefix) > bestLen {
+			bestLen = len(prefix)
+			bestVal = val
+		}
+	}
+	if bestLen > 0 {
+		return bestVal
+	}
+
+	// 3. "default" key
 	if n, ok := c.Models["default"]; ok {
 		return n
 	}
-	return 200000
+	return DefaultContextWindow
 }
 
 // TokenStrategy returns the configured token normalization strategy for the

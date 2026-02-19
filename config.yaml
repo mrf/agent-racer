@@ -27,25 +27,21 @@ monitor:
   churning_requires_network: false
 
 models:
-  # Claude models
-  claude-opus-4-5-20251101: 200000
-  claude-sonnet-4-5-20250929: 200000
-  claude-sonnet-4-20250514: 200000
-  claude-haiku-3-5-20241022: 200000
-  # Codex (OpenAI) models — these are fallbacks; Codex sessions report
-  # model_context_window dynamically from rollout events.
-  gpt-5-codex: 272000
-  gpt-5.1-codex: 272000
-  gpt-5.2-codex: 272000
-  codex-mini-latest: 200000
-  o4-mini: 200000
+  # Keys ending with * are prefix patterns (longest match wins).
+  # Exact names still work and take priority over prefixes.
+  #
+  # Claude models (all current variants use 200K)
+  claude-*: 200000
+  # Codex (OpenAI) — fallbacks; Codex reports context window dynamically
+  gpt-*-codex: 272000
+  codex-*: 200000
+  o4-*: 200000
   o3: 200000
   gpt-4.1: 1047576
-  # Gemini models — these are fallbacks; the Gemini source resolves
-  # context windows from model name (all current models use ~1M).
-  gemini-2.5-pro: 1048576
-  gemini-2.5-flash: 1048576
-  gemini-2.0-flash: 1048576
-  gemini-3-pro-preview: 1000000
-  gemini-3-flash-preview: 1000000
+  # Gemini models — prefix patterns replace the old hardcoded Go switch
+  gemini-2.5-*: 1048576
+  gemini-2.0-*: 1048576
+  gemini-3-*: 1000000
+  gemini-1.5-pro*: 2097152
+  gemini-1.5-flash*: 1048576
   default: 200000

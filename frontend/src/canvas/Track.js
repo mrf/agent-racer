@@ -1,9 +1,3 @@
-const TOKEN_MARKERS = [
-  { tokens: 50000, label: '50K' },
-  { tokens: 100000, label: '100K' },
-  { tokens: 150000, label: '150K' },
-];
-
 const PENNANT_COLORS = ['#a855f7', '#3b82f6', '#22c55e'];
 
 const SKIN_TONES = ['#f5d0a9', '#d4a574', '#c68642', '#8d5524', '#e0ac69', '#f1c27d'];
@@ -102,6 +96,11 @@ export class Track {
 
   getPositionX(bounds, utilization) {
     return bounds.x + utilization * bounds.width;
+  }
+
+  getTokenX(bounds, tokens, globalMaxTokens) {
+    if (globalMaxTokens <= 0) return bounds.x;
+    return bounds.x + (tokens / globalMaxTokens) * bounds.width;
   }
 
   getPitBounds(canvasWidth, canvasHeight, activeLaneCount, pitLaneCount) {
@@ -208,7 +207,7 @@ export class Track {
     }
   }
 
-  draw(ctx, canvasWidth, canvasHeight, laneCount, maxTokens = 200000, excitement = 0) {
+  draw(ctx, canvasWidth, canvasHeight, laneCount, globalMaxTokens = 200000, excitement = 0, laneMaxTokens = null) {
     const bounds = this.getTrackBounds(canvasWidth, canvasHeight, laneCount);
     this.time += 0.016; // ~60fps tick
 
@@ -281,11 +280,15 @@ export class Track {
     // Start line + checkerboard
     this._drawStartLine(ctx, bounds);
 
-    // Finish line + animated checkerboard
-    this._drawFinishLine(ctx, bounds, maxTokens);
+    // Per-lane finish lines at each session's maxContextTokens
+    if (laneMaxTokens && laneMaxTokens.length > 0) {
+      this._drawLaneFinishLines(ctx, bounds, globalMaxTokens, laneMaxTokens);
+    } else {
+      this._drawFinishLine(ctx, bounds, globalMaxTokens);
+    }
 
-    // Token markers with flag icons
-    this._drawTokenMarkers(ctx, bounds, maxTokens);
+    // Token markers scaled to globalMaxTokens
+    this._drawTokenMarkers(ctx, bounds, globalMaxTokens);
 
     // Animated spectators above the track
     this._drawCrowd(ctx, bounds, excitement);
@@ -508,6 +511,74 @@ export class Track {
     ctx.fillText(`${Math.round(maxTokens / 1000)}K`, finishX, bounds.y - 8);
   }
 
+  _drawLaneFinishLines(ctx, bounds, globalMaxTokens, laneMaxTokens) {
+    // Deduplicate: group lanes by maxTokens value to avoid drawing
+    // overlapping finish markers.
+    const byMax = new Map();
+    for (let i = 0; i < laneMaxTokens.length; i++) {
+      const max = laneMaxTokens[i];
+      if (!byMax.has(max)) byMax.set(max, []);
+      byMax.get(max).push(i);
+    }
+
+    for (const [maxTokens, lanes] of byMax) {
+      const finishX = this.getTokenX(bounds, maxTokens, globalMaxTokens);
+
+      // If this is at the track edge (max session), draw the full finish treatment
+      const atEdge = Math.abs(finishX - (bounds.x + bounds.width)) < 2;
+
+      if (atEdge) {
+        this._drawFinishLine(ctx, bounds, maxTokens);
+        continue;
+      }
+
+      // Per-lane finish markers: short dashed line spanning only the
+      // lane(s) that share this maxTokens, with a compact label.
+      const laneTop = bounds.y + Math.min(...lanes) * this.laneHeight;
+      const laneBottom = bounds.y + (Math.max(...lanes) + 1) * this.laneHeight;
+
+      ctx.strokeStyle = '#e94560';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      ctx.moveTo(finishX, laneTop);
+      ctx.lineTo(finishX, laneBottom);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Mini checkerboard (2 cols) in the lane
+      const checkSize = 6;
+      const cols = 2;
+      for (let row = 0; row < Math.ceil((laneBottom - laneTop) / checkSize); row++) {
+        for (let col = 0; col < cols; col++) {
+          ctx.fillStyle = (row + col) % 2 === 0 ? '#e94560' : '#1a1a2e';
+          ctx.globalAlpha = 0.6;
+          ctx.fillRect(
+            finishX - cols * checkSize + col * checkSize,
+            laneTop + row * checkSize,
+            checkSize, checkSize
+          );
+        }
+      }
+      ctx.globalAlpha = 1.0;
+
+      // Token label above the lanes
+      const label = this._formatTokenLabel(maxTokens);
+      ctx.fillStyle = '#e94560';
+      ctx.font = 'bold 10px Courier New';
+      ctx.textAlign = 'center';
+      ctx.globalAlpha = 0.8;
+      ctx.fillText(label, finishX, laneTop - 3);
+      ctx.globalAlpha = 1.0;
+    }
+  }
+
+  _formatTokenLabel(tokens) {
+    if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
+    if (tokens >= 1000) return `${Math.round(tokens / 1000)}K`;
+    return `${tokens}`;
+  }
+
   _drawCheckerFlag(ctx, x, y, size) {
     // Flag pole
     ctx.strokeStyle = '#888';
@@ -527,10 +598,11 @@ export class Track {
     }
   }
 
-  _drawTokenMarkers(ctx, bounds, maxTokens) {
-    for (const marker of TOKEN_MARKERS) {
-      if (marker.tokens >= maxTokens) continue;
-      const markerX = this.getPositionX(bounds, marker.tokens / maxTokens);
+  _drawTokenMarkers(ctx, bounds, globalMaxTokens) {
+    const markers = this._computeTokenMarkers(globalMaxTokens);
+    for (const marker of markers) {
+      if (marker.tokens >= globalMaxTokens) continue;
+      const markerX = this.getTokenX(bounds, marker.tokens, globalMaxTokens);
 
       // Dashed line across track
       ctx.strokeStyle = '#444460';
@@ -548,6 +620,20 @@ export class Track {
       ctx.textAlign = 'center';
       ctx.fillText(marker.label, markerX, bounds.y + 16);
     }
+  }
+
+  _computeTokenMarkers(globalMaxTokens) {
+    // Choose a step that gives 2-6 markers for the current scale.
+    const steps = [25000, 50000, 100000, 200000, 250000, 500000, 1000000];
+    const step = steps.find(s => {
+      const count = Math.floor(globalMaxTokens / s);
+      return count >= 2 && count <= 6;
+    }) ?? 50000;
+    const markers = [];
+    for (let t = step; t < globalMaxTokens; t += step) {
+      markers.push({ tokens: t, label: this._formatTokenLabel(t) });
+    }
+    return markers;
   }
 
   _drawPennants(ctx, bounds) {
