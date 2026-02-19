@@ -161,6 +161,8 @@ export class Racer {
     // Tmux focus state
     this.hovered = false;
     this.hasTmux = !!state.tmuxTarget;
+    this.hoverGlow = 0;
+    this.hoverGlowPhase = Math.random() * Math.PI * 2;
   }
 
   update(state) {
@@ -276,6 +278,11 @@ export class Racer {
 
     // Glow interpolation
     this.glowIntensity += (this.targetGlow - this.glowIntensity) * 0.1 * dtScale;
+
+    // Hover glow interpolation
+    const hoverTarget = this.hovered && this.hasTmux ? 1 : 0;
+    this.hoverGlow += (hoverTarget - this.hoverGlow) * 0.15 * dtScale;
+    if (this.hoverGlow > 0.01) this.hoverGlowPhase += 0.04 * dtScale;
 
     // Pit dimming transition
     this.pitDim += (this.pitDimTarget - this.pitDim) * 0.08 * dtScale;
@@ -509,14 +516,20 @@ export class Racer {
 
     this.drawCar(ctx, x, y + yOff, color, activity);
 
-    // Hover highlight for tmux-focusable sessions
-    if (this.hovered && this.hasTmux) {
-      const rgb = hexToRgb(color.light);
-      ctx.strokeStyle = `rgba(${rgb.r},${rgb.g},${rgb.b},0.5)`;
-      ctx.lineWidth = 2;
+    // Hover glow for tmux-focusable sessions
+    if (this.hoverGlow > 0.01) {
+      const glowColor = hexToRgb(color.light);
+      const pulse = 0.3 + 0.15 * Math.sin(this.hoverGlowPhase);
+      const glowAlpha = this.hoverGlow * pulse;
+      const glowR = (30 + LIMO_STRETCH * 0.5) * S;
+      const glowCx = x - LIMO_STRETCH * 0.3 * S;
+      const glow = ctx.createRadialGradient(glowCx, y + yOff, 0, glowCx, y + yOff, glowR);
+      glow.addColorStop(0, `rgba(${glowColor.r},${glowColor.g},${glowColor.b},${glowAlpha})`);
+      glow.addColorStop(1, `rgba(${glowColor.r},${glowColor.g},${glowColor.b},0)`);
+      ctx.fillStyle = glow;
       ctx.beginPath();
-      ctx.roundRect(x - 18 * S, (y + yOff) - 10 * S, 40 * S, 18 * S, 4);
-      ctx.stroke();
+      ctx.arc(glowCx, y + yOff, glowR, 0, Math.PI * 2);
+      ctx.fill();
     }
 
     this.drawActivityEffects(ctx, x, y + yOff, color, activity);
