@@ -6,6 +6,17 @@ This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get sta
 
 **Favor modular design and minimal duplication.** Keep backend logic UI-agnostic so the Go service can power alternative GUIs. For multi-agent work, reuse shared abstractions instead of duplicating parsing or state logic, and avoid tight coupling between agent sources and frontend rendering.
 
+**DO:**
+- Add new sources via the `Source` interface
+- Put shared parsing in `monitor/jsonl.go`
+- Derive frontend visuals from session state, not source identity
+
+**DO NOT:**
+- Add rendering hints to backend structs
+- Duplicate JSONL parsing per source
+- Branch frontend logic on source name
+- Couple source discovery to a specific UI
+
 **Follow XDG Base Directory spec** for config, state, and cache paths whenever applicable (e.g., config in `~/.config`, state in `~/.local/state`). Avoid writing new files directly into `$HOME` unless there is a clear exception.
 
 **Place research and planning docs in `docs/`.** All design documents, research notes, and implementation plans go in the `docs/` directory — not the project root. Keep the root clean (only README.md, AGENTS.md, and config files).
