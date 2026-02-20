@@ -1,8 +1,10 @@
 package monitor
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -339,5 +341,284 @@ func TestParseSessionJSONLPartialWrite(t *testing.T) {
 	}
 	if offset3 == offset2 {
 		t.Errorf("expected offset to advance after completing line, got same offset %d", offset2)
+	}
+}
+
+// writeJSONLLines creates a temporary JSONL file from the given lines and returns its path.
+// Each line is written with a trailing newline.
+func writeJSONLLines(t *testing.T, lines ...string) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test-session.jsonl")
+	content := strings.Join(lines, "\n") + "\n"
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// parseJSONL is a test helper that parses a JSONL file from offset 0 and fails on error.
+func parseJSONL(t *testing.T, path string) *ParseResult {
+	t.Helper()
+	result, _, err := ParseSessionJSONL(path, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return result
+}
+
+// requireSubagent looks up a subagent by toolUseID and fails if not found.
+func requireSubagent(t *testing.T, result *ParseResult, toolUseID string) *SubagentParseResult {
+	t.Helper()
+	sub, ok := result.Subagents[toolUseID]
+	if !ok {
+		t.Fatalf("expected subagent with ID %s", toolUseID)
+	}
+	return sub
+}
+
+// TestParseProgressEntry tests parsing of single type:"progress" JSONL entries,
+// covering assistant messages, user messages, null data, and timestamp handling.
+func TestParseProgressEntry(t *testing.T) {
+	t.Run("assistant message with tool use", func(t *testing.T) {
+		path := writeJSONLLines(t,
+			`{"type":"progress","toolUseID":"tool-1","parentToolUseID":"parent-1","sessionId":"test-sub","slug":"my-subagent","timestamp":"2026-01-30T10:00:00.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":[{"type":"tool_use","name":"Read","id":"sub-tool-1"}],"usage":{"input_tokens":50,"cache_creation_input_tokens":100,"cache_read_input_tokens":500,"output_tokens":25}}}}}`,
+		)
+
+		result := parseJSONL(t, path)
+		if len(result.Subagents) != 1 {
+			t.Fatalf("expected 1 subagent, got %d", len(result.Subagents))
+		}
+
+		sub := requireSubagent(t, result, "tool-1")
+
+		if sub.ID != "tool-1" {
+			t.Errorf("ID = %s, want tool-1", sub.ID)
+		}
+		if sub.ParentToolUseID != "parent-1" {
+			t.Errorf("ParentToolUseID = %s, want parent-1", sub.ParentToolUseID)
+		}
+		if sub.Slug != "my-subagent" {
+			t.Errorf("Slug = %s, want my-subagent", sub.Slug)
+		}
+		if sub.Model != "claude-opus-4-5-20251101" {
+			t.Errorf("Model = %s, want claude-opus-4-5-20251101", sub.Model)
+		}
+		if sub.MessageCount != 1 {
+			t.Errorf("MessageCount = %d, want 1", sub.MessageCount)
+		}
+		if sub.ToolCalls != 1 {
+			t.Errorf("ToolCalls = %d, want 1", sub.ToolCalls)
+		}
+		if sub.LastTool != "Read" {
+			t.Errorf("LastTool = %s, want Read", sub.LastTool)
+		}
+		if sub.LastActivity != "tool_use" {
+			t.Errorf("LastActivity = %s, want tool_use", sub.LastActivity)
+		}
+		if sub.LatestUsage == nil {
+			t.Fatal("expected non-nil LatestUsage")
+		}
+		if got, want := sub.LatestUsage.TotalContext(), 50+100+500; got != want {
+			t.Errorf("TotalContext() = %d, want %d", got, want)
+		}
+	})
+
+	t.Run("user message sets waiting activity", func(t *testing.T) {
+		path := writeJSONLLines(t,
+			`{"type":"progress","toolUseID":"tool-2","parentToolUseID":"parent-2","sessionId":"test-sub","slug":"subagent-2","timestamp":"2026-01-30T10:00:01.000Z","data":{"message":{"type":"user","message":{"role":"user","content":[{"type":"text","text":"do something"}]}}}}`,
+		)
+
+		sub := requireSubagent(t, parseJSONL(t, path), "tool-2")
+
+		if sub.MessageCount != 1 {
+			t.Errorf("MessageCount = %d, want 1", sub.MessageCount)
+		}
+		if sub.LastActivity != "waiting" {
+			t.Errorf("LastActivity = %s, want waiting", sub.LastActivity)
+		}
+	})
+
+	t.Run("null data creates subagent without messages", func(t *testing.T) {
+		path := writeJSONLLines(t,
+			`{"type":"progress","toolUseID":"tool-6","parentToolUseID":"parent-6","sessionId":"test-sub","slug":"no-data","timestamp":"2026-01-30T10:00:00.000Z","data":null}`,
+		)
+
+		sub := requireSubagent(t, parseJSONL(t, path), "tool-6")
+
+		if sub.ID != "tool-6" {
+			t.Errorf("ID = %s, want tool-6", sub.ID)
+		}
+		if sub.Slug != "no-data" {
+			t.Errorf("Slug = %s, want no-data", sub.Slug)
+		}
+		if sub.MessageCount != 0 {
+			t.Errorf("MessageCount = %d, want 0", sub.MessageCount)
+		}
+	})
+
+	t.Run("timestamp parsing", func(t *testing.T) {
+		path := writeJSONLLines(t,
+			`{"type":"progress","toolUseID":"tool-7","parentToolUseID":"parent-7","sessionId":"test-sub","slug":"timestamp-test","timestamp":"2026-02-20T15:30:45.123456789Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":[]}}}}`,
+		)
+
+		sub := requireSubagent(t, parseJSONL(t, path), "tool-7")
+
+		if sub.FirstTime.IsZero() {
+			t.Error("expected FirstTime to be set")
+		}
+		if sub.FirstTime != sub.LastTime {
+			t.Error("with one entry, FirstTime should equal LastTime")
+		}
+		if sub.FirstTime.Year() != 2026 {
+			t.Errorf("FirstTime.Year() = %d, want 2026", sub.FirstTime.Year())
+		}
+	})
+}
+
+// TestParseMultipleProgressEntries tests accumulating state across multiple
+// progress entries for the same subagent: messages, tool calls, and timestamps.
+func TestParseMultipleProgressEntries(t *testing.T) {
+	path := writeJSONLLines(t,
+		// assistant with Read tool
+		`{"type":"progress","toolUseID":"tool-3","parentToolUseID":"parent-3","sessionId":"test-sub","slug":"my-task","timestamp":"2026-01-30T10:00:00.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":[{"type":"tool_use","name":"Read","id":"t1"}],"usage":{"input_tokens":100,"cache_creation_input_tokens":200,"cache_read_input_tokens":1000,"output_tokens":50}}}}}`,
+		// user reply
+		`{"type":"progress","toolUseID":"tool-3","parentToolUseID":"parent-3","sessionId":"test-sub","slug":"my-task","timestamp":"2026-01-30T10:00:01.000Z","data":{"message":{"type":"user","message":{"role":"user","content":[{"type":"text","text":"continue"}]}}}}`,
+		// assistant with Write tool
+		`{"type":"progress","toolUseID":"tool-3","parentToolUseID":"parent-3","sessionId":"test-sub","slug":"my-task","timestamp":"2026-01-30T10:00:02.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":[{"type":"tool_use","name":"Write","id":"t2"}],"usage":{"input_tokens":150,"cache_creation_input_tokens":250,"cache_read_input_tokens":1500,"output_tokens":75}}}}}`,
+	)
+
+	result := parseJSONL(t, path)
+	if len(result.Subagents) != 1 {
+		t.Fatalf("expected 1 subagent, got %d", len(result.Subagents))
+	}
+
+	sub := requireSubagent(t, result, "tool-3")
+
+	if sub.MessageCount != 3 {
+		t.Errorf("MessageCount = %d, want 3 (assistant + user + assistant)", sub.MessageCount)
+	}
+	if sub.ToolCalls != 2 {
+		t.Errorf("ToolCalls = %d, want 2 (Read + Write)", sub.ToolCalls)
+	}
+	if sub.LastTool != "Write" {
+		t.Errorf("LastTool = %s, want Write", sub.LastTool)
+	}
+	if sub.LastActivity != "tool_use" {
+		t.Errorf("LastActivity = %s, want tool_use", sub.LastActivity)
+	}
+	if sub.FirstTime.IsZero() || sub.LastTime.IsZero() {
+		t.Fatal("expected both FirstTime and LastTime to be set")
+	}
+	if !sub.FirstTime.Before(sub.LastTime) {
+		t.Error("expected FirstTime before LastTime")
+	}
+}
+
+// TestCheckSubagentCompletion tests detection of subagent completion via tool_result
+// entries that match (or do not match) the subagent's parentToolUseID.
+func TestCheckSubagentCompletion(t *testing.T) {
+	tests := []struct {
+		name        string
+		toolUseID   string
+		parentID    string
+		resultID    string // tool_use_id in the tool_result entry
+		wantDone    bool
+	}{
+		{
+			name:      "matching tool_result marks subagent completed",
+			toolUseID: "tool-4",
+			parentID:  "task-1",
+			resultID:  "task-1",
+			wantDone:  true,
+		},
+		{
+			name:      "non-matching tool_result leaves subagent incomplete",
+			toolUseID: "tool-5",
+			parentID:  "task-2",
+			resultID:  "wrong-id",
+			wantDone:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := writeJSONLLines(t,
+				fmt.Sprintf(`{"type":"progress","toolUseID":"%s","parentToolUseID":"%s","sessionId":"test-sub","slug":"subagent","timestamp":"2026-01-30T10:00:00.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":[{"type":"tool_use","name":"Bash","id":"t1"}]}}}}`, tt.toolUseID, tt.parentID),
+				fmt.Sprintf(`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"%s","content":"output"}]},"sessionId":"test-sub","timestamp":"2026-01-30T10:00:01.000Z"}`, tt.resultID),
+			)
+
+			sub := requireSubagent(t, parseJSONL(t, path), tt.toolUseID)
+
+			if sub.Completed != tt.wantDone {
+				t.Errorf("Completed = %v, want %v", sub.Completed, tt.wantDone)
+			}
+		})
+	}
+}
+
+// TestMultipleSubagentsIncrementalParsing tests that incremental parsing from a
+// saved offset only returns newly appended subagents.
+func TestMultipleSubagentsIncrementalParsing(t *testing.T) {
+	path := writeJSONLLines(t,
+		`{"type":"user","message":{"role":"user","content":[{"type":"text","text":"start"}]},"sessionId":"sess-1","timestamp":"2026-01-30T10:00:00.000Z"}`,
+		`{"type":"progress","toolUseID":"sub-1","parentToolUseID":"parent-1","sessionId":"sess-1","slug":"sub1","timestamp":"2026-01-30T10:00:01.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":[{"type":"text","text":"working"}]}}}}`,
+	)
+
+	result1, offset1, err := ParseSessionJSONL(path, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result1.Subagents) != 1 {
+		t.Fatalf("batch 1: expected 1 subagent, got %d", len(result1.Subagents))
+	}
+
+	// Append a second subagent entry
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.WriteString(`{"type":"progress","toolUseID":"sub-2","parentToolUseID":"parent-2","sessionId":"sess-1","slug":"sub2","timestamp":"2026-01-30T10:00:02.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":[{"type":"text","text":"also working"}]}}}}` + "\n")
+	f.Close()
+
+	result2, offset2, err := ParseSessionJSONL(path, offset1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result2.Subagents) != 1 {
+		t.Fatalf("batch 2: expected 1 new subagent, got %d", len(result2.Subagents))
+	}
+
+	sub2 := requireSubagent(t, result2, "sub-2")
+	if sub2.Slug != "sub2" {
+		t.Errorf("Slug = %s, want sub2", sub2.Slug)
+	}
+	if offset2 <= offset1 {
+		t.Errorf("expected offset to advance: %d -> %d", offset1, offset2)
+	}
+}
+
+// TestSubagentActivityTransitions verifies that activity state tracks the latest
+// progress entry: thinking -> tool_use -> waiting.
+func TestSubagentActivityTransitions(t *testing.T) {
+	path := writeJSONLLines(t,
+		// thinking (text-only assistant message)
+		`{"type":"progress","toolUseID":"tool-8","parentToolUseID":"parent-8","sessionId":"test-sub","slug":"activity-test","timestamp":"2026-01-30T10:00:00.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":[{"type":"text","text":"thinking"}]}}}}`,
+		// tool_use
+		`{"type":"progress","toolUseID":"tool-8","parentToolUseID":"parent-8","sessionId":"test-sub","slug":"activity-test","timestamp":"2026-01-30T10:00:01.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":[{"type":"tool_use","name":"Read","id":"t1"}]}}}}`,
+		// waiting (user message)
+		`{"type":"progress","toolUseID":"tool-8","parentToolUseID":"parent-8","sessionId":"test-sub","slug":"activity-test","timestamp":"2026-01-30T10:00:02.000Z","data":{"message":{"type":"user","message":{"role":"user","content":[{"type":"text","text":"waiting for input"}]}}}}`,
+	)
+
+	sub := requireSubagent(t, parseJSONL(t, path), "tool-8")
+
+	if sub.LastActivity != "waiting" {
+		t.Errorf("LastActivity = %s, want waiting", sub.LastActivity)
+	}
+	if sub.MessageCount != 3 {
+		t.Errorf("MessageCount = %d, want 3", sub.MessageCount)
+	}
+	if sub.ToolCalls != 1 {
+		t.Errorf("ToolCalls = %d, want 1", sub.ToolCalls)
 	}
 }
