@@ -1,6 +1,6 @@
 import { test, expect, Page } from '@playwright/test';
+import { waitForConnection } from './helpers.js';
 
-const TIMEOUT_CONNECTED = 10_000;
 const TIMEOUT_SESSIONS = 15_000;
 const MIN_MOCK_SESSIONS = 5;
 
@@ -33,7 +33,7 @@ test.describe('Dashboard leaderboard', () => {
 
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
-    await page.waitForSelector('.status-dot.connected', { timeout: TIMEOUT_CONNECTED });
+    await waitForConnection(page);
     await waitForSessions(page, MIN_MOCK_SESSIONS);
   });
 

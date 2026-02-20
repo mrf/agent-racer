@@ -1,6 +1,5 @@
 import { test, expect, Page } from '@playwright/test';
-
-const TIMEOUT_WS_CONNECTION = 10_000;
+import { waitForConnection } from './helpers.js';
 const TIMEOUT_RACERS_APPEAR = 15_000;
 const TIMEOUT_ACTIVITY = 60_000;
 const TIMEOUT_ZONE_TRANSITION = 15_000;
@@ -120,7 +119,7 @@ test.describe('Session lifecycle', () => {
 
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
-    await page.waitForSelector('.status-dot.connected', { timeout: TIMEOUT_WS_CONNECTION });
+    await waitForConnection(page);
     await waitForRacers(page, 3);
   });
 
