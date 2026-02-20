@@ -44,15 +44,15 @@ type sessionEndMarker struct {
 }
 
 type Monitor struct {
-	cfg              *config.Config
-	store            *session.Store
-	broadcaster      *ws.Broadcaster
-	sources          []Source
-	tracked          map[string]*trackedSession // keyed by source:sessionID
-	pendingRemoval   map[string]time.Time
-	removedKeys      map[string]bool // keys removed from store; prevents re-creation while file is still discovered
-	prevCPU          map[int]cpuSample
-	lastProcessPoll  time.Time
+	cfg             *config.Config
+	store           *session.Store
+	broadcaster     *ws.Broadcaster
+	sources         []Source
+	tracked         map[string]*trackedSession // keyed by source:sessionID
+	pendingRemoval  map[string]time.Time
+	removedKeys     map[string]bool // keys removed from store; prevents re-creation while file is still discovered
+	prevCPU         map[int]cpuSample
+	lastProcessPoll time.Time
 }
 
 func NewMonitor(cfg *config.Config, store *session.Store, broadcaster *ws.Broadcaster, sources []Source) *Monitor {
@@ -250,6 +250,10 @@ func (m *Monitor) poll() {
 			state.ToolCallCount += update.ToolCalls
 			if update.LastTool != "" {
 				state.CurrentTool = update.LastTool
+			}
+
+			if len(update.Subagents) > 0 {
+				mergeSubagents(state, update.Subagents)
 			}
 
 			m.resolveTokens(state, update, maxTokens)
@@ -690,6 +694,91 @@ func (m *Monitor) calculateBurnRate(ts *trackedSession, currentTokens int, now t
 		return float64(tokenDelta) / minutes
 	}
 	return 0
+}
+
+// mergeSubagents converts SubagentParseResults into SubagentState entries
+// on the session. It merges incrementally: existing subagents are updated
+// with new data, and new subagents are appended.
+func mergeSubagents(state *session.SessionState, parsed map[string]*SubagentParseResult) {
+	// Build index of existing subagents by ID for fast lookup.
+	existing := make(map[string]int, len(state.Subagents))
+	for i, sub := range state.Subagents {
+		existing[sub.ID] = i
+	}
+
+	for _, pr := range parsed {
+		activity := classifySubagentActivity(pr)
+		tokens := 0
+		if pr.LatestUsage != nil {
+			tokens = pr.LatestUsage.TotalContext()
+		}
+
+		var sub *session.SubagentState
+
+		if idx, ok := existing[pr.ID]; ok {
+			// Update existing subagent.
+			sub = &state.Subagents[idx]
+			if pr.Slug != "" {
+				sub.Slug = pr.Slug
+			}
+			if pr.Model != "" {
+				sub.Model = pr.Model
+			}
+			sub.Activity = activity
+			if pr.LastTool != "" {
+				sub.CurrentTool = pr.LastTool
+			}
+			if tokens > sub.TokensUsed {
+				sub.TokensUsed = tokens
+			}
+			sub.MessageCount += pr.MessageCount
+			sub.ToolCallCount += pr.ToolCalls
+			if !pr.LastTime.IsZero() {
+				sub.LastActivityAt = pr.LastTime
+			}
+		} else {
+			// Append new subagent; take a pointer to the appended element.
+			state.Subagents = append(state.Subagents, session.SubagentState{
+				ID:              pr.ID,
+				ParentToolUseID: pr.ParentToolUseID,
+				SessionID:       state.ID,
+				Slug:            pr.Slug,
+				Model:           pr.Model,
+				Activity:        activity,
+				CurrentTool:     pr.LastTool,
+				TokensUsed:      tokens,
+				MessageCount:    pr.MessageCount,
+				ToolCallCount:   pr.ToolCalls,
+				StartedAt:       pr.FirstTime,
+				LastActivityAt:  pr.LastTime,
+			})
+			sub = &state.Subagents[len(state.Subagents)-1]
+		}
+
+		if pr.Completed {
+			completedAt := pr.LastTime
+			sub.CompletedAt = &completedAt
+			sub.Activity = session.Complete
+		}
+	}
+}
+
+// classifySubagentActivity maps a SubagentParseResult's last activity string
+// to a session.Activity value.
+func classifySubagentActivity(pr *SubagentParseResult) session.Activity {
+	switch pr.LastActivity {
+	case "tool_use":
+		return session.ToolUse
+	case "thinking":
+		return session.Thinking
+	case "waiting":
+		return session.Waiting
+	default:
+		if pr.MessageCount > 0 {
+			return session.Thinking
+		}
+		return session.Idle
+	}
 }
 
 func nameFromPath(path string) string {

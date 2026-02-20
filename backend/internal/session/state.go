@@ -63,29 +63,49 @@ func (a *Activity) UnmarshalJSON(data []byte) error {
 }
 
 type SessionState struct {
-	ID                 string     `json:"id"`
-	Name               string     `json:"name"`
-	Source             string     `json:"source"`
-	Activity           Activity   `json:"activity"`
-	TokensUsed         int        `json:"tokensUsed"`
-	TokenEstimated     bool       `json:"tokenEstimated"`
-	MaxContextTokens   int        `json:"maxContextTokens"`
-	ContextUtilization float64    `json:"contextUtilization"`
-	CurrentTool        string     `json:"currentTool,omitempty"`
-	Model              string     `json:"model"`
-	WorkingDir         string     `json:"workingDir"`
-	Branch             string     `json:"branch,omitempty"`
-	StartedAt          time.Time  `json:"startedAt"`
-	LastActivityAt     time.Time  `json:"lastActivityAt"`
-	LastDataReceivedAt time.Time  `json:"lastDataReceivedAt"`
-	CompletedAt        *time.Time `json:"completedAt,omitempty"`
-	MessageCount       int        `json:"messageCount"`
-	ToolCallCount      int        `json:"toolCallCount"`
-	PID                int        `json:"pid,omitempty"`
-	IsChurning         bool       `json:"isChurning,omitempty"`
-	TmuxTarget         string     `json:"tmuxTarget,omitempty"`
-	Lane               int        `json:"lane"`
-	BurnRatePerMinute  float64    `json:"burnRatePerMinute,omitempty"`
+	ID                 string          `json:"id"`
+	Name               string          `json:"name"`
+	Source             string          `json:"source"`
+	Activity           Activity        `json:"activity"`
+	TokensUsed         int             `json:"tokensUsed"`
+	TokenEstimated     bool            `json:"tokenEstimated"`
+	MaxContextTokens   int             `json:"maxContextTokens"`
+	ContextUtilization float64         `json:"contextUtilization"`
+	CurrentTool        string          `json:"currentTool,omitempty"`
+	Model              string          `json:"model"`
+	WorkingDir         string          `json:"workingDir"`
+	Branch             string          `json:"branch,omitempty"`
+	StartedAt          time.Time       `json:"startedAt"`
+	LastActivityAt     time.Time       `json:"lastActivityAt"`
+	LastDataReceivedAt time.Time       `json:"lastDataReceivedAt"`
+	CompletedAt        *time.Time      `json:"completedAt,omitempty"`
+	MessageCount       int             `json:"messageCount"`
+	ToolCallCount      int             `json:"toolCallCount"`
+	PID                int             `json:"pid,omitempty"`
+	IsChurning         bool            `json:"isChurning,omitempty"`
+	TmuxTarget         string          `json:"tmuxTarget,omitempty"`
+	Lane               int             `json:"lane"`
+	BurnRatePerMinute  float64         `json:"burnRatePerMinute,omitempty"`
+	Subagents          []SubagentState `json:"subagents,omitempty"`
+}
+
+// SubagentState tracks a single subagent (Task tool invocation) within a
+// parent Claude Code session. Subagents share the parent's JSONL file and
+// are identified by their stable toolUseID.
+type SubagentState struct {
+	ID              string     `json:"id"`              // toolUseID — stable across all progress entries
+	ParentToolUseID string     `json:"parentToolUseId"` // links to parent's tool_use block
+	SessionID       string     `json:"sessionId"`       // parent session ID
+	Slug            string     `json:"slug"`            // human-friendly display name
+	Model           string     `json:"model"`
+	Activity        Activity   `json:"activity"`
+	CurrentTool     string     `json:"currentTool,omitempty"`
+	TokensUsed      int        `json:"tokensUsed"`
+	MessageCount    int        `json:"messageCount"`
+	ToolCallCount   int        `json:"toolCallCount"`
+	StartedAt       time.Time  `json:"startedAt"`
+	LastActivityAt  time.Time  `json:"lastActivityAt"`
+	CompletedAt     *time.Time `json:"completedAt,omitempty"`
 }
 
 func (s *SessionState) UpdateUtilization() {
