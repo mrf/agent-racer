@@ -124,6 +124,12 @@ type SourceUpdate struct {
 	// monitor will fall back to the static config.yaml lookup.
 	// When non-zero, the monitor prefers this over the config value.
 	MaxContextTokens int
+
+	// Subagents contains parsed state for subagents (Task tool
+	// invocations) discovered in this chunk. Keyed by toolUseID.
+	// Only populated by sources that support subagent tracking
+	// (currently Claude only).
+	Subagents map[string]*SubagentParseResult
 }
 
 // HasData reports whether this update contains any meaningful data
@@ -140,5 +146,6 @@ func (u SourceUpdate) HasData() bool {
 		!u.LastTime.IsZero() ||
 		u.WorkingDir != "" ||
 		u.Branch != "" ||
-		u.MaxContextTokens > 0
+		u.MaxContextTokens > 0 ||
+		len(u.Subagents) > 0
 }

@@ -14,10 +14,10 @@ import (
 )
 
 type TokenUsage struct {
-	InputTokens                int `json:"input_tokens"`
-	CacheCreationInputTokens   int `json:"cache_creation_input_tokens"`
-	CacheReadInputTokens       int `json:"cache_read_input_tokens"`
-	OutputTokens               int `json:"output_tokens"`
+	InputTokens              int `json:"input_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
 }
 
 func (t TokenUsage) TotalContext() int {
@@ -41,8 +41,47 @@ type messageContent struct {
 }
 
 type contentBlock struct {
-	Type string `json:"type"`
-	Name string `json:"name,omitempty"`
+	Type      string `json:"type"`
+	Name      string `json:"name,omitempty"`
+	ID        string `json:"id,omitempty"`          // tool_use block ID
+	ToolUseID string `json:"tool_use_id,omitempty"` // tool_result references the tool_use
+}
+
+// progressEntry is the top-level structure for type:"progress" JSONL entries
+// emitted by Claude Code subagents. These share the parent's JSONL file.
+type progressEntry struct {
+	Type            string          `json:"type"`
+	ToolUseID       string          `json:"toolUseID"`
+	ParentToolUseID string          `json:"parentToolUseID"`
+	SessionID       string          `json:"sessionId"`
+	Slug            string          `json:"slug"`
+	Timestamp       string          `json:"timestamp"`
+	Data            json.RawMessage `json:"data"`
+}
+
+// progressData wraps the nested data.message structure inside a progress entry.
+type progressData struct {
+	Message struct {
+		Type    string          `json:"type"` // "assistant" or "user"
+		Message json.RawMessage `json:"message"`
+	} `json:"message"`
+}
+
+// SubagentParseResult accumulates parsed data for a single subagent across
+// all its progress entries. Keyed by toolUseID in ParseResult.Subagents.
+type SubagentParseResult struct {
+	ID              string
+	ParentToolUseID string
+	Slug            string
+	Model           string
+	LatestUsage     *TokenUsage
+	MessageCount    int
+	ToolCalls       int
+	LastTool        string
+	LastActivity    string
+	FirstTime       time.Time
+	LastTime        time.Time
+	Completed       bool
 }
 
 type ParseResult struct {
@@ -55,6 +94,7 @@ type ParseResult struct {
 	LastActivity string
 	LastTime     time.Time
 	WorkingDir   string
+	Subagents    map[string]*SubagentParseResult // keyed by toolUseID
 }
 
 func FindSessionFile(workingDir string) (string, error) {
@@ -106,7 +146,9 @@ func ParseSessionJSONL(path string, offset int64) (*ParseResult, int64, error) {
 		}
 	}
 
-	result := &ParseResult{}
+	result := &ParseResult{
+		Subagents: make(map[string]*SubagentParseResult),
+	}
 	reader := bufio.NewReader(f)
 	parsedOffset := offset // Track offset only after successfully parsing complete lines
 
@@ -172,6 +214,10 @@ func ParseSessionJSONL(path string, offset int64) (*ParseResult, int64, error) {
 		case "user":
 			result.MessageCount++
 			result.LastActivity = "waiting"
+			checkSubagentCompletion(entry.Message, result)
+
+		case "progress":
+			parseProgressEntry(lineData, result)
 		}
 
 		if err == io.EOF {
@@ -211,6 +257,129 @@ func parseAssistantMessage(raw json.RawMessage, result *ParseResult) {
 			result.ToolCalls++
 			result.LastTool = block.Name
 			result.LastActivity = "tool_use"
+		}
+	}
+}
+
+// parseProgressEntry handles a type:"progress" JSONL line, accumulating
+// subagent state into result.Subagents keyed by toolUseID.
+func parseProgressEntry(line []byte, result *ParseResult) {
+	var entry progressEntry
+	if err := json.Unmarshal(line, &entry); err != nil || entry.ToolUseID == "" {
+		return
+	}
+
+	sub, exists := result.Subagents[entry.ToolUseID]
+	if !exists {
+		sub = &SubagentParseResult{
+			ID:              entry.ToolUseID,
+			ParentToolUseID: entry.ParentToolUseID,
+		}
+		result.Subagents[entry.ToolUseID] = sub
+	}
+
+	if entry.Slug != "" {
+		sub.Slug = entry.Slug
+	}
+
+	if entry.Timestamp != "" {
+		if t, err := time.Parse(time.RFC3339Nano, entry.Timestamp); err == nil {
+			if sub.FirstTime.IsZero() {
+				sub.FirstTime = t
+			}
+			sub.LastTime = t
+		}
+	}
+
+	// Parse nested data.message.message for model, usage, content blocks.
+	if entry.Data == nil {
+		return
+	}
+	var pd progressData
+	if err := json.Unmarshal(entry.Data, &pd); err != nil {
+		return
+	}
+
+	switch pd.Message.Type {
+	case "assistant":
+		sub.MessageCount++
+		if pd.Message.Message != nil {
+			parseSubagentAssistantMessage(pd.Message.Message, sub)
+		}
+		// parseSubagentAssistantMessage may have set "tool_use"; only
+		// downgrade to "thinking" if it did not.
+		if sub.LastActivity != "tool_use" {
+			sub.LastActivity = "thinking"
+		}
+	case "user":
+		sub.MessageCount++
+		sub.LastActivity = "waiting"
+	}
+}
+
+// parseSubagentAssistantMessage extracts model, usage, and tool calls from
+// a subagent's assistant message (the inner data.message.message object).
+func parseSubagentAssistantMessage(raw json.RawMessage, sub *SubagentParseResult) {
+	var msg messageContent
+	if err := json.Unmarshal(raw, &msg); err != nil {
+		return
+	}
+
+	if msg.Model != "" {
+		sub.Model = msg.Model
+	}
+	if msg.Usage != nil {
+		sub.LatestUsage = msg.Usage
+	}
+
+	var blocks []contentBlock
+	if err := json.Unmarshal(msg.Content, &blocks); err != nil {
+		return
+	}
+
+	for _, block := range blocks {
+		if block.Type == "tool_use" {
+			sub.ToolCalls++
+			sub.LastTool = block.Name
+			sub.LastActivity = "tool_use"
+		}
+	}
+}
+
+// checkSubagentCompletion scans a user message's content blocks for
+// tool_result entries whose tool_use_id matches a known subagent's
+// parentToolUseID, marking that subagent as completed.
+func checkSubagentCompletion(raw json.RawMessage, result *ParseResult) {
+	if raw == nil || len(result.Subagents) == 0 {
+		return
+	}
+
+	// Build a reverse lookup: parentToolUseID → subagent toolUseID
+	parentToSub := make(map[string]string, len(result.Subagents))
+	for id, sub := range result.Subagents {
+		if sub.ParentToolUseID != "" {
+			parentToSub[sub.ParentToolUseID] = id
+		}
+	}
+	if len(parentToSub) == 0 {
+		return
+	}
+
+	var msg messageContent
+	if err := json.Unmarshal(raw, &msg); err != nil {
+		return
+	}
+
+	var blocks []contentBlock
+	if err := json.Unmarshal(msg.Content, &blocks); err != nil {
+		return
+	}
+
+	for _, block := range blocks {
+		if block.Type == "tool_result" && block.ToolUseID != "" {
+			if subID, ok := parentToSub[block.ToolUseID]; ok {
+				result.Subagents[subID].Completed = true
+			}
 		}
 	}
 }
