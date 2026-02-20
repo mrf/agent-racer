@@ -245,7 +245,7 @@ describe('RaceCanvas', () => {
     });
 
     it('assigns idle racers with stale data to the pit', () => {
-      rc.setAllRacers([makeState({ id: 'a', activity: 'idle', lastDataReceivedAt: agoISO(20_000) })]);
+      rc.setAllRacers([makeState({ id: 'a', activity: 'idle', lastDataReceivedAt: agoISO(31_000) })]);
       rc.update();
       const racer = rc.racers.get('a');
       expect(racer.inPit).toBe(true);
@@ -261,14 +261,14 @@ describe('RaceCanvas', () => {
     });
 
     it('assigns waiting racers with stale data to the pit', () => {
-      rc.setAllRacers([makeState({ id: 'a', activity: 'waiting', lastDataReceivedAt: agoISO(15_000) })]);
+      rc.setAllRacers([makeState({ id: 'a', activity: 'waiting', lastDataReceivedAt: agoISO(31_000) })]);
       rc.update();
       const racer = rc.racers.get('a');
       expect(racer.inPit).toBe(true);
     });
 
     it('assigns starting racers with stale data to the pit', () => {
-      rc.setAllRacers([makeState({ id: 'a', activity: 'starting', lastDataReceivedAt: agoISO(15_000) })]);
+      rc.setAllRacers([makeState({ id: 'a', activity: 'starting', lastDataReceivedAt: agoISO(31_000) })]);
       rc.update();
       const racer = rc.racers.get('a');
       expect(racer.inPit).toBe(true);
@@ -310,7 +310,7 @@ describe('RaceCanvas', () => {
     });
 
     it('partitions mixed sessions correctly across all three zones', () => {
-      const stale = agoISO(20_000);
+      const stale = agoISO(31_000);
       const fresh = agoISO(0);
       rc.setAllRacers([
         makeState({ id: 'track1', activity: 'thinking', lastDataReceivedAt: fresh }),
@@ -335,13 +335,13 @@ describe('RaceCanvas', () => {
     });
 
     it('DATA_FRESHNESS_MS boundary: exactly at threshold goes to pit', () => {
-      rc.setAllRacers([makeState({ id: 'a', activity: 'idle', lastDataReceivedAt: agoISO(10_000) })]);
+      rc.setAllRacers([makeState({ id: 'a', activity: 'idle', lastDataReceivedAt: agoISO(30_000) })]);
       rc.update();
       expect(rc.racers.get('a').inPit).toBe(true);
     });
 
     it('DATA_FRESHNESS_MS boundary: 1ms under threshold stays on track', () => {
-      rc.setAllRacers([makeState({ id: 'a', activity: 'idle', lastDataReceivedAt: agoISO(9_999) })]);
+      rc.setAllRacers([makeState({ id: 'a', activity: 'idle', lastDataReceivedAt: agoISO(29_999) })]);
       rc.update();
       expect(rc.racers.get('a').inPit).toBe(false);
     });
@@ -471,7 +471,7 @@ describe('RaceCanvas', () => {
     });
 
     it('resizes when pit lane count changes', () => {
-      const stale = agoISO(20_000);
+      const stale = agoISO(31_000);
       const resizeSpy = vi.spyOn(rc, 'resize');
 
       rc.setAllRacers([
@@ -518,7 +518,7 @@ describe('RaceCanvas', () => {
       rc.setAllRacers([
         makeState({ id: 'a1', activity: 'thinking', lane: 0 }),
         makeState({ id: 'a2', activity: 'thinking', lane: 1 }),
-        makeState({ id: 'p1', activity: 'idle', lastDataReceivedAt: agoISO(20_000) }),
+        makeState({ id: 'p1', activity: 'idle', lastDataReceivedAt: agoISO(31_000) }),
         makeState({ id: 'l1', activity: 'complete' }),
       ]);
       rc.update();

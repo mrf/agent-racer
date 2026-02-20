@@ -19,7 +19,7 @@ function isInsideHitbox(dx, dy) {
 
 // How long after the last data receipt to keep a session on track.
 // Bridges brief gaps between parsed entries during active agent loops.
-const DATA_FRESHNESS_MS = 10_000;
+const DATA_FRESHNESS_MS = 30_000;
 
 function isParkingLotRacer(state) {
   return TERMINAL_ACTIVITIES.has(state.activity);

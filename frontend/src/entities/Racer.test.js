@@ -161,27 +161,27 @@ describe('zone dimming', () => {
     expect(racer.parkingLotDim).toBeCloseTo(1, 1);
   });
 
-  it('pit dimming reduces effective opacity to 0.6', () => {
+  it('pit dimming reduces effective opacity to 0.85', () => {
     const racer = new Racer(makeState());
     racer.pitDim = 1.0;
-    const pitAlpha = 1 - racer.pitDim * 0.4;
-    expect(pitAlpha).toBeCloseTo(0.6);
+    const pitAlpha = 1 - racer.pitDim * 0.15;
+    expect(pitAlpha).toBeCloseTo(0.85);
   });
 
-  it('parking lot dimming reduces effective opacity to 0.5', () => {
+  it('parking lot dimming reduces effective opacity to 0.8', () => {
     const racer = new Racer(makeState());
     racer.parkingLotDim = 1.0;
-    const parkingAlpha = 1 - racer.parkingLotDim * 0.5;
-    expect(parkingAlpha).toBeCloseTo(0.5);
+    const parkingAlpha = 1 - racer.parkingLotDim * 0.2;
+    expect(parkingAlpha).toBeCloseTo(0.8);
   });
 
   it('combined zone dimming stacks multiplicatively', () => {
     const racer = new Racer(makeState());
     racer.pitDim = 1.0;
     racer.parkingLotDim = 1.0;
-    const pitAlpha = 1 - racer.pitDim * 0.4;
-    const parkingAlpha = 1 - racer.parkingLotDim * 0.5;
-    expect(racer.opacity * pitAlpha * parkingAlpha).toBeCloseTo(0.3);
+    const pitAlpha = 1 - racer.pitDim * 0.15;
+    const parkingAlpha = 1 - racer.parkingLotDim * 0.2;
+    expect(racer.opacity * pitAlpha * parkingAlpha).toBeCloseTo(0.68);
   });
 
   it('parking lot dimming is slower than pit dimming', () => {
