@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/agent-racer/backend/internal/config"
+	"github.com/agent-racer/backend/internal/gamification"
 	"github.com/agent-racer/backend/internal/session"
 	"github.com/gorilla/websocket"
 )
@@ -39,6 +40,7 @@ type Server struct {
 	allowedOrigins  map[string]bool
 	allowedHosts    map[string]bool
 	authToken       string
+	tracker         *gamification.StatsTracker
 }
 
 func NewServer(cfg *config.Config, store *session.Store, broadcaster *Broadcaster, frontendDir string, dev bool, embeddedHandler http.Handler, allowedOrigins []string, authToken string) *Server {
@@ -68,11 +70,18 @@ func NewServer(cfg *config.Config, store *session.Store, broadcaster *Broadcaste
 	return s
 }
 
+// SetStatsTracker configures the stats tracker used by the /api/stats endpoint.
+// Must be called before SetupRoutes.
+func (s *Server) SetStatsTracker(tracker *gamification.StatsTracker) {
+	s.tracker = tracker
+}
+
 func (s *Server) SetupRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/ws", s.handleWS)
 	mux.HandleFunc("/api/sessions", s.handleSessions)
 	mux.HandleFunc("/api/sessions/", s.handleSessionRoutes)
 	mux.HandleFunc("/api/config", s.handleConfig)
+	mux.HandleFunc("/api/stats", s.handleStats)
 
 	if s.dev {
 		log.Printf("Serving frontend from filesystem: %s", s.frontendDir)
@@ -135,6 +144,21 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s.config.Sound)
+}
+
+func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
+	if !s.authorize(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if s.tracker == nil {
+		http.Error(w, "stats not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.tracker.Stats())
 }
 
 func (s *Server) handleSessionRoutes(w http.ResponseWriter, r *http.Request) {
