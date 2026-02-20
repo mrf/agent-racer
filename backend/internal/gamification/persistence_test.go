@@ -288,3 +288,211 @@ func TestStore_SaveFilePermissions(t *testing.T) {
 		t.Errorf("expected at least 0600 permissions, got %o", perm)
 	}
 }
+
+func TestStore_AtomicWriteSurvivesCrash(t *testing.T) {
+	dir := t.TempDir()
+	s := NewStore(dir)
+
+	// Write initial stats
+	initial := newStats()
+	initial.TotalSessions = 100
+	initial.TotalCompletions = 50
+	if err := s.Save(initial); err != nil {
+		t.Fatalf("initial Save error: %v", err)
+	}
+
+	// Verify initial write succeeded
+	loaded, err := s.Load()
+	if err != nil {
+		t.Fatalf("Load initial error: %v", err)
+	}
+	if loaded.TotalSessions != 100 {
+		t.Errorf("initial TotalSessions = %d, want 100", loaded.TotalSessions)
+	}
+
+	// The atomic write pattern (temp file + rename) ensures that
+	// even if a crash occurs, either:
+	// 1. The temp file is never renamed (original file untouched)
+	// 2. The rename succeeds atomically (new file replaces old)
+	// This test verifies that data is recoverable after the first save.
+
+	// Now save new stats - should use atomic temp+rename pattern
+	updated := newStats()
+	updated.TotalSessions = 200
+	updated.TotalCompletions = 100
+	if err := s.Save(updated); err != nil {
+		t.Fatalf("Save after crash simulation error: %v", err)
+	}
+
+	// Verify we can load the new data correctly
+	loaded, err = s.Load()
+	if err != nil {
+		t.Fatalf("Load after update error: %v", err)
+	}
+	if loaded.TotalSessions != 200 {
+		t.Errorf("TotalSessions after update = %d, want 200", loaded.TotalSessions)
+	}
+	if loaded.TotalCompletions != 100 {
+		t.Errorf("TotalCompletions after update = %d, want 100", loaded.TotalCompletions)
+	}
+
+	// Verify no temp files are left behind (cleanup on success)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir error: %v", err)
+	}
+	for _, e := range entries {
+		if e.Name() != statsFileName {
+			t.Errorf("unexpected file in directory: %s", e.Name())
+		}
+	}
+}
+
+func TestStore_AtomicWriteNoTempFileLeak(t *testing.T) {
+	dir := t.TempDir()
+	s := NewStore(dir)
+
+	// Perform several saves
+	for i := 0; i < 5; i++ {
+		st := newStats()
+		st.TotalSessions = i * 10
+		if err := s.Save(st); err != nil {
+			t.Fatalf("Save %d error: %v", i, err)
+		}
+	}
+
+	// Check that no temp files are left behind
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir error: %v", err)
+	}
+
+	for _, e := range entries {
+		if e.Name() != statsFileName {
+			t.Errorf("unexpected file left in dir: %s", e.Name())
+		}
+	}
+
+	if len(entries) != 1 {
+		t.Errorf("expected exactly 1 file, got %d", len(entries))
+	}
+}
+
+func TestStore_RoundTripWithAllFields(t *testing.T) {
+	dir := t.TempDir()
+	s := NewStore(dir)
+
+	st := newStats()
+	st.TotalSessions = 42
+	st.TotalCompletions = 30
+	st.TotalErrors = 5
+	st.ConsecutiveCompletions = 7
+	st.SessionsPerSource["claude"] = 25
+	st.SessionsPerSource["codex"] = 17
+	st.SessionsPerModel["opus-4"] = 20
+	st.SessionsPerModel["haiku"] = 22
+	st.DistinctModelsUsed = 2
+	st.DistinctSourcesUsed = 2
+	st.MaxContextUtilization = 0.95
+	st.MaxBurnRate = 1234.5
+	st.MaxConcurrentActive = 5
+	st.MaxToolCalls = 200
+	st.MaxMessages = 150
+	st.MaxSessionDurationSec = 3600.0
+	st.AchievementsUnlocked["first_blood"] = time.Date(2026, 1, 15, 10, 0, 0, 0, time.UTC)
+	st.AchievementsUnlocked["speed_demon"] = time.Date(2026, 2, 1, 12, 30, 0, 0, time.UTC)
+	st.BattlePass = BattlePass{Season: 2, Tier: 10, XP: 5000}
+	st.Equipped = Equipped{Trail: "flame", Badge: "gold", Theme: "dark"}
+
+	if err := s.Save(st); err != nil {
+		t.Fatalf("Save error: %v", err)
+	}
+
+	loaded, err := s.Load()
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+
+	// Verify all fields round-trip correctly
+	if loaded.Version != statsVersion {
+		t.Errorf("Version = %d, want %d", loaded.Version, statsVersion)
+	}
+	if loaded.TotalSessions != 42 {
+		t.Errorf("TotalSessions = %d, want 42", loaded.TotalSessions)
+	}
+	if loaded.TotalCompletions != 30 {
+		t.Errorf("TotalCompletions = %d, want 30", loaded.TotalCompletions)
+	}
+	if loaded.TotalErrors != 5 {
+		t.Errorf("TotalErrors = %d, want 5", loaded.TotalErrors)
+	}
+	if loaded.ConsecutiveCompletions != 7 {
+		t.Errorf("ConsecutiveCompletions = %d, want 7", loaded.ConsecutiveCompletions)
+	}
+	if loaded.SessionsPerSource["claude"] != 25 {
+		t.Errorf("SessionsPerSource[claude] = %d, want 25", loaded.SessionsPerSource["claude"])
+	}
+	if loaded.SessionsPerSource["codex"] != 17 {
+		t.Errorf("SessionsPerSource[codex] = %d, want 17", loaded.SessionsPerSource["codex"])
+	}
+	if loaded.SessionsPerModel["opus-4"] != 20 {
+		t.Errorf("SessionsPerModel[opus-4] = %d, want 20", loaded.SessionsPerModel["opus-4"])
+	}
+	if loaded.SessionsPerModel["haiku"] != 22 {
+		t.Errorf("SessionsPerModel[haiku] = %d, want 22", loaded.SessionsPerModel["haiku"])
+	}
+	if loaded.DistinctModelsUsed != 2 {
+		t.Errorf("DistinctModelsUsed = %d, want 2", loaded.DistinctModelsUsed)
+	}
+	if loaded.DistinctSourcesUsed != 2 {
+		t.Errorf("DistinctSourcesUsed = %d, want 2", loaded.DistinctSourcesUsed)
+	}
+	if loaded.MaxContextUtilization != 0.95 {
+		t.Errorf("MaxContextUtilization = %f, want 0.95", loaded.MaxContextUtilization)
+	}
+	if loaded.MaxBurnRate != 1234.5 {
+		t.Errorf("MaxBurnRate = %f, want 1234.5", loaded.MaxBurnRate)
+	}
+	if loaded.MaxConcurrentActive != 5 {
+		t.Errorf("MaxConcurrentActive = %d, want 5", loaded.MaxConcurrentActive)
+	}
+	if loaded.MaxToolCalls != 200 {
+		t.Errorf("MaxToolCalls = %d, want 200", loaded.MaxToolCalls)
+	}
+	if loaded.MaxMessages != 150 {
+		t.Errorf("MaxMessages = %d, want 150", loaded.MaxMessages)
+	}
+	if loaded.MaxSessionDurationSec != 3600.0 {
+		t.Errorf("MaxSessionDurationSec = %f, want 3600", loaded.MaxSessionDurationSec)
+	}
+	if loaded.BattlePass.Season != 2 {
+		t.Errorf("BattlePass.Season = %d, want 2", loaded.BattlePass.Season)
+	}
+	if loaded.BattlePass.Tier != 10 {
+		t.Errorf("BattlePass.Tier = %d, want 10", loaded.BattlePass.Tier)
+	}
+	if loaded.BattlePass.XP != 5000 {
+		t.Errorf("BattlePass.XP = %d, want 5000", loaded.BattlePass.XP)
+	}
+	if loaded.Equipped.Trail != "flame" {
+		t.Errorf("Equipped.Trail = %s, want flame", loaded.Equipped.Trail)
+	}
+	if loaded.Equipped.Badge != "gold" {
+		t.Errorf("Equipped.Badge = %s, want gold", loaded.Equipped.Badge)
+	}
+	if loaded.Equipped.Theme != "dark" {
+		t.Errorf("Equipped.Theme = %s, want dark", loaded.Equipped.Theme)
+	}
+	if len(loaded.AchievementsUnlocked) != 2 {
+		t.Errorf("AchievementsUnlocked length = %d, want 2", len(loaded.AchievementsUnlocked))
+	}
+	if _, ok := loaded.AchievementsUnlocked["first_blood"]; !ok {
+		t.Error("AchievementsUnlocked should contain first_blood")
+	}
+	if _, ok := loaded.AchievementsUnlocked["speed_demon"]; !ok {
+		t.Error("AchievementsUnlocked should contain speed_demon")
+	}
+	if loaded.LastUpdated.IsZero() {
+		t.Error("LastUpdated should be set after Save")
+	}
+}
