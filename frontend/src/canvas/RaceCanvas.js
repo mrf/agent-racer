@@ -77,6 +77,7 @@ export class RaceCanvas {
     this._parkingLotLaneCount = 0;
     this._trackGroups = [{ maxTokens: DEFAULT_CONTEXT_WINDOW, laneCount: 1 }];
     this._trackGroupsKey = '';
+    this._zoneCounts = { racing: 0, pit: 0, parked: 0 };
 
     this.resize();
     this._resizeHandler = () => this.resize();
@@ -218,6 +219,13 @@ export class RaceCanvas {
 
     const pitLaneCount = pitRacers.length;
     const parkingLotLaneCount = parkingLotRacers.length;
+
+    // Store zone counts for dashboard (single source of truth)
+    this._zoneCounts = {
+      racing: trackRacers.length,
+      pit: pitLaneCount,
+      parked: parkingLotLaneCount,
+    };
 
     // Group track racers by maxContextTokens for separate tracks
     const groupMap = new Map();
@@ -424,7 +432,7 @@ export class RaceCanvas {
     if (dashAvailable > 40) {
       const dashBounds = this.dashboard.getBounds(this.width, zonesHeight, dashAvailable);
       const sessions = [...this.racers.values()].map(r => r.state);
-      this.dashboard.draw(ctx, dashBounds, sessions);
+      this.dashboard.draw(ctx, dashBounds, sessions, this._zoneCounts);
     }
 
     // Draw particles behind racers

@@ -57,15 +57,11 @@ describe('Dashboard', () => {
     dashboard = new Dashboard();
   });
 
-  describe('session categorization (racing / pit / parked)', () => {
-    it('counts racing sessions (thinking + tool_use)', () => {
+  describe('zone counts from RaceCanvas (racing / pit / parked)', () => {
+    it('renders racing count from zoneCounts', () => {
       const ctx = stubCtx();
-      const sessions = [
-        makeSession({ activity: 'thinking' }),
-        makeSession({ activity: 'tool_use' }),
-        makeSession({ activity: 'idle' }),
-      ];
-      dashboard.draw(ctx, DEFAULT_BOUNDS, sessions);
+      const sessions = [makeSession(), makeSession(), makeSession()];
+      dashboard.draw(ctx, DEFAULT_BOUNDS, sessions, { racing: 2, pit: 1, parked: 0 });
 
       const racingCall = ctx.fillText.mock.calls.find(
         ([val, , ], idx) => val === '2' && ctx.fillText.mock.calls[idx + 1]?.[0] === 'RACING',
@@ -73,15 +69,10 @@ describe('Dashboard', () => {
       expect(racingCall).toBeDefined();
     });
 
-    it('counts pit sessions (idle + waiting + starting)', () => {
+    it('renders pit count from zoneCounts', () => {
       const ctx = stubCtx();
-      const sessions = [
-        makeSession({ activity: 'idle' }),
-        makeSession({ activity: 'waiting' }),
-        makeSession({ activity: 'starting' }),
-        makeSession({ activity: 'thinking' }),
-      ];
-      dashboard.draw(ctx, DEFAULT_BOUNDS, sessions);
+      const sessions = [makeSession(), makeSession(), makeSession(), makeSession()];
+      dashboard.draw(ctx, DEFAULT_BOUNDS, sessions, { racing: 1, pit: 3, parked: 0 });
 
       const pitCall = ctx.fillText.mock.calls.find(
         ([val, , ], idx) => val === '3' && ctx.fillText.mock.calls[idx + 1]?.[0] === 'PIT',
@@ -89,15 +80,10 @@ describe('Dashboard', () => {
       expect(pitCall).toBeDefined();
     });
 
-    it('counts parked sessions (complete + errored + lost)', () => {
+    it('renders parked count from zoneCounts', () => {
       const ctx = stubCtx();
-      const sessions = [
-        makeSession({ activity: 'complete' }),
-        makeSession({ activity: 'errored' }),
-        makeSession({ activity: 'lost' }),
-        makeSession({ activity: 'thinking' }),
-      ];
-      dashboard.draw(ctx, DEFAULT_BOUNDS, sessions);
+      const sessions = [makeSession(), makeSession(), makeSession(), makeSession()];
+      dashboard.draw(ctx, DEFAULT_BOUNDS, sessions, { racing: 1, pit: 0, parked: 3 });
 
       const parkedCall = ctx.fillText.mock.calls.find(
         ([val, , ], idx) => val === '3' && ctx.fillText.mock.calls[idx + 1]?.[0] === 'PARKED',
@@ -105,7 +91,7 @@ describe('Dashboard', () => {
       expect(parkedCall).toBeDefined();
     });
 
-    it('shows zero counts with no sessions', () => {
+    it('shows zero counts when zoneCounts missing', () => {
       const ctx = stubCtx();
       dashboard.draw(ctx, DEFAULT_BOUNDS, []);
 

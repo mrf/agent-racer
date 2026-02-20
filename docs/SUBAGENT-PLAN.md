@@ -1,8 +1,8 @@
-# Subagent Support Plan
+# Subagent Visualization: Hamsters on Skateboards
 
-## Goal
+## Context
 
-Track and visualize Claude Code subagents (Task tool invocations) as child racers linked to their parent session, using data already present in the JSONL logs.
+When Claude Code spawns subagents via the Task tool, those subagents are logged as `type:"progress"` entries in the **same JSONL file** as the parent session. The data includes `toolUseID` (stable subagent ID), `parentToolUseID` (link to parent), `slug` (display name), model, tokens, and activity. Our parser currently ignores these entries. This feature parses them and renders each subagent as a hamster riding a skateboard, towed behind the parent car.
 
 ## Research Findings
 
@@ -37,132 +37,140 @@ Claude Code logs subagent activity as `progress` entries in the **same JSONL fil
 - Subagents can use different models (e.g., parent on Opus, subagent on Haiku).
 - Multiple subagents can run in parallel (each with a distinct `toolUseID`).
 
-## Implementation Plan
+## Phased Implementation
 
-### 1) Data model: `SubagentState`
+### Phase 1: Backend — SubagentState + JSONL Parsing
 
-Add to `backend/internal/session/state.go`:
+**Files:** `backend/internal/session/state.go`, `backend/internal/monitor/jsonl.go`, `backend/internal/monitor/source.go`, `backend/internal/monitor/claude_source.go`, `backend/internal/monitor/monitor.go`
 
-```go
-type SubagentState struct {
-    ID               string    `json:"id"`               // toolUseID
-    ParentToolUseID  string    `json:"parentToolUseId"`  // links to parent's tool_use
-    SessionID        string    `json:"sessionId"`        // parent session ID
-    Slug             string    `json:"slug"`             // display name
-    Model            string    `json:"model"`
-    Activity         Activity  `json:"activity"`
-    CurrentTool      string    `json:"currentTool,omitempty"`
-    TokensUsed       int       `json:"tokensUsed"`
-    MessageCount     int       `json:"messageCount"`
-    ToolCallCount    int       `json:"toolCallCount"`
-    StartedAt        time.Time `json:"startedAt"`
-    LastActivityAt   time.Time `json:"lastActivityAt"`
-    CompletedAt      *time.Time `json:"completedAt,omitempty"`
-}
-```
+**1a. Data model** (`state.go`)
+- Add `SubagentState` struct: `ID`, `ParentToolUseID`, `SessionID`, `Slug`, `Model`, `Activity` (reuse existing enum), `CurrentTool`, `TokensUsed`, `MessageCount`, `ToolCallCount`, `StartedAt`, `LastActivityAt`, `CompletedAt`
+- Add `Subagents []SubagentState` field on `SessionState`
 
-Extend `SessionState` with:
+**1b. JSONL parser** (`jsonl.go`)
+- Add `progressEntry` struct to parse `type:"progress"` entries with `toolUseID`, `parentToolUseID`, `slug`, `data`
+- Add `SubagentParseResult` struct and `Subagents map[string]*SubagentParseResult` on `ParseResult`
+- New `"progress"` case in `ParseSessionJSONL`: filter for `data.type == "agent_progress"`, extract model/usage/content from `data.message.message` (same logic as assistant messages), group by `toolUseID`
+- Completion detection: in the `"user"` case, scan `tool_result` content blocks — if `tool_use_id` matches a subagent's `parentToolUseID`, mark that subagent complete
 
-```go
-Subagents []SubagentState `json:"subagents,omitempty"`
-```
+**1c. SourceUpdate extension** (`source.go`)
+- Add `Subagents map[string]*SubagentParseResult` to `SourceUpdate` (internal, not serialized)
+- Update `HasData()` to check `len(u.Subagents) > 0`
 
-### 2) Parser changes: handle `progress` entries
+**1d. Monitor propagation** (`monitor.go`)
+- Add `mergeSubagents(existing []SubagentState, incoming map[string]*SubagentParseResult) []SubagentState` helper
+- On each poll: get existing subagents from store, merge incoming data (accumulate counts, update activity/tool/timestamps), append new subagents
+- Convert and attach to `SessionState.Subagents` before store update
 
-In `jsonl.go`, extend `ParseResult`:
+**1e. WebSocket — zero changes needed.** `Subagents` field auto-serializes as nested JSON.
 
-```go
-type SubagentParseResult struct {
-    ID              string
-    ParentToolUseID string
-    Slug            string
-    Model           string
-    LatestUsage     *TokenUsage
-    MessageCount    int
-    ToolCalls       int
-    LastTool        string
-    LastActivity    string
-    FirstTime       time.Time
-    LastTime        time.Time
-}
+---
 
-// Add to ParseResult:
-Subagents map[string]*SubagentParseResult // keyed by toolUseID
-```
+### Phase 2: Frontend — Hamster Entity
 
-Add a `"progress"` case in the `ParseSessionJSONL` switch:
+**Files:** New `frontend/src/entities/Hamster.js`
 
-- Extract `toolUseID`, `parentToolUseID`, `slug`, `timestamp` from the entry.
-- Parse `data.message.message` for model, usage, content blocks (same logic as `parseAssistantMessage`).
-- Group into the `Subagents` map by `toolUseID`.
-- Detect completion: when the parent session's next `user` entry contains a `tool_result` whose `tool_use_id` matches `parentToolUseID`, the subagent is done.
+**Visual design** (canvas 2D, ~40% scale of parent car):
+- **Skateboard**: rounded rect deck (wood brown), 4 tiny wheels with spinning spokes
+- **Hamster body**: warm brown ellipse with model-color helmet/harness, round ears (pink interior), dot eyes with highlights, tiny pink nose, small paws gripping deck edges, curved tail with wag animation
+- **Activity indicators** (simplified):
+  - Thinking: tiny 3-dot thought bubble above head
+  - Tool_use: small wrench badge below skateboard
+  - Complete: star burst above + golden tint
+  - General: subtle underglow matching activity color
 
-### 3) Monitor: propagate subagent state
+**Animation** (mirrors Racer patterns):
+- Spring physics (lighter: damping=0.90, stiffness=0.12)
+- Wheel spin driven by movement delta
+- Position lerp with configurable follow delay (0.15 + random jitter)
+- Ear wiggle and tail wag continuous animations
+- Completion: rope snap timer (0.3s), then fade to 0.3 opacity over 5s
 
-In the monitor loop (`backend/internal/monitor/`), after parsing:
+---
 
-- Convert each `SubagentParseResult` to a `SubagentState`.
-- Attach to the parent `SessionState.Subagents`.
-- Broadcast updated state via WebSocket (subagents included in the session payload).
+### Phase 3: Tow Rope Rendering
 
-### 4) WebSocket protocol
+**Integrated into:** `frontend/src/entities/Racer.js` (new `drawTowRope` method)
 
-No protocol change needed -- subagents are nested inside the existing `SessionState` JSON. The frontend receives them automatically:
+- Quadratic bezier from parent car rear to hamster skateboard front
+- Sag amount: `8 + distance * 0.02` pixels
+- Rope color: `#8B7355` (natural rope), 1.5px with highlight stroke
+- On completion: rope "snaps" — two dangling stubs with dashed stroke, gravity droop animation
 
-```json
-{
-  "id": "89eb3ed5-...",
-  "name": "agent-racer",
-  "activity": "tool_use",
-  "currentTool": "Task",
-  "subagents": [
-    {
-      "id": "agent_msg_01F8z3...",
-      "slug": "dynamic-chasing-bunny",
-      "model": "claude-haiku-4-5-20251001",
-      "activity": "tool_use",
-      "currentTool": "Read",
-      "messageCount": 35,
-      "toolCallCount": 20
-    }
-  ]
-}
-```
+**Attachment points:**
+- Parent rear: `x - (17 + LIMO_STRETCH) * CAR_SCALE`, `y + 1 * CAR_SCALE`
+- Hamster front: `hamster.displayX + 10`, `hamster.displayY`
 
-### 5) Frontend rendering
+---
 
-Options (pick one or combine):
+### Phase 4: Racer Integration + Positioning
 
-**A) Sidecar mini-cars** -- Small cars on sub-lanes beneath the parent, indented. Show slug as label, model badge. Move independently based on subagent activity. Disappear when subagent completes.
+**Files:** `frontend/src/entities/Racer.js`, `frontend/src/canvas/RaceCanvas.js`
 
-**B) Indicator on parent car** -- Badge count ("2 subagents") on the parent car. Click to expand detail panel showing subagent list with activity, model, current tool.
+**Racer.js changes:**
+- Add `this.hamsters = new Map()` — subagentId to Hamster instances
+- In `update(state)`: sync hamsters from `state.subagents` (create/update/remove)
+- In `animate(dt)`: position hamsters in fan pattern behind car, then animate each
+- In `draw(ctx)`: draw tow ropes, then delegate `hamster.draw(ctx)` for each
 
-**C) Particle trail** -- Subagents shown as smaller sprites trailing the parent car, with tool badges. Visual link (line or trail) to parent.
+**Fan positioning** (behind parent car):
+- Base X: `parentX - carRearOffset - 30`
+- Y spread: `(i - (count-1)/2) * 25` (vertical fan)
+- X stagger: `-i * 15` (each subsequent hamster further back)
+- Cap visual spread at lane height; compress spacing when count > 4
 
-Recommendation: **Start with B** (lowest visual complexity, most informative), then optionally add A for a richer view.
+**Zone behavior:**
+- Hamsters follow parent through track/pit/parking transitions (no independent zone)
+- Inherit parent's dimming and desaturation
+- Follow with slight delay via lerp
 
-### 6) Detail panel updates
+---
 
-When clicking a session that has active subagents, the detail panel should show:
+### Phase 5: Hit Testing + Detail Flyout
 
-- Existing session info (unchanged)
-- New "Subagents" section listing each with: slug, model, activity, current tool, message/tool counts, duration
+**Files:** `frontend/src/canvas/RaceCanvas.js`, `frontend/src/main.js`
 
-## Scope & non-goals
+- Extend `handleClick` to check hamster bounding boxes (20x15 hit area) before racer hit boxes
+- Add `onHamsterClick` callback alongside existing `onRacerClick`
+- Hamster flyout shows: slug, model, activity, current tool, message/tool counts, duration
+- Parent car flyout gains "Subagents" section listing each child with activity + current tool
 
-- **In scope:** Claude Code subagents only (Task tool `progress` entries).
-- **Not in scope:** Recursive subagents (subagents spawning subagents) -- the data supports it but the UI shouldn't go deeper than one level initially.
-- **Not in scope:** Subagent token usage contributing to parent's context utilization (they share the context window but the relationship is complex).
+---
 
-## Dependencies
+### Phase 6: Bloom + Particles
 
-None. This uses data already in the JSONL files. No hooks, no API changes, no new data sources.
+**Files:** `frontend/src/canvas/RaceCanvas.js`, `frontend/src/canvas/Particles.js`
 
-## Files to modify
+- Hamsters contribute to bloom pass (small glow when active)
+- Tiny exhaust puffs from skateboard rear when active
+- Small confetti burst on completion (15 particles vs car's 60)
+- Spark effect at rope break point
 
-- `backend/internal/session/state.go` -- Add `SubagentState`, extend `SessionState`
-- `backend/internal/monitor/jsonl.go` -- Parse `progress` entries, add `SubagentParseResult`
-- `backend/internal/monitor/monitor.go` -- Propagate subagent state
-- `frontend/src/entities/Racer.js` -- Accept and store subagent data
-- `frontend/src/canvas/RaceCanvas.js` -- Render subagent indicators
-- `frontend/src/ui/DetailPanel.js` -- Show subagent details
+---
+
+## Worktree Parallelization
+
+| Worktree | Phases | Blocked By |
+|---|---|---|
+| `backend-subagent-parse` | 1a–1e | — |
+| `frontend-hamster-entity` | 2, 3 | — |
+| `frontend-racer-integration` | 4, 5 | Both above |
+| `frontend-bloom-particles` | 6 | `frontend-hamster-entity` |
+| `tests-backend` | Backend tests | `backend-subagent-parse` |
+| `tests-frontend` | Frontend tests | `frontend-hamster-entity` |
+
+**Execution order:** `backend-subagent-parse` + `frontend-hamster-entity` in parallel first, then `frontend-racer-integration`, then remainder.
+
+## Scope
+
+- **Claude only** — only Claude Code logs subagent progress entries
+- **One level deep** — no recursive subagent nesting (data supports it, UI doesn't)
+- **No separate lanes** — hamsters share parent's lane space
+- **Canvas 2D** — follows current rendering approach; PixiJS migration converts Hamster same as Racer
+
+## Verification
+
+1. **Backend**: Run `go test ./backend/internal/monitor/...` — new tests for progress parsing and subagent completion detection
+2. **Frontend**: Run `npm test` in `frontend/` — Hamster entity tests for spring physics, lerp, activity transitions
+3. **E2E**: `make dev`, spawn a Claude session that uses Task tool subagents, verify hamsters appear towed behind the parent car, click hamster for detail flyout
+4. **Edge cases**: Multiple simultaneous subagents (fan layout), subagent completion (rope snap), parent moving to pit (hamsters follow), parent completion (hamsters fade with parent)

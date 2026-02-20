@@ -75,7 +75,7 @@ export class Dashboard {
     };
   }
 
-  draw(ctx, bounds, sessions) {
+  draw(ctx, bounds, sessions, zoneCounts) {
     if (!bounds || bounds.height < 40) return;
 
     const { x, y, width, height } = bounds;
@@ -90,7 +90,7 @@ export class Dashboard {
 
     // Aggregate stats
     const statsY = y + DASHBOARD_PADDING.top;
-    this._drawStats(ctx, x, statsY, width, sessions);
+    this._drawStats(ctx, x, statsY, width, sessions, zoneCounts);
 
     // Leaderboard
     if (sessions.length > 0) {
@@ -100,10 +100,10 @@ export class Dashboard {
     }
   }
 
-  _drawStats(ctx, x, y, width, sessions) {
-    const active = sessions.filter(s => s.activity === 'thinking' || s.activity === 'tool_use').length;
-    const idle = sessions.filter(s => s.activity === 'idle' || s.activity === 'waiting' || s.activity === 'starting').length;
-    const done = sessions.filter(s => TERMINAL_ACTIVITIES.has(s.activity)).length;
+  _drawStats(ctx, x, y, width, sessions, zoneCounts) {
+    const active = zoneCounts?.racing ?? 0;
+    const idle = zoneCounts?.pit ?? 0;
+    const done = zoneCounts?.parked ?? 0;
     const totalTokens = sessions.reduce((sum, s) => sum + (s.tokensUsed || 0), 0);
     const totalTools = sessions.reduce((sum, s) => sum + (s.toolCallCount || 0), 0);
     const totalMessages = sessions.reduce((sum, s) => sum + (s.messageCount || 0), 0);
