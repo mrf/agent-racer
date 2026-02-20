@@ -452,22 +452,14 @@ export class Racer {
 
     ctx.save();
 
-    // Zone dimming: reduce opacity for pit and parking lot racers
-    const pitAlpha = 1 - this.pitDim * 0.4;
-    const parkingAlpha = 1 - this.parkingLotDim * 0.5;
+    // Zone dimming: subtle opacity reduction so details remain readable
+    const pitAlpha = 1 - this.pitDim * 0.15;
+    const parkingAlpha = 1 - this.parkingLotDim * 0.2;
     ctx.globalAlpha = this.opacity * pitAlpha * parkingAlpha;
 
-    if (this.pitDim > 0.01 || this.parkingLotDim > 0.01) {
-      const pitScale = 1 - this.pitDim * 0.15;
-      const parkingScale = 1 - this.parkingLotDim * 0.1;
-      ctx.translate(x, y);
-      ctx.scale(pitScale * parkingScale, pitScale * parkingScale);
-      ctx.translate(-x, -y);
-    }
-
-    // Parking lot: apply desaturation via filter if supported
+    // Parking lot: mild desaturation so completed sessions are still legible
     if (this.parkingLotDim > 0.01) {
-      ctx.filter = `saturate(${1 - this.parkingLotDim * 0.7})`;
+      ctx.filter = `saturate(${1 - this.parkingLotDim * 0.3})`;
     } else {
       ctx.filter = 'none';
     }

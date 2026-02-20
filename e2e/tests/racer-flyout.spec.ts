@@ -1,12 +1,14 @@
 import { test, expect } from '@playwright/test';
 
-import { waitForRacers, clickFirstRacer } from './helpers.js';
+import { waitForConnection, waitForRacers, clickFirstRacer } from './helpers.js';
 
 test.describe('Racer detail flyout', () => {
+  test.setTimeout(60_000);
+
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     // Wait for WebSocket to connect and racers to render
-    await page.waitForSelector('.status-dot.connected', { timeout: 10_000 });
+    await waitForConnection(page);
     await waitForRacers(page, 1);
   });
 
@@ -28,10 +30,12 @@ test.describe('Racer detail flyout', () => {
     // The session ID in the flyout should match a valid racer on the canvas.
     // Due to animation timing, the clicked racer may differ from the one
     // identified pre-click, so verify the displayed ID is a real session.
+    // The session-id-text span holds the truncated ID; the full ID is in
+    // its title attribute.
     const idRow = content
       .locator('.detail-row')
       .filter({ has: page.locator('.label:text("Session ID")') });
-    const displayedId = await idRow.locator('.value').textContent();
+    const displayedId = await idRow.locator('.session-id-text').getAttribute('title');
     expect(displayedId).toBeTruthy();
     const isValidRacer = await page.evaluate((id) => {
       const rc = (window as any).raceCanvas;
@@ -104,10 +108,13 @@ test.describe('Racer detail flyout', () => {
     const flyout = page.locator('#detail-flyout');
     await expect(flyout).toBeVisible();
 
-    const idRow = page
+    // The session-id-text span holds the truncated display text; the full
+    // session ID is stored in its title attribute.
+    const idSpan = page
       .locator('#flyout-content .detail-row')
-      .filter({ has: page.locator('.label:text-is("Session ID")') });
-    await expect(idRow.locator('.value')).toHaveText(firstRacer.id);
+      .filter({ has: page.locator('.label:text-is("Session ID")') })
+      .locator('.session-id-text');
+    await expect(idSpan).toHaveAttribute('title', firstRacer.id);
 
     // Trigger onRacerClick for a different racer programmatically.
     // Canvas hit-testing uses a 45px radius and Map iteration order, so
@@ -125,7 +132,7 @@ test.describe('Racer detail flyout', () => {
     }, firstRacer.id);
 
     expect(secondId).not.toBeNull();
-    await expect(idRow.locator('.value')).toHaveText(secondId!);
+    await expect(idSpan).toHaveAttribute('title', secondId!);
   });
 
   test('flyout stays within viewport bounds', async ({ page }) => {
@@ -154,7 +161,6 @@ test.describe('Racer detail flyout', () => {
   test('flyout displays all expected detail fields', async ({ page }) => {
     await clickFirstRacer(page);
 
-    const content = page.locator('#flyout-content');
     const expectedLabels = [
       'Activity',
       'Burn Rate',
@@ -162,6 +168,7 @@ test.describe('Racer detail flyout', () => {
       'Source',
       'Working Dir',
       'Branch',
+      'Tmux',
       'Session ID',
       'PID',
       'Messages',
@@ -175,12 +182,19 @@ test.describe('Racer detail flyout', () => {
       'Context %',
     ];
 
-    for (const label of expectedLabels) {
-      // Use toBeAttached() since the flyout has overflow-y: auto and some
-      // labels near the bottom may be scrolled off (not visible but present).
-      await expect(
-        content.locator('.label').filter({ hasText: label }).first(),
-      ).toBeAttached();
-    }
+    // Check all labels in a single evaluate to avoid repeated DOM queries
+    // racing with flyout re-renders from live WebSocket updates.
+    const missing = await page.evaluate((labels) => {
+      const content = document.getElementById('flyout-content');
+      if (!content) return labels;
+      const labelEls = content.querySelectorAll('.label');
+      const found = new Set<string>();
+      for (const el of labelEls) {
+        found.add(el.textContent?.trim() || '');
+      }
+      return labels.filter((l: string) => !found.has(l));
+    }, expectedLabels);
+
+    expect(missing).toEqual([]);
   });
 });

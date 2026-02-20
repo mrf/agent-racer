@@ -9,5 +9,9 @@ backend/internal/frontend/static/
 # Dependencies
 node_modules/
 
+# Test artifacts
+test-results/
+backend/test-results/
+
 # Local config (use config.example.yaml as template)
 config.yaml

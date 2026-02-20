@@ -1,11 +1,11 @@
 import { test, expect } from '@playwright/test';
 
-import { waitForRacers, clickFirstRacer } from './helpers.js';
+import { waitForConnection, waitForRacers, clickFirstRacer } from './helpers.js';
 
 test.describe('Keyboard shortcuts', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
-    await page.waitForSelector('.status-dot.connected', { timeout: 10_000 });
+    await waitForConnection(page);
   });
 
   test('D toggles debug panel visibility', async ({ page }) => {

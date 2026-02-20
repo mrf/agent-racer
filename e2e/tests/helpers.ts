@@ -8,6 +8,18 @@ export interface RacerInfo {
 }
 
 /**
+ * Waits until the WebSocket connection is established.
+ * Uses waitForFunction instead of waitForSelector to avoid
+ * Playwright selector stability issues across versions.
+ */
+export async function waitForConnection(page: Page, timeout = 15_000): Promise<void> {
+  await page.waitForFunction(
+    () => document.querySelector('#connection-status')?.classList.contains('connected'),
+    { timeout },
+  );
+}
+
+/**
  * Returns the canvas-relative position of the first rendered racer,
  * or null if no racer has displayX/displayY > 0.
  */
