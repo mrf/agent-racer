@@ -249,34 +249,32 @@ func (g *MockGenerator) advanceBurst(ms *mockSession, tick int) {
 }
 
 func (g *MockGenerator) advanceStall(ms *mockSession, tick int) {
+	// Repeating cycle: work for 40 ticks, stall (waiting) for 30 ticks.
+	// This ensures the waiting window is always reachable regardless of
+	// when an e2e test starts observing (the connection-status test
+	// restarts the server mid-run).
+	const cyclePeriod = 70
+	phase := tick % cyclePeriod
 	stallStart := 40
-	stallEnd := 70
 
-	if tick > stallStart && tick < stallEnd {
+	if phase >= stallStart {
 		ms.state.Activity = session.Waiting
 		ms.state.CurrentTool = ""
 		return
 	}
 
-	if tick >= stallEnd {
-		jitter := rand.Intn(300)
-		ms.state.TokensUsed += ms.tokensPerTick + jitter
-		ms.state.Activity = session.Thinking
-		ms.state.MessageCount++
-	} else {
-		jitter := rand.Intn(200)
-		ms.state.TokensUsed += ms.tokensPerTick + jitter
-		ms.state.MessageCount++
+	jitter := rand.Intn(200)
+	ms.state.TokensUsed += ms.tokensPerTick + jitter
+	ms.state.MessageCount++
 
-		if tick%4 == 0 {
-			ms.state.Activity = session.ToolUse
-			ms.state.CurrentTool = ms.tools[ms.toolIdx%len(ms.tools)]
-			ms.toolIdx++
-			ms.state.ToolCallCount++
-		} else {
-			ms.state.Activity = session.Thinking
-			ms.state.CurrentTool = ""
-		}
+	if tick%4 == 0 {
+		ms.state.Activity = session.ToolUse
+		ms.state.CurrentTool = ms.tools[ms.toolIdx%len(ms.tools)]
+		ms.toolIdx++
+		ms.state.ToolCallCount++
+	} else {
+		ms.state.Activity = session.Thinking
+		ms.state.CurrentTool = ""
 	}
 
 	ms.state.UpdateUtilization()

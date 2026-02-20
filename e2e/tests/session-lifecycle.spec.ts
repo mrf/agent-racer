@@ -151,8 +151,8 @@ test.describe('Session lifecycle', () => {
   test('idle session moves to pit area after staleness threshold', async ({
     page,
   }) => {
-    // mock-opus-debug enters "waiting" activity at tick 40 (20s from start)
-    // and stays there until tick 70. In mock mode, lastDataReceivedAt is
+    // mock-opus-debug enters "waiting" on a repeating 70-tick cycle
+    // (phases 40-69 are waiting). In mock mode, lastDataReceivedAt is
     // unset (zero), so the freshness check treats it as stale immediately
     // and the racer moves to pit as soon as activity becomes "waiting".
     const debugId = 'mock-opus-debug';
@@ -163,7 +163,7 @@ test.describe('Session lifecycle', () => {
       path: 'tests/screenshots/lifecycle-waiting.png',
     });
 
-    // With zero lastDataReceivedAt, pit classification is immediate
+    // With zero lastDataReceivedAt, pit classification is immediate once waiting
     await waitForPit(page, debugId);
 
     // Verify the racer is now in the pit zone
