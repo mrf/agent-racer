@@ -53,6 +53,7 @@ type Monitor struct {
 	removedKeys      map[string]bool // keys removed from store; prevents re-creation while file is still discovered
 	prevCPU          map[int]cpuSample
 	lastProcessPoll  time.Time
+	statsEvents      chan<- session.Event // nil disables stats event emission
 }
 
 func NewMonitor(cfg *config.Config, store *session.Store, broadcaster *ws.Broadcaster, sources []Source) *Monitor {
@@ -66,6 +67,32 @@ func NewMonitor(cfg *config.Config, store *session.Store, broadcaster *ws.Broadc
 		removedKeys:     make(map[string]bool),
 		prevCPU:         make(map[int]cpuSample),
 		lastProcessPoll: time.Now(),
+	}
+}
+
+// SetStatsEvents configures a channel for session lifecycle events.
+// The monitor sends events on new session discovery, per-poll updates,
+// and terminal state transitions. Pass nil to disable.
+func (m *Monitor) SetStatsEvents(ch chan<- session.Event) {
+	m.statsEvents = ch
+}
+
+// emitEvent sends a session event to the stats channel if configured.
+// Uses non-blocking send to avoid stalling the monitor if the consumer
+// falls behind.
+func (m *Monitor) emitEvent(evType session.EventType, state *session.SessionState) {
+	if m.statsEvents == nil {
+		return
+	}
+	snap := *state
+	select {
+	case m.statsEvents <- session.Event{
+		Type:        evType,
+		State:       &snap,
+		ActiveCount: m.store.ActiveCount(),
+	}:
+	default:
+		log.Printf("Stats event dropped (channel full)")
 	}
 }
 
@@ -258,6 +285,11 @@ func (m *Monitor) poll() {
 			state.BurnRatePerMinute = m.calculateBurnRate(ts, state.TokensUsed, now)
 
 			m.store.Update(state)
+			if !existed {
+				m.emitEvent(session.EventNew, state)
+			} else if hasNewData {
+				m.emitEvent(session.EventUpdate, state)
+			}
 			updates = append(updates, state)
 		}
 	}
@@ -400,6 +432,7 @@ func (m *Monitor) markTerminal(state *session.SessionState, activity session.Act
 	if !wasTerminal {
 		log.Printf("Session %s terminal: %s → %s (broadcasting completion)", state.ID, state.Name, activity)
 		m.broadcaster.QueueCompletion(state.ID, activity, state.Name)
+		m.emitEvent(session.EventTerminal, state)
 	}
 	m.broadcaster.QueueUpdate([]*session.SessionState{state})
 	m.scheduleRemoval(state.ID, completedAt)

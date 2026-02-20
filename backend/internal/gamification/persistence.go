@@ -171,6 +171,24 @@ func (st *Stats) initMaps() {
 	}
 }
 
+// clone returns a deep copy of Stats with all maps duplicated.
+func (st *Stats) clone() *Stats {
+	cp := *st
+	cp.SessionsPerSource = make(map[string]int, len(st.SessionsPerSource))
+	for k, v := range st.SessionsPerSource {
+		cp.SessionsPerSource[k] = v
+	}
+	cp.SessionsPerModel = make(map[string]int, len(st.SessionsPerModel))
+	for k, v := range st.SessionsPerModel {
+		cp.SessionsPerModel[k] = v
+	}
+	cp.AchievementsUnlocked = make(map[string]time.Time, len(st.AchievementsUnlocked))
+	for k, v := range st.AchievementsUnlocked {
+		cp.AchievementsUnlocked[k] = v
+	}
+	return &cp
+}
+
 // defaultStatsDir returns ~/.local/state/agent-racer, respecting
 // XDG_STATE_HOME if set.
 func defaultStatsDir() string {

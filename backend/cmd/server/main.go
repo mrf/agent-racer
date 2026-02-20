@@ -8,11 +8,13 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/agent-racer/backend/internal/config"
 	"github.com/agent-racer/backend/internal/frontend"
+	"github.com/agent-racer/backend/internal/gamification"
 	"github.com/agent-racer/backend/internal/mock"
 	"github.com/agent-racer/backend/internal/monitor"
 	"github.com/agent-racer/backend/internal/session"
@@ -73,8 +75,22 @@ func main() {
 
 	server := ws.NewServer(cfg, store, broadcaster, frontendDir, *devMode, embeddedHandler, cfg.Server.AllowedOrigins, cfg.Server.AuthToken)
 
+	// Stats tracker for gamification system.
+	gamStore := gamification.NewStore("")
+	tracker, statsCh, err := gamification.NewStatsTracker(gamStore)
+	if err != nil {
+		log.Fatalf("Failed to initialize stats tracker: %v", err)
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		tracker.Run(ctx)
+	}()
 
 	if *mockMode {
 		log.Println("Starting in mock mode")
@@ -93,6 +109,7 @@ func main() {
 			sources = append(sources, monitor.NewGeminiSource(10*time.Minute))
 		}
 		mon := monitor.NewMonitor(cfg, store, broadcaster, sources)
+		mon.SetStatsEvents(statsCh)
 		go mon.Start(ctx)
 	}
 
@@ -105,6 +122,7 @@ func main() {
 		<-sigCh
 		log.Println("Shutting down...")
 		cancel()
+		wg.Wait() // allow stats tracker to flush
 		os.Exit(0)
 	}()
 
