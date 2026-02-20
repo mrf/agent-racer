@@ -82,6 +82,8 @@ func main() {
 		log.Fatalf("Failed to initialize stats tracker: %v", err)
 	}
 
+	server.SetStatsTracker(tracker)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
