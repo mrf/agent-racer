@@ -279,9 +279,7 @@ func (m *Monitor) poll() {
 				state.CurrentTool = update.LastTool
 			}
 
-			if len(update.Subagents) > 0 {
-				mergeSubagents(state, update.Subagents)
-			}
+			mergeSubagents(state, update.Subagents)
 
 			m.resolveTokens(state, update, maxTokens)
 
@@ -731,7 +729,8 @@ func (m *Monitor) calculateBurnRate(ts *trackedSession, currentTokens int, now t
 
 // mergeSubagents converts SubagentParseResults into SubagentState entries
 // on the session. It merges incrementally: existing subagents are updated
-// with new data, and new subagents are appended.
+// with new data, new subagents are appended, and subagents absent from the
+// parsed set are pruned (unless already completed).
 func mergeSubagents(state *session.SessionState, parsed map[string]*SubagentParseResult) {
 	// Build index of existing subagents by ID for fast lookup.
 	existing := make(map[string]int, len(state.Subagents))
@@ -794,6 +793,19 @@ func mergeSubagents(state *session.SessionState, parsed map[string]*SubagentPars
 			sub.Activity = session.Complete
 		}
 	}
+
+	// Prune subagents that are no longer in the parsed set and are not
+	// completed. Completed subagents are retained so the frontend can
+	// show their final state.
+	n := 0
+	for i := range state.Subagents {
+		_, inParsed := parsed[state.Subagents[i].ID]
+		if inParsed || state.Subagents[i].Activity == session.Complete {
+			state.Subagents[n] = state.Subagents[i]
+			n++
+		}
+	}
+	state.Subagents = state.Subagents[:n]
 }
 
 // classifySubagentActivity maps a SubagentParseResult's last activity string

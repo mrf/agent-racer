@@ -529,6 +529,164 @@ func TestMergeSubagentsNilUsageKeepsZeroTokens(t *testing.T) {
 	}
 }
 
+func TestMergeSubagentsPrunesStaleEntries(t *testing.T) {
+	ts := time.Date(2026, 2, 20, 12, 0, 0, 0, time.UTC)
+
+	state := &session.SessionState{
+		ID: "sess-prune",
+		Subagents: []session.SubagentState{
+			{
+				ID:             "toolu_old_A",
+				SessionID:      "sess-prune",
+				Slug:           "old-task-a",
+				Activity:       session.Thinking,
+				MessageCount:   3,
+				StartedAt:      ts,
+				LastActivityAt: ts.Add(5 * time.Second),
+			},
+			{
+				ID:             "toolu_old_B",
+				SessionID:      "sess-prune",
+				Slug:           "old-task-b",
+				Activity:       session.ToolUse,
+				MessageCount:   2,
+				StartedAt:      ts,
+				LastActivityAt: ts.Add(3 * time.Second),
+			},
+		},
+	}
+
+	// New poll only contains toolu_old_A (B has disappeared from the parsed set).
+	parsed := map[string]*SubagentParseResult{
+		"toolu_old_A": {
+			ID:           "toolu_old_A",
+			Slug:         "old-task-a",
+			MessageCount: 1,
+			LastActivity: "thinking",
+			LastTime:     ts.Add(10 * time.Second),
+		},
+	}
+
+	mergeSubagents(state, parsed)
+
+	// toolu_old_B should have been pruned since it's not in the parsed set.
+	if len(state.Subagents) != 1 {
+		t.Fatalf("expected 1 subagent after pruning, got %d", len(state.Subagents))
+	}
+	if state.Subagents[0].ID != "toolu_old_A" {
+		t.Errorf("remaining subagent ID = %s, want toolu_old_A", state.Subagents[0].ID)
+	}
+}
+
+func TestMergeSubagentsRetainsCompletedWhenAbsentFromParsed(t *testing.T) {
+	ts := time.Date(2026, 2, 20, 12, 0, 0, 0, time.UTC)
+	completedAt := ts.Add(5 * time.Second)
+
+	state := &session.SessionState{
+		ID: "sess-retain",
+		Subagents: []session.SubagentState{
+			{
+				ID:             "toolu_done",
+				SessionID:      "sess-retain",
+				Slug:           "finished-task",
+				Activity:       session.Complete,
+				CompletedAt:    &completedAt,
+				MessageCount:   10,
+				StartedAt:      ts,
+				LastActivityAt: completedAt,
+			},
+		},
+	}
+
+	// Empty parsed set -- completed subagents survive pruning so the
+	// frontend can display their final state.
+	parsed := map[string]*SubagentParseResult{}
+
+	mergeSubagents(state, parsed)
+
+	if len(state.Subagents) != 1 {
+		t.Fatalf("expected 1 subagent (completed, retained), got %d", len(state.Subagents))
+	}
+	if state.Subagents[0].ID != "toolu_done" {
+		t.Errorf("retained subagent ID = %s, want toolu_done", state.Subagents[0].ID)
+	}
+}
+
+func TestMergeSubagentsAccumulationBug(t *testing.T) {
+	// Reproduces the hamster overflow bug: over many polls, each poll
+	// sees a different set of subagents (or none). Without pruning,
+	// state.Subagents grows without bound.
+	state := &session.SessionState{ID: "sess-overflow"}
+	ts := time.Date(2026, 2, 20, 12, 0, 0, 0, time.UTC)
+
+	// Simulate 50 polls, each introducing a new subagent while the
+	// previous ones are no longer in the parsed set.
+	for i := 0; i < 50; i++ {
+		id := fmt.Sprintf("toolu_%d", i)
+		parsed := map[string]*SubagentParseResult{
+			id: {
+				ID:           id,
+				Slug:         fmt.Sprintf("task-%d", i),
+				MessageCount: 1,
+				LastActivity: "thinking",
+				FirstTime:    ts.Add(time.Duration(i) * time.Second),
+				LastTime:     ts.Add(time.Duration(i) * time.Second),
+			},
+		}
+		mergeSubagents(state, parsed)
+	}
+
+	// Without pruning, state.Subagents would have 50 entries.
+	// Each poll replaces the previous non-completed subagent, so only
+	// the most recent one should survive.
+	if len(state.Subagents) != 1 {
+		t.Errorf("subagent accumulation bug: expected 1 subagent, got %d", len(state.Subagents))
+	}
+}
+
+func TestMergeSubagentsEmptyParsedPrunesNonCompleted(t *testing.T) {
+	ts := time.Date(2026, 2, 20, 12, 0, 0, 0, time.UTC)
+	completedAt := ts.Add(5 * time.Second)
+
+	state := &session.SessionState{
+		ID: "sess-empty-prune",
+		Subagents: []session.SubagentState{
+			{
+				ID:             "toolu_active",
+				SessionID:      "sess-empty-prune",
+				Slug:           "active-task",
+				Activity:       session.Thinking,
+				MessageCount:   3,
+				StartedAt:      ts,
+				LastActivityAt: ts.Add(3 * time.Second),
+			},
+			{
+				ID:             "toolu_completed",
+				SessionID:      "sess-empty-prune",
+				Slug:           "done-task",
+				Activity:       session.Complete,
+				CompletedAt:    &completedAt,
+				MessageCount:   5,
+				StartedAt:      ts,
+				LastActivityAt: completedAt,
+			},
+		},
+	}
+
+	// Empty parsed set — no subagent data in this poll chunk.
+	parsed := map[string]*SubagentParseResult{}
+
+	mergeSubagents(state, parsed)
+
+	// Non-completed subagent should be pruned; completed one retained.
+	if len(state.Subagents) != 1 {
+		t.Fatalf("expected 1 subagent (completed only), got %d", len(state.Subagents))
+	}
+	if state.Subagents[0].ID != "toolu_completed" {
+		t.Errorf("retained subagent ID = %s, want toolu_completed", state.Subagents[0].ID)
+	}
+}
+
 func TestClassifySubagentActivity(t *testing.T) {
 	tests := []struct {
 		name     string
