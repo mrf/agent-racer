@@ -13,6 +13,10 @@ const RECENT_EVENT_TIERS = [[3, 0.3], [2, 0.2], [1, 0.15]];
 
 const EVENT_WINDOW_MS = 10000;
 
+// Grace period before stopping engine hum — bridges brief gaps between
+// thinking/tool_use bursts so slower models don't constantly cut out.
+const ENGINE_GRACE_MS = 1500;
+
 function lerp(min, max, t) {
   return min + (max - min) * t;
 }
@@ -309,7 +313,7 @@ export class SoundEngine {
 
   startEngine(racerId, activity) {
     if (this.muted || !this.ctx) return;
-    if (activity !== 'thinking' && activity !== 'tool_use' && activity !== 'churning') {
+    if (!['thinking', 'tool_use', 'churning'].includes(activity)) {
       this.stopEngine(racerId);
       return;
     }
@@ -321,7 +325,7 @@ export class SoundEngine {
       this.engineStopTimeouts.delete(racerId);
     }
 
-    const pitchMult = activity === 'tool_use' ? 1.4 : activity === 'churning' ? 0.7 : 1.0;
+    const pitchMult = { tool_use: 1.4, churning: 0.7 }[activity] ?? 1.0;
     const volume = activity === 'churning' ? 0.003 : 0.008;
     const existing = this.engineNodes.get(racerId);
 
@@ -376,31 +380,38 @@ export class SoundEngine {
   }
 
   stopEngine(racerId) {
+    if (!this.engineNodes.has(racerId)) return;
+
+    // If a grace timeout is already pending, let it run
+    if (this.engineStopTimeouts.has(racerId)) return;
+
+    // Start grace period — engine keeps humming so brief gaps between
+    // thinking/tool_use bursts don't kill the sound.
+    const timeoutId = setTimeout(() => {
+      this.engineStopTimeouts.delete(racerId);
+      this._fadeOutEngine(racerId);
+    }, ENGINE_GRACE_MS);
+    this.engineStopTimeouts.set(racerId, timeoutId);
+  }
+
+  _fadeOutEngine(racerId) {
     const nodes = this.engineNodes.get(racerId);
     if (!nodes) return;
-
-    // Clear any existing stop timeout for this racer
-    const existingTimeout = this.engineStopTimeouts.get(racerId);
-    if (existingTimeout) {
-      clearTimeout(existingTimeout);
-    }
+    this.engineNodes.delete(racerId);
 
     if (this.ctx) {
       const now = this.ctx.currentTime;
       nodes.gain.gain.cancelScheduledValues(now);
       nodes.gain.gain.setValueAtTime(nodes.gain.gain.value, now);
       nodes.gain.gain.linearRampToValueAtTime(0, now + 0.2);
-      const timeoutId = setTimeout(() => {
+      setTimeout(() => {
         try { nodes.osc1.stop(); } catch { /* ok */ }
         try { nodes.osc2.stop(); } catch { /* ok */ }
-        this.engineStopTimeouts.delete(racerId);
       }, 300);
-      this.engineStopTimeouts.set(racerId, timeoutId);
     } else {
       try { nodes.osc1.stop(); } catch { /* ok */ }
       try { nodes.osc2.stop(); } catch { /* ok */ }
     }
-    this.engineNodes.delete(racerId);
   }
 
   // --- One-shot SFX ---
