@@ -1,7 +1,7 @@
 import { ParticleSystem } from './Particles.js';
 import { Track } from './Track.js';
 import { Dashboard } from './Dashboard.js';
-import { Racer } from '../entities/Racer.js';
+import { Racer, getModelColor, hexToRgb } from '../entities/Racer.js';
 
 const DEFAULT_CONTEXT_WINDOW = 200000;
 const TERMINAL_ACTIVITIES = new Set(['complete', 'errored', 'lost']);
@@ -532,6 +532,24 @@ export class RaceCanvas {
         gc.beginPath();
         gc.arc(x, y, 25, 0, Math.PI * 2);
         gc.fill();
+      }
+
+      // Hamster glow contribution (colored by model)
+      if (racer.hamsters) {
+        for (const hamster of racer.hamsters.values()) {
+          if (hamster.glowIntensity <= 0.02) continue;
+          const hx = hamster.displayX;
+          const hy = hamster.displayY + hamster.springY;
+          const rgb = hexToRgb(getModelColor(hamster.state.model, hamster.state.source).main);
+          const glowR = 15;
+          const grad = gc.createRadialGradient(hx, hy, 0, hx, hy, glowR);
+          grad.addColorStop(0, `rgba(${rgb.r},${rgb.g},${rgb.b},${hamster.glowIntensity * 2})`);
+          grad.addColorStop(1, `rgba(${rgb.r},${rgb.g},${rgb.b},0)`);
+          gc.fillStyle = grad;
+          gc.beginPath();
+          gc.arc(hx, hy, glowR, 0, Math.PI * 2);
+          gc.fill();
+        }
       }
     }
 
