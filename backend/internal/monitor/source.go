@@ -62,6 +62,12 @@ type SessionHandle struct {
 	// it during discovery (e.g. from file creation time). Zero value
 	// means unknown.
 	StartedAt time.Time
+
+	// KnownSubagentParents maps parentToolUseID → toolUseID for
+	// subagents already tracked in the session state. Populated by the
+	// monitor before each Parse call to enable cross-batch completion
+	// detection. Nil when no subagents are known.
+	KnownSubagentParents map[string]string
 }
 
 // SourceUpdate contains the incremental data parsed from a session log

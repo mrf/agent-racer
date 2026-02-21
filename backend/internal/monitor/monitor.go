@@ -159,6 +159,7 @@ func (m *Monitor) poll() {
 			}
 
 			oldOffset := ts.fileOffset
+			ts.handle.KnownSubagentParents = m.knownSubagentParents(key)
 			update, newOffset, err := src.Parse(ts.handle, ts.fileOffset)
 			if err != nil {
 				log.Printf("[%s] parse error for %s: %v", src.Name(), h.SessionID, err)
@@ -806,6 +807,24 @@ func mergeSubagents(state *session.SessionState, parsed map[string]*SubagentPars
 		}
 	}
 	state.Subagents = state.Subagents[:n]
+}
+
+// knownSubagentParents builds a parentToolUseID -> toolUseID map from the
+// session's existing subagent state. This enables cross-batch completion
+// detection when a tool_result arrives in a batch with no new progress entries.
+// Returns nil when the session has no subagents.
+func (m *Monitor) knownSubagentParents(storeKey string) map[string]string {
+	state, ok := m.store.Get(storeKey)
+	if !ok || len(state.Subagents) == 0 {
+		return nil
+	}
+	parents := make(map[string]string, len(state.Subagents))
+	for _, sub := range state.Subagents {
+		if sub.ParentToolUseID != "" {
+			parents[sub.ParentToolUseID] = sub.ID
+		}
+	}
+	return parents
 }
 
 // classifySubagentActivity maps a SubagentParseResult's last activity string

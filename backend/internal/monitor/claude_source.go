@@ -51,7 +51,7 @@ func (c *ClaudeSource) Discover() ([]SessionHandle, error) {
 }
 
 func (c *ClaudeSource) Parse(handle SessionHandle, offset int64) (SourceUpdate, int64, error) {
-	result, newOffset, err := ParseSessionJSONL(handle.LogPath, offset)
+	result, newOffset, err := ParseSessionJSONL(handle.LogPath, offset, handle.KnownSubagentParents)
 	if err != nil {
 		return SourceUpdate{}, offset, err
 	}

@@ -133,7 +133,12 @@ func FindSessionFile(workingDir string) (string, error) {
 	return bestPath, nil
 }
 
-func ParseSessionJSONL(path string, offset int64) (*ParseResult, int64, error) {
+// ParseSessionJSONL incrementally parses a Claude JSONL session file from
+// the given byte offset. knownParents maps parentToolUseID → toolUseID for
+// subagents already tracked in the session state, enabling cross-batch
+// completion detection when a tool_result arrives in a batch with no new
+// progress entries. Pass nil when no prior subagent state exists.
+func ParseSessionJSONL(path string, offset int64, knownParents map[string]string) (*ParseResult, int64, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, offset, err
@@ -167,7 +172,7 @@ func ParseSessionJSONL(path string, offset int64) (*ParseResult, int64, error) {
 
 		// Only process lines that end with newline (complete lines).
 		// Incomplete lines (no trailing newline) are preserved for next read.
-		if len(line) == 0 || line[len(line)-1] != '\n' {
+		if line[len(line)-1] != '\n' {
 			// Line is incomplete - don't parse or advance offset
 			if err == io.EOF {
 				break
@@ -214,7 +219,7 @@ func ParseSessionJSONL(path string, offset int64) (*ParseResult, int64, error) {
 		case "user":
 			result.MessageCount++
 			result.LastActivity = "waiting"
-			checkSubagentCompletion(entry.Message, result)
+			checkSubagentCompletion(entry.Message, result, knownParents)
 
 		case "progress":
 			parseProgressEntry(lineData, result)
@@ -266,6 +271,11 @@ func parseAssistantMessage(raw json.RawMessage, result *ParseResult) {
 func parseProgressEntry(line []byte, result *ParseResult) {
 	var entry progressEntry
 	if err := json.Unmarshal(line, &entry); err != nil || entry.ToolUseID == "" {
+		return
+	}
+	// Phantom entries: tool calls within subagent sessions emit progress
+	// with toolUseID == parentToolUseID. These are not real subagents.
+	if entry.ParentToolUseID != "" && entry.ToolUseID == entry.ParentToolUseID {
 		return
 	}
 
@@ -348,17 +358,25 @@ func parseSubagentAssistantMessage(raw json.RawMessage, sub *SubagentParseResult
 
 // checkSubagentCompletion scans a user message's content blocks for
 // tool_result entries whose tool_use_id matches a known subagent's
-// parentToolUseID, marking that subagent as completed.
-func checkSubagentCompletion(raw json.RawMessage, result *ParseResult) {
-	if raw == nil || len(result.Subagents) == 0 {
+// parentToolUseID, marking that subagent as completed. knownParents
+// provides parentToolUseID → toolUseID mappings from prior batches,
+// enabling cross-batch completion detection.
+func checkSubagentCompletion(raw json.RawMessage, result *ParseResult, knownParents map[string]string) {
+	if raw == nil {
 		return
 	}
 
 	// Build a reverse lookup: parentToolUseID → subagent toolUseID
-	parentToSub := make(map[string]string, len(result.Subagents))
+	parentToSub := make(map[string]string, len(result.Subagents)+len(knownParents))
 	for id, sub := range result.Subagents {
 		if sub.ParentToolUseID != "" {
 			parentToSub[sub.ParentToolUseID] = id
+		}
+	}
+	// Merge known parents from prior batches (current batch takes precedence).
+	for parentID, subID := range knownParents {
+		if _, exists := parentToSub[parentID]; !exists {
+			parentToSub[parentID] = subID
 		}
 	}
 	if len(parentToSub) == 0 {
@@ -378,7 +396,17 @@ func checkSubagentCompletion(raw json.RawMessage, result *ParseResult) {
 	for _, block := range blocks {
 		if block.Type == "tool_result" && block.ToolUseID != "" {
 			if subID, ok := parentToSub[block.ToolUseID]; ok {
-				result.Subagents[subID].Completed = true
+				if sub, exists := result.Subagents[subID]; exists {
+					sub.Completed = true
+				} else {
+					// Cross-batch: subagent not in current parse results.
+					// Create a minimal entry to signal completion upstream.
+					result.Subagents[subID] = &SubagentParseResult{
+						ID:              subID,
+						ParentToolUseID: block.ToolUseID,
+						Completed:       true,
+					}
+				}
 			}
 		}
 	}

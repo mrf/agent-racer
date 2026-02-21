@@ -251,7 +251,7 @@ func TestSubagentIncrementalParsingAccumulates(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result1, offset1, err := ParseSessionJSONL(path, 0)
+	result1, offset1, err := ParseSessionJSONL(path, 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -280,7 +280,7 @@ func TestSubagentIncrementalParsingAccumulates(t *testing.T) {
 	}
 	f.Close()
 
-	result2, offset2, err := ParseSessionJSONL(path, offset1)
+	result2, offset2, err := ParseSessionJSONL(path, offset1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -727,5 +727,120 @@ func TestClassifySubagentActivity(t *testing.T) {
 				t.Errorf("classifySubagentActivity() = %v, want %v", got, tt.expected)
 			}
 		})
+	}
+}
+
+// TestPhantomProgressEntriesFiltered verifies that progress entries where
+// toolUseID == parentToolUseID are skipped. These are phantom entries
+// emitted for tool calls within subagent sessions, not real subagents.
+func TestPhantomProgressEntriesFiltered(t *testing.T) {
+	path := writeJSONLLines(t,
+		// Real subagent: toolUseID != parentToolUseID
+		`{"type":"progress","toolUseID":"agent_abc","parentToolUseID":"toolu_parent","sessionId":"sess-phantom","slug":"real-agent","timestamp":"2026-02-20T12:00:00.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"text","text":"working"}]}}}}`,
+		// Phantom: toolUseID == parentToolUseID (tool call within subagent)
+		`{"type":"progress","toolUseID":"toolu_phantom","parentToolUseID":"toolu_phantom","sessionId":"sess-phantom","slug":"phantom-agent","timestamp":"2026-02-20T12:00:01.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"tool_use","name":"Read","id":"r1"}]}}}}`,
+	)
+
+	result := parseJSONL(t, path)
+
+	if len(result.Subagents) != 1 {
+		t.Fatalf("expected 1 subagent (phantom filtered), got %d", len(result.Subagents))
+	}
+
+	sub := requireSubagent(t, result, "agent_abc")
+	if sub.Slug != "real-agent" {
+		t.Errorf("Slug = %s, want real-agent", sub.Slug)
+	}
+
+	// Ensure the phantom is not present
+	if _, exists := result.Subagents["toolu_phantom"]; exists {
+		t.Error("phantom entry (toolUseID == parentToolUseID) should be filtered out")
+	}
+}
+
+// TestCrossBatchCompletionDetection verifies that a tool_result arriving
+// in a batch with no new progress entries still marks the subagent as
+// completed, using the knownParents map from prior batches.
+func TestCrossBatchCompletionDetection(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test-session.jsonl")
+
+	// Batch 1: subagent appears via progress entries.
+	chunk1 :=
+		`{"type":"progress","toolUseID":"agent_1","parentToolUseID":"toolu_task1","sessionId":"sess-xbatch","slug":"my-task","timestamp":"2026-02-20T12:00:00.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"tool_use","name":"Bash","id":"b1"}]}}}}` + "\n" +
+		`{"type":"progress","toolUseID":"agent_1","parentToolUseID":"toolu_task1","sessionId":"sess-xbatch","slug":"my-task","timestamp":"2026-02-20T12:00:01.000Z","data":{"message":{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"b1","content":"ok"}]}}}}` + "\n"
+
+	if err := os.WriteFile(path, []byte(chunk1), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result1, offset1, err := ParseSessionJSONL(path, 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub1 := requireSubagent(t, result1, "agent_1")
+	if sub1.Completed {
+		t.Error("batch 1: subagent should NOT be completed yet")
+	}
+
+	// Batch 2: tool_result arrives with no new progress entries.
+	// The knownParents map tells the parser about "agent_1".
+	chunk2 :=
+		`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_task1","content":"task done"}]},"sessionId":"sess-xbatch","timestamp":"2026-02-20T12:00:15.000Z"}` + "\n"
+
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.WriteString(chunk2)
+	f.Close()
+
+	// Pass knownParents from batch 1's results.
+	knownParents := map[string]string{
+		"toolu_task1": "agent_1", // parentToolUseID → toolUseID
+	}
+
+	result2, offset2, err := ParseSessionJSONL(path, offset1, knownParents)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if offset2 <= offset1 {
+		t.Errorf("expected offset to advance: %d -> %d", offset1, offset2)
+	}
+
+	// The subagent should be created (via cross-batch) and marked completed.
+	sub2 := requireSubagent(t, result2, "agent_1")
+	if !sub2.Completed {
+		t.Error("batch 2: subagent should be completed via cross-batch detection")
+	}
+}
+
+// TestCrossBatchCompletionDoesNotOverrideCurrentBatch verifies that when
+// both a progress entry and a tool_result for the same subagent appear in
+// the same batch, the current batch's SubagentParseResult takes precedence.
+func TestCrossBatchCompletionDoesNotOverrideCurrentBatch(t *testing.T) {
+	path := writeJSONLLines(t,
+		// Progress and completion in the same batch
+		`{"type":"progress","toolUseID":"agent_2","parentToolUseID":"toolu_task2","sessionId":"sess-same","slug":"same-batch","timestamp":"2026-02-20T12:00:00.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"text","text":"done"}]}}}}`,
+		`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_task2","content":"result"}]},"sessionId":"sess-same","timestamp":"2026-02-20T12:00:01.000Z"}`,
+	)
+
+	// Even with knownParents, the current batch's entry should be used
+	knownParents := map[string]string{
+		"toolu_task2": "agent_2",
+	}
+
+	result, _, err := ParseSessionJSONL(path, 0, knownParents)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sub := requireSubagent(t, result, "agent_2")
+	if !sub.Completed {
+		t.Error("subagent should be completed")
+	}
+	// Current batch entry should preserve the full data (not just minimal)
+	if sub.Slug != "same-batch" {
+		t.Errorf("Slug = %s, want same-batch (current batch entry should be preserved)", sub.Slug)
 	}
 }

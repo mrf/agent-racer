@@ -79,7 +79,7 @@ func TestParseSessionJSONL(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, offset, err := ParseSessionJSONL(path, 0)
+	result, offset, err := ParseSessionJSONL(path, 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func TestParseSessionJSONL(t *testing.T) {
 	}
 
 	// Test incremental parsing: parse from saved offset should yield no new entries
-	result2, offset2, err := ParseSessionJSONL(path, offset)
+	result2, offset2, err := ParseSessionJSONL(path, offset, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +154,7 @@ func TestParseSessionJSONLExtractsCwd(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, _, err := ParseSessionJSONL(path, 0)
+	result, _, err := ParseSessionJSONL(path, 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +179,7 @@ func TestParseSessionJSONLCwdEmptyWhenMissing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, _, err := ParseSessionJSONL(path, 0)
+	result, _, err := ParseSessionJSONL(path, 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,7 +225,7 @@ func TestParseSessionJSONLNoFinalNewline(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, offset, err := ParseSessionJSONL(path, 0)
+	result, offset, err := ParseSessionJSONL(path, 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +244,7 @@ func TestParseSessionJSONLNoFinalNewline(t *testing.T) {
 	f.Close()
 
 	// Re-read from offset - should now parse the previously incomplete line
-	result2, offset2, err := ParseSessionJSONL(path, offset)
+	result2, offset2, err := ParseSessionJSONL(path, offset, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -278,7 +278,7 @@ func TestParseSessionJSONLLargeLine(t *testing.T) {
 	}
 
 	// This should not panic or fail with buffer overflow
-	result, _, err := ParseSessionJSONL(path, 0)
+	result, _, err := ParseSessionJSONL(path, 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -300,7 +300,7 @@ func TestParseSessionJSONLPartialWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result1, offset1, err := ParseSessionJSONL(path, 0)
+	result1, offset1, err := ParseSessionJSONL(path, 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -318,7 +318,7 @@ func TestParseSessionJSONLPartialWrite(t *testing.T) {
 	f.Close()
 
 	// Re-read from offset - should not parse incomplete line
-	result2, offset2, err := ParseSessionJSONL(path, offset1)
+	result2, offset2, err := ParseSessionJSONL(path, offset1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -332,7 +332,7 @@ func TestParseSessionJSONLPartialWrite(t *testing.T) {
 	f.Close()
 
 	// Re-read from offset - should now parse the completed line
-	result3, offset3, err := ParseSessionJSONL(path, offset2)
+	result3, offset3, err := ParseSessionJSONL(path, offset2, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -360,7 +360,7 @@ func writeJSONLLines(t *testing.T, lines ...string) string {
 // parseJSONL is a test helper that parses a JSONL file from offset 0 and fails on error.
 func parseJSONL(t *testing.T, path string) *ParseResult {
 	t.Helper()
-	result, _, err := ParseSessionJSONL(path, 0)
+	result, _, err := ParseSessionJSONL(path, 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -565,7 +565,7 @@ func TestMultipleSubagentsIncrementalParsing(t *testing.T) {
 		`{"type":"progress","toolUseID":"sub-1","parentToolUseID":"parent-1","sessionId":"sess-1","slug":"sub1","timestamp":"2026-01-30T10:00:01.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":[{"type":"text","text":"working"}]}}}}`,
 	)
 
-	result1, offset1, err := ParseSessionJSONL(path, 0)
+	result1, offset1, err := ParseSessionJSONL(path, 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -581,7 +581,7 @@ func TestMultipleSubagentsIncrementalParsing(t *testing.T) {
 	f.WriteString(`{"type":"progress","toolUseID":"sub-2","parentToolUseID":"parent-2","sessionId":"sess-1","slug":"sub2","timestamp":"2026-01-30T10:00:02.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":[{"type":"text","text":"also working"}]}}}}` + "\n")
 	f.Close()
 
-	result2, offset2, err := ParseSessionJSONL(path, offset1)
+	result2, offset2, err := ParseSessionJSONL(path, offset1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

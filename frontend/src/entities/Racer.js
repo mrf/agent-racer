@@ -1,3 +1,5 @@
+import { Hamster } from './Hamster.js';
+
 const MODEL_COLORS = {
   'claude-opus-4-5-20251101': { main: '#a855f7', dark: '#7c3aed', light: '#c084fc', name: 'Opus' },
   'claude-sonnet-4-20250514': { main: '#3b82f6', dark: '#2563eb', light: '#60a5fa', name: 'Sonnet' },
@@ -88,8 +90,6 @@ function lightenHex(hex, amount) {
   const { r, g, b } = hexToRgb(hex);
   return `rgb(${Math.min(255, r + amount)},${Math.min(255, g + amount)},${Math.min(255, b + amount)})`;
 }
-
-import { Hamster } from './Hamster.js';
 
 export { getModelColor, hexToRgb, CAR_SCALE, LIMO_STRETCH };
 
@@ -234,6 +234,13 @@ export class Racer {
         this.hamsters.get(sub.id).update(sub);
       } else {
         this.hamsters.set(sub.id, new Hamster(sub));
+      }
+    }
+
+    // Remove fully-faded completed hamsters after grace period
+    for (const [id, hamster] of this.hamsters) {
+      if (hamster.state.activity === 'complete' && hamster.fadeTimer > 8) {
+        this.hamsters.delete(id);
       }
     }
   }
