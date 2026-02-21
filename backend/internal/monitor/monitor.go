@@ -795,13 +795,20 @@ func mergeSubagents(state *session.SessionState, parsed map[string]*SubagentPars
 		}
 	}
 
-	// Prune subagents that are no longer in the parsed set and are not
-	// completed. Completed subagents are retained so the frontend can
-	// show their final state.
+	// Prune subagents absent from the current batch. Retain subagents
+	// that are completed (frontend shows final state) or that have
+	// accumulated real data (MessageCount > 0) — these are genuine
+	// subagents between progress entry batches, not phantoms. The
+	// phantom filter in parseProgressEntry prevents fake entries from
+	// accumulating messages, so only truly stale zero-message entries
+	// get pruned here.
 	n := 0
 	for i := range state.Subagents {
 		_, inParsed := parsed[state.Subagents[i].ID]
-		if inParsed || state.Subagents[i].Activity == session.Complete {
+		keep := inParsed ||
+			state.Subagents[i].Activity == session.Complete ||
+			state.Subagents[i].MessageCount > 0
+		if keep {
 			state.Subagents[n] = state.Subagents[i]
 			n++
 		}
