@@ -352,6 +352,9 @@ describe('SoundEngine', () => {
       expect(engine.engineNodes.has(racerId)).toBe(true);
 
       engine.startEngine(racerId, 'waiting');
+      // Grace period keeps nodes alive briefly
+      expect(engine.engineStopTimeouts.has(racerId)).toBe(true);
+      vi.advanceTimersByTime(1500);
       expect(engine.engineNodes.has(racerId)).toBe(false);
     });
 
@@ -393,6 +396,9 @@ describe('SoundEngine', () => {
       expect(engine.engineNodes.size).toBe(2);
 
       engine.setMuted(true);
+      // Grace period keeps nodes alive briefly
+      expect(engine.engineStopTimeouts.size).toBe(2);
+      vi.advanceTimersByTime(1500);
       expect(engine.engineNodes.size).toBe(0);
     });
 
@@ -466,6 +472,311 @@ describe('SoundEngine', () => {
       // Restart before stop timeout fires
       engine.startEngine(racerId, 'thinking');
       expect(engine.engineStopTimeouts.has(racerId)).toBe(false);
+    });
+  });
+
+  describe('engine starts for active activities', () => {
+    beforeEach(() => {
+      engine._ensureCtx();
+    });
+
+    it('creates engine nodes for thinking activity', () => {
+      engine.startEngine('r1', 'thinking');
+      expect(engine.engineNodes.has('r1')).toBe(true);
+      const nodes = engine.engineNodes.get('r1');
+      expect(nodes.osc1).toBeDefined();
+      expect(nodes.osc2).toBeDefined();
+      expect(nodes.filter).toBeDefined();
+      expect(nodes.gain).toBeDefined();
+    });
+
+    it('creates engine nodes for tool_use activity', () => {
+      engine.startEngine('r1', 'tool_use');
+      expect(engine.engineNodes.has('r1')).toBe(true);
+    });
+
+    it('connects oscillators through filter to engine bus', () => {
+      engine.startEngine('r1', 'thinking');
+      const nodes = engine.engineNodes.get('r1');
+      expect(nodes.osc1.connect).toHaveBeenCalledWith(nodes.filter);
+      expect(nodes.osc2.connect).toHaveBeenCalledWith(nodes.filter);
+      expect(nodes.filter.connect).toHaveBeenCalledWith(nodes.gain);
+      expect(nodes.gain.connect).toHaveBeenCalledWith(engine.engineBus);
+    });
+
+    it('starts both oscillators', () => {
+      engine.startEngine('r1', 'thinking');
+      const nodes = engine.engineNodes.get('r1');
+      expect(nodes.osc1.start).toHaveBeenCalled();
+      expect(nodes.osc2.start).toHaveBeenCalled();
+    });
+
+    it('fades in from 0 to target volume', () => {
+      engine.startEngine('r1', 'thinking');
+      const nodes = engine.engineNodes.get('r1');
+      expect(nodes.gain.gain.value).toBe(0);
+      expect(nodes.gain.gain.linearRampToValueAtTime).toHaveBeenCalledWith(0.008, expect.any(Number));
+    });
+  });
+
+  describe('engine starts with churning params', () => {
+    beforeEach(() => {
+      engine._ensureCtx();
+    });
+
+    it('creates engine nodes for churning activity', () => {
+      engine.startEngine('r1', 'churning');
+      expect(engine.engineNodes.has('r1')).toBe(true);
+    });
+
+    it('uses 0.7x pitch multiplier for churning', () => {
+      const racerId = 'churn-pitch';
+      const base = expectedBaseFreq(racerId);
+      engine.startEngine(racerId, 'churning');
+      const osc1 = mockCtx.createOscillator.mock.results.at(-2).value;
+      expect(osc1.frequency.value).toBeCloseTo(base * 0.7);
+    });
+
+    it('uses lower volume (0.003) for churning', () => {
+      engine.startEngine('r1', 'churning');
+      const nodes = engine.engineNodes.get('r1');
+      expect(nodes.gain.gain.linearRampToValueAtTime).toHaveBeenCalledWith(0.003, expect.any(Number));
+    });
+
+    it('sets filter cutoff at baseFreq * 2.5 * 0.7 for churning', () => {
+      const racerId = 'churn-filter';
+      const base = expectedBaseFreq(racerId);
+      engine.startEngine(racerId, 'churning');
+      const filter = mockCtx.createBiquadFilter.mock.results.at(-1).value;
+      expect(filter.frequency.value).toBeCloseTo(base * 2.5 * 0.7);
+    });
+
+    it('transitions smoothly from thinking to churning on existing engine', () => {
+      const racerId = 'think-to-churn';
+      const base = expectedBaseFreq(racerId);
+      engine.startEngine(racerId, 'thinking');
+      const nodes = engine.engineNodes.get(racerId);
+
+      engine.startEngine(racerId, 'churning');
+      expect(nodes.osc1.frequency.linearRampToValueAtTime)
+        .toHaveBeenCalledWith(base * 0.7, expect.any(Number));
+      expect(nodes.gain.gain.linearRampToValueAtTime)
+        .toHaveBeenCalledWith(0.003, expect.any(Number));
+    });
+  });
+
+  describe('engine stops for inactive activities', () => {
+    beforeEach(() => {
+      engine._ensureCtx();
+    });
+
+    it.each(['waiting', 'complete', 'errored', 'lost', 'idle', 'starting'])(
+      'triggers stop for %s activity',
+      (activity) => {
+        engine.startEngine('r1', 'thinking');
+        engine.startEngine('r1', activity);
+        expect(engine.engineStopTimeouts.has('r1')).toBe(true);
+      },
+    );
+
+    it('removes engine nodes after grace period expires', () => {
+      engine.startEngine('r1', 'thinking');
+      expect(engine.engineNodes.has('r1')).toBe(true);
+
+      engine.startEngine('r1', 'waiting');
+      // Still present during grace period
+      expect(engine.engineNodes.has('r1')).toBe(true);
+
+      vi.advanceTimersByTime(1500);
+      expect(engine.engineNodes.has('r1')).toBe(false);
+      expect(engine.engineStopTimeouts.has('r1')).toBe(false);
+    });
+
+    it('fades out gain to 0 when grace period expires', () => {
+      engine.startEngine('r1', 'thinking');
+      const nodes = engine.engineNodes.get('r1');
+
+      engine.stopEngine('r1');
+      vi.advanceTimersByTime(1500);
+
+      expect(nodes.gain.gain.linearRampToValueAtTime)
+        .toHaveBeenCalledWith(0, expect.any(Number));
+    });
+
+    it('stops oscillators after fade-out completes', () => {
+      engine.startEngine('r1', 'thinking');
+      const nodes = engine.engineNodes.get('r1');
+
+      engine.stopEngine('r1');
+      vi.advanceTimersByTime(1500); // Grace period fires _fadeOutEngine
+      vi.advanceTimersByTime(300);  // Oscillator cleanup setTimeout
+
+      expect(nodes.osc1.stop).toHaveBeenCalled();
+      expect(nodes.osc2.stop).toHaveBeenCalled();
+    });
+
+    it('does nothing when stopping a racer with no engine', () => {
+      engine.stopEngine('nonexistent');
+      expect(engine.engineStopTimeouts.has('nonexistent')).toBe(false);
+    });
+  });
+
+  describe('rapid activity transitions', () => {
+    beforeEach(() => {
+      engine._ensureCtx();
+    });
+
+    it('keeps engine running through thinking → waiting → thinking', () => {
+      engine.startEngine('r1', 'thinking');
+      engine.startEngine('r1', 'waiting'); // triggers stopEngine
+      expect(engine.engineStopTimeouts.has('r1')).toBe(true);
+
+      engine.startEngine('r1', 'thinking'); // cancels pending stop
+      expect(engine.engineStopTimeouts.has('r1')).toBe(false);
+      expect(engine.engineNodes.has('r1')).toBe(true);
+
+      // After what would have been the grace period, engine still runs
+      vi.advanceTimersByTime(2000);
+      expect(engine.engineNodes.has('r1')).toBe(true);
+    });
+
+    it('keeps engine running through thinking → tool_use → thinking', () => {
+      const racerId = 'rapid-switch';
+      const base = expectedBaseFreq(racerId);
+
+      engine.startEngine(racerId, 'thinking');
+      engine.startEngine(racerId, 'tool_use');
+      engine.startEngine(racerId, 'thinking');
+
+      // Engine stayed alive through all transitions (same nodes reused)
+      expect(engine.engineNodes.has(racerId)).toBe(true);
+      const nodes = engine.engineNodes.get(racerId);
+      // Final ramp should be back to 1.0x pitch
+      expect(nodes.osc1.frequency.linearRampToValueAtTime)
+        .toHaveBeenLastCalledWith(base, expect.any(Number));
+    });
+
+    it('survives multiple rapid stop/start cycles without dropping audio', () => {
+      engine.startEngine('r1', 'thinking');
+
+      for (let i = 0; i < 5; i++) {
+        engine.startEngine('r1', 'waiting');  // triggers stop
+        engine.startEngine('r1', 'thinking'); // cancels stop
+      }
+
+      expect(engine.engineNodes.has('r1')).toBe(true);
+      expect(engine.engineStopTimeouts.has('r1')).toBe(false);
+    });
+
+    it('handles concurrent engines for multiple racers independently', () => {
+      engine.startEngine('r1', 'thinking');
+      engine.startEngine('r2', 'tool_use');
+
+      // Stop r1, keep r2
+      engine.startEngine('r1', 'waiting');
+      vi.advanceTimersByTime(1500);
+
+      expect(engine.engineNodes.has('r1')).toBe(false);
+      expect(engine.engineNodes.has('r2')).toBe(true);
+    });
+
+    it('does not create duplicate stop timeouts for the same racer', () => {
+      engine.startEngine('r1', 'thinking');
+      engine.stopEngine('r1');
+      const firstTimeout = engine.engineStopTimeouts.get('r1');
+
+      // Second stop call while grace period is already pending — no-op
+      engine.stopEngine('r1');
+      expect(engine.engineStopTimeouts.get('r1')).toBe(firstTimeout);
+    });
+  });
+
+  describe('1.5s grace period bridges brief gaps', () => {
+    beforeEach(() => {
+      engine._ensureCtx();
+    });
+
+    it('engine survives a gap shorter than 1500ms', () => {
+      engine.startEngine('r1', 'thinking');
+      engine.stopEngine('r1');
+
+      // 1400ms gap — just under the grace period
+      vi.advanceTimersByTime(1400);
+      expect(engine.engineNodes.has('r1')).toBe(true);
+
+      // Resume thinking — cancels pending stop
+      engine.startEngine('r1', 'thinking');
+      expect(engine.engineStopTimeouts.has('r1')).toBe(false);
+
+      // Well past the original grace period
+      vi.advanceTimersByTime(2000);
+      expect(engine.engineNodes.has('r1')).toBe(true);
+    });
+
+    it('engine stops after a gap exceeding 1500ms', () => {
+      engine.startEngine('r1', 'thinking');
+      engine.stopEngine('r1');
+
+      vi.advanceTimersByTime(1500);
+      expect(engine.engineNodes.has('r1')).toBe(false);
+    });
+
+    it('bridges multiple brief gaps in sequence (slow model pattern)', () => {
+      // Simulates a slow model: think → brief pause → think → brief pause → think
+      engine.startEngine('r1', 'thinking');
+
+      // First gap: 800ms
+      engine.stopEngine('r1');
+      vi.advanceTimersByTime(800);
+      engine.startEngine('r1', 'thinking');
+      expect(engine.engineNodes.has('r1')).toBe(true);
+
+      // Second gap: 1200ms
+      engine.stopEngine('r1');
+      vi.advanceTimersByTime(1200);
+      engine.startEngine('r1', 'thinking');
+      expect(engine.engineNodes.has('r1')).toBe(true);
+
+      // Third gap: 1499ms (just under)
+      engine.stopEngine('r1');
+      vi.advanceTimersByTime(1499);
+      engine.startEngine('r1', 'thinking');
+      expect(engine.engineNodes.has('r1')).toBe(true);
+    });
+
+    it('each new stop resets the grace period timer', () => {
+      engine.startEngine('r1', 'thinking');
+      engine.stopEngine('r1');
+
+      // 1000ms into first grace period
+      vi.advanceTimersByTime(1000);
+      expect(engine.engineNodes.has('r1')).toBe(true);
+
+      // Resume then stop again — new grace period starts
+      engine.startEngine('r1', 'thinking');
+      engine.stopEngine('r1');
+
+      // 1000ms into second grace period (2000ms total elapsed)
+      vi.advanceTimersByTime(1000);
+      expect(engine.engineNodes.has('r1')).toBe(true);
+
+      // Complete the second grace period
+      vi.advanceTimersByTime(500);
+      expect(engine.engineNodes.has('r1')).toBe(false);
+    });
+
+    it('restores volume when engine restarts during grace period', () => {
+      engine.startEngine('r1', 'thinking');
+      const nodes = engine.engineNodes.get('r1');
+
+      engine.stopEngine('r1');
+      vi.advanceTimersByTime(500);
+
+      // Restart during grace period — should ramp volume back up
+      engine.startEngine('r1', 'thinking');
+      expect(nodes.gain.gain.cancelScheduledValues).toHaveBeenCalled();
+      expect(nodes.gain.gain.linearRampToValueAtTime)
+        .toHaveBeenCalledWith(0.008, expect.any(Number));
     });
   });
 
