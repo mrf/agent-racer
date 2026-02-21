@@ -468,7 +468,7 @@ export class Racer {
     if (this.hamsters.size > 0) {
       const count = this.hamsters.size;
       const carRearOffset = (17 + LIMO_STRETCH) * S;
-      const baseX = this.displayX - carRearOffset - 30;
+      const baseX = this.displayX - carRearOffset - 80;
 
       // Compress spacing when count > 4, cap visual spread at lane height
       const maxSpread = 50;
@@ -481,6 +481,20 @@ export class Racer {
         hamster.setTarget(baseX + xStagger, this.displayY + yOffset);
         hamster.animate(particles, dt);
         i++;
+      }
+
+      // Force-snap ropes and fade orphaned hamsters when parent is terminal
+      if (isTerminalActivity(activity)) {
+        for (const hamster of this.hamsters.values()) {
+          if (!isTerminalActivity(hamster.state.activity)) {
+            if (!hamster.ropeSnapped) {
+              hamster.ropeSnapped = true;
+              hamster.fadeTimer = 0;
+            }
+            hamster.fadeTimer += dt || 1 / 60;
+            hamster.opacity = Math.max(0.3, 1.0 - (hamster.fadeTimer / 5) * 0.7);
+          }
+        }
       }
     }
   }
@@ -1263,6 +1277,9 @@ export class Racer {
   }
 
   drawTowRope(ctx, hamster) {
+    // Skip rope entirely once hamster is fading — rope fades with hamster opacity
+    if (hamster.ropeSnapped) return;
+
     const S = CAR_SCALE;
 
     // Attachment points: car rear bumper to skateboard front
@@ -1270,11 +1287,6 @@ export class Racer {
     const carY = this.displayY + this.springY + 1 * S;
     const hamsterX = hamster.displayX + 10;
     const hamsterY = hamster.displayY;
-
-    if (hamster.ropeSnapped) {
-      this._drawSnappedRope(ctx, carX, carY, hamsterX, hamsterY, hamster.fadeTimer);
-      return;
-    }
 
     // Rope sag increases with distance
     const dx = hamsterX - carX;
@@ -1300,35 +1312,5 @@ export class Racer {
     ctx.moveTo(carX, carY);
     ctx.quadraticCurveTo(cpX, cpY - 1, hamsterX, hamsterY);
     ctx.stroke();
-  }
-
-  _drawSnappedRope(ctx, carX, carY, hamsterX, hamsterY, droopTime) {
-    const droop = Math.min(20, (droopTime || 0) * 15);
-    const stubLen = 15;
-
-    ctx.save();
-    ctx.setLineDash([3, 3]);
-    ctx.strokeStyle = '#8B7355';
-    ctx.lineWidth = 1.5;
-
-    // Car stub -- dangling from car rear
-    ctx.beginPath();
-    ctx.moveTo(carX, carY);
-    ctx.quadraticCurveTo(
-      carX - 5, carY + stubLen / 2 + droop,
-      carX - 8, carY + stubLen + droop,
-    );
-    ctx.stroke();
-
-    // Hamster stub — dangling from skateboard front
-    ctx.beginPath();
-    ctx.moveTo(hamsterX, hamsterY);
-    ctx.quadraticCurveTo(
-      hamsterX + 3, hamsterY + stubLen / 2 + droop,
-      hamsterX + 5, hamsterY + stubLen + droop,
-    );
-    ctx.stroke();
-
-    ctx.restore();
   }
 }

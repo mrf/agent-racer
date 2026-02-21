@@ -235,7 +235,6 @@ describe('activity transitions', () => {
   it('resets completion state on complete activity', () => {
     const hamster = new Hamster(makeState({ activity: 'thinking' }));
     hamster.ropeSnapped = true;
-    hamster.ropeSnapTimer = 5;
     hamster.completionBurst = true;
     hamster.fadeTimer = 2;
     hamster.goldFlash = 0.5;
@@ -243,7 +242,6 @@ describe('activity transitions', () => {
     hamster.update(makeState({ activity: 'complete' }));
 
     expect(hamster.ropeSnapped).toBe(false);
-    expect(hamster.ropeSnapTimer).toBe(0);
     expect(hamster.completionBurst).toBe(false);
     expect(hamster.fadeTimer).toBe(0);
     expect(hamster.goldFlash).toBe(0);
@@ -266,19 +264,20 @@ describe('tow rope rendering', () => {
     const hamster = new Hamster(makeState());
 
     expect(hamster.ropeSnapped).toBe(false);
-    expect(hamster.ropeSnapTimer).toBe(0);
+    expect(hamster.fadeTimer).toBe(0);
   });
 
-  it('increments ropeSnapTimer during complete activity', () => {
+  it('starts fading immediately on complete', () => {
     const hamster = new Hamster(makeState({ activity: 'thinking' }));
 
     hamster.update(makeState({ activity: 'complete' }));
     hamster.animate(null, 1 / 60);
 
-    expect(hamster.ropeSnapTimer).toBeCloseTo(1 / 60, 3);
+    expect(hamster.fadeTimer).toBeGreaterThan(0);
+    expect(hamster.opacity).toBeLessThan(1.0);
   });
 
-  it('snaps rope after 0.3 seconds in complete activity', () => {
+  it('hides rope after 0.3 seconds in complete activity', () => {
     const hamster = new Hamster(makeState());
     hamster.update(makeState({ activity: 'complete' }));
 
@@ -287,7 +286,7 @@ describe('tow rope rendering', () => {
     expect(hamster.ropeSnapped).toBe(true);
   });
 
-  it('sets completionBurst when rope snaps', () => {
+  it('sets completionBurst after 0.3s', () => {
     const hamster = new Hamster(makeState());
     hamster.update(makeState({ activity: 'complete' }));
 
@@ -296,7 +295,7 @@ describe('tow rope rendering', () => {
     expect(hamster.completionBurst).toBe(true);
   });
 
-  it('does not snap rope before 0.3 seconds', () => {
+  it('does not hide rope before 0.3 seconds', () => {
     const hamster = new Hamster(makeState());
     hamster.update(makeState({ activity: 'complete' }));
 
@@ -392,24 +391,18 @@ describe('completion fade', () => {
     expect(hamster.opacity).toBe(initialOpacity);
   });
 
-  it('increments fadeTimer only while ropeSnapped', () => {
+  it('increments fadeTimer immediately on complete', () => {
     const hamster = new Hamster(makeState());
     hamster.update(makeState({ activity: 'complete' }));
 
-    simulateFrames(hamster, 20);
-    const fadeTimerAfterSnap = hamster.fadeTimer;
-
     hamster.animate(null, 1 / 60);
 
-    expect(hamster.fadeTimer).toBeGreaterThan(fadeTimerAfterSnap);
+    expect(hamster.fadeTimer).toBeGreaterThan(0);
   });
 
   it('fade rate is 0.7 per 5 seconds', () => {
     const hamster = new Hamster(makeState());
     hamster.update(makeState({ activity: 'complete' }));
-
-    // Wait for rope to snap (~20 frames at 60fps > 0.3s threshold)
-    simulateFrames(hamster, 20);
 
     // Animate for 5 seconds (300 frames at 60fps)
     simulateFrames(hamster, 300);
@@ -531,13 +524,13 @@ describe('goldFlash on completion', () => {
     expect(hamster.goldFlash).toBeLessThanOrEqual(1.0);
   });
 
-  it('goldFlash is proportional to ropeSnapTimer', () => {
+  it('goldFlash is proportional to fadeTimer', () => {
     const hamster = new Hamster(makeState());
     hamster.update(makeState({ activity: 'complete' }));
 
     simulateFrames(hamster, 20);
 
-    expect(hamster.goldFlash).toBeCloseTo(hamster.ropeSnapTimer * 2, 2);
+    expect(hamster.goldFlash).toBeCloseTo(Math.min(1, hamster.fadeTimer * 2), 2);
   });
 });
 

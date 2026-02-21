@@ -30,6 +30,8 @@ JSONL File Discovery               Go Backend            Browser (Canvas)
 
 **Prerequisites:** Go 1.22+, a modern browser.
 
+**Localhost-only:** Agent Racer is intended to run on your local machine only. It is not designed or supported for public or multi-user deployment.
+
 ```bash
 # Clone and run in mock mode (demo with 5 simulated sessions)
 cd agent-racer

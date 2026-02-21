@@ -21,6 +21,16 @@ type mockSession struct {
 	toolIdx       int
 	completed     bool
 	prevTokens    int
+	subagentDefs  []mockSubagentDef
+}
+
+type mockSubagentDef struct {
+	id        string
+	slug      string
+	model     string
+	spawnTick int    // tick when subagent appears
+	endTick   int    // tick when subagent completes (0 = lives until parent completes)
+	tools     []string
 }
 
 var commonTools = []string{"Read", "Write", "Edit", "Bash", "Grep", "Glob", "Task", "LSP"}
@@ -51,6 +61,12 @@ func (g *MockGenerator) Start(ctx context.Context) {
 			},
 			tokensPerTick: 1200, pattern: "steady", maxTokens: 180000,
 			tools: []string{"Read", "Grep", "Edit", "Write", "Bash", "Edit", "Read", "Write"},
+			subagentDefs: []mockSubagentDef{
+				{id: "agent_mock_haiku_researcher", slug: "swift-curious-hamster", model: "claude-haiku-4-5-20251001",
+					spawnTick: 8, endTick: 30, tools: []string{"Read", "Grep", "Glob", "Read"}},
+				{id: "agent_mock_sonnet_coder", slug: "eager-coding-gopher", model: "claude-sonnet-4-20250514",
+					spawnTick: 12, endTick: 0, tools: []string{"Read", "Edit", "Write", "Bash", "Edit"}},
+			},
 		},
 		{
 			state: &session.SessionState{
@@ -91,6 +107,10 @@ func (g *MockGenerator) Start(ctx context.Context) {
 			},
 			tokensPerTick: 600, pattern: "methodical", maxTokens: 160000,
 			tools: []string{"Read", "LSP", "Read", "Grep", "Read", "LSP", "Read", "Task"},
+			subagentDefs: []mockSubagentDef{
+				{id: "agent_mock_haiku_explorer", slug: "tiny-brave-explorer", model: "claude-haiku-4-5-20251001",
+					spawnTick: 6, endTick: 22, tools: []string{"Glob", "Read", "Grep", "Read", "Grep"}},
+			},
 		},
 		{
 			state: &session.SessionState{
@@ -185,6 +205,88 @@ func (g *MockGenerator) advanceMock(ms *mockSession, tick int) {
 		ms.state.BurnRatePerMinute = 0
 	}
 	ms.prevTokens = prevTokens
+
+	// Advance subagents: spawn, cycle activity, complete
+	g.advanceSubagents(ms, tick)
+}
+
+func (g *MockGenerator) advanceSubagents(ms *mockSession, tick int) {
+	if len(ms.subagentDefs) == 0 {
+		return
+	}
+
+	now := time.Now()
+
+	// Build index of existing subagents by ID
+	existing := make(map[string]int, len(ms.state.Subagents))
+	for i, sub := range ms.state.Subagents {
+		existing[sub.ID] = i
+	}
+
+	for _, def := range ms.subagentDefs {
+		if tick < def.spawnTick {
+			continue
+		}
+
+		idx, exists := existing[def.id]
+		if !exists {
+			// Spawn new subagent
+			ms.state.Subagents = append(ms.state.Subagents, session.SubagentState{
+				ID:              def.id,
+				ParentToolUseID: "toolu_mock_" + def.id,
+				SessionID:       ms.state.ID,
+				Slug:            def.slug,
+				Model:           def.model,
+				Activity:        session.Thinking,
+				StartedAt:       now,
+				LastActivityAt:  now,
+			})
+			continue
+		}
+
+		sub := &ms.state.Subagents[idx]
+
+		// Already completed
+		if sub.CompletedAt != nil {
+			continue
+		}
+
+		// Check if subagent should complete this tick
+		if def.endTick > 0 && tick >= def.endTick {
+			sub.Activity = session.Complete
+			sub.CompletedAt = &now
+			sub.LastActivityAt = now
+			continue
+		}
+
+		// Cycle activity: thinking <-> tool_use
+		age := tick - def.spawnTick
+		sub.LastActivityAt = now
+		sub.MessageCount++
+
+		if age%3 == 0 {
+			sub.Activity = session.ToolUse
+			sub.CurrentTool = def.tools[age/3%len(def.tools)]
+			sub.ToolCallCount++
+		} else {
+			sub.Activity = session.Thinking
+			sub.CurrentTool = ""
+		}
+
+		sub.TokensUsed += 200 + rand.Intn(300)
+	}
+
+	// When parent completes, complete all remaining active subagents
+	if ms.completed {
+		for i := range ms.state.Subagents {
+			sub := &ms.state.Subagents[i]
+			if sub.CompletedAt == nil {
+				sub.Activity = session.Complete
+				sub.CompletedAt = &now
+				sub.LastActivityAt = now
+			}
+		}
+	}
 }
 
 func (g *MockGenerator) advanceSteady(ms *mockSession, tick int) {
