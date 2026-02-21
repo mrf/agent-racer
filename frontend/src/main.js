@@ -2,6 +2,7 @@ import { RaceConnection } from './websocket.js';
 import { RaceCanvas } from './canvas/RaceCanvas.js';
 import { SoundEngine } from './audio/SoundEngine.js';
 import { requestPermission, notifyCompletion } from './notifications.js';
+import { AchievementPanel } from './gamification/AchievementPanel.js';
 
 const debugPanel = document.getElementById('debug-panel');
 const debugLog = document.getElementById('debug-log');
@@ -35,6 +36,8 @@ const engine = new SoundEngine();
 const raceCanvas = new RaceCanvas(canvas);
 raceCanvas.setEngine(engine);
 window.raceCanvas = raceCanvas;
+
+const achievementPanel = new AchievementPanel();
 
 // Load sound configuration from backend
 async function loadSoundConfig() {
@@ -482,11 +485,7 @@ function handleCompletion(payload) {
     raceCanvas.onComplete(payload.sessionId);
     engine.playVictory();
     engine.recordCompletion();
-  } else if (payload.activity === 'errored') {
-    raceCanvas.onError(payload.sessionId);
-    engine.playCrash();
-    engine.recordCrash();
-  } else if (payload.activity === 'lost') {
+  } else if (payload.activity === 'errored' || payload.activity === 'lost') {
     raceCanvas.onError(payload.sessionId);
     engine.playCrash();
     engine.recordCrash();
@@ -576,6 +575,9 @@ document.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
   switch (e.key.toLowerCase()) {
+    case 'a':
+      achievementPanel.toggle();
+      break;
     case 'd':
       debugVisible = !debugVisible;
       debugPanel.classList.toggle('hidden', !debugVisible);
@@ -593,7 +595,9 @@ document.addEventListener('keydown', (e) => {
       }
       break;
     case 'escape':
-      if (!detailFlyout.classList.contains('hidden')) {
+      if (achievementPanel.isVisible) {
+        achievementPanel.hide();
+      } else if (!detailFlyout.classList.contains('hidden')) {
         closeFlyout();
       }
       break;
@@ -612,4 +616,4 @@ conn.connect();
 requestPermission();
 loadSoundConfig();
 log('Agent Racing Dashboard initialized', 'info');
-log('Shortcuts: D=debug, M=mute, F=fullscreen, Click racer=details', 'info');
+log('Shortcuts: A=achievements, D=debug, M=mute, F=fullscreen, Click racer=details', 'info');

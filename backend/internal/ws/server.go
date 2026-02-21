@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/agent-racer/backend/internal/config"
 	"github.com/agent-racer/backend/internal/gamification"
@@ -41,6 +42,7 @@ type Server struct {
 	allowedHosts    map[string]bool
 	authToken       string
 	tracker         *gamification.StatsTracker
+	achievementEngine  *gamification.AchievementEngine
 }
 
 func NewServer(cfg *config.Config, store *session.Store, broadcaster *Broadcaster, frontendDir string, dev bool, embeddedHandler http.Handler, allowedOrigins []string, authToken string) *Server {
@@ -54,6 +56,7 @@ func NewServer(cfg *config.Config, store *session.Store, broadcaster *Broadcaste
 		allowedOrigins:  make(map[string]bool),
 		allowedHosts:    make(map[string]bool),
 		authToken:       authToken,
+		achievementEngine: gamification.NewAchievementEngine(),
 	}
 
 	for _, origin := range allowedOrigins {
@@ -82,6 +85,7 @@ func (s *Server) SetupRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/sessions/", s.handleSessionRoutes)
 	mux.HandleFunc("/api/config", s.handleConfig)
 	mux.HandleFunc("/api/stats", s.handleStats)
+	mux.HandleFunc("/api/achievements", s.handleAchievements)
 
 	if s.dev {
 		log.Printf("Serving frontend from filesystem: %s", s.frontendDir)
@@ -159,6 +163,50 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s.tracker.Stats())
+}
+
+// achievementResponse is the JSON shape returned by /api/achievements.
+type achievementResponse struct {
+	ID          string     `json:"id"`
+	Name        string     `json:"name"`
+	Description string     `json:"description"`
+	Tier        string     `json:"tier"`
+	Category    string     `json:"category"`
+	Unlocked    bool       `json:"unlocked"`
+	UnlockedAt  *time.Time `json:"unlockedAt,omitempty"`
+}
+
+func (s *Server) handleAchievements(w http.ResponseWriter, r *http.Request) {
+	if !s.authorize(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	registry := s.achievementEngine.Registry()
+
+	var unlocked map[string]time.Time
+	if s.tracker != nil {
+		unlocked = s.tracker.Stats().AchievementsUnlocked
+	}
+
+	out := make([]achievementResponse, 0, len(registry))
+	for _, a := range registry {
+		resp := achievementResponse{
+			ID:          a.ID,
+			Name:        a.Name,
+			Description: a.Description,
+			Tier:        string(a.Tier),
+			Category:    string(a.Category),
+		}
+		if t, ok := unlocked[a.ID]; ok {
+			resp.Unlocked = true
+			resp.UnlockedAt = &t
+		}
+		out = append(out, resp)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(out)
 }
 
 func (s *Server) handleSessionRoutes(w http.ResponseWriter, r *http.Request) {
