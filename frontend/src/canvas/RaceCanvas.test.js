@@ -365,14 +365,14 @@ describe('RaceCanvas', () => {
     it('detects a hit near the center of the car', () => {
       const racer = placeRacer();
       const result = rc._hitTest(clickEvent(430, 300)); // 30px right
-      expect(result).toBe(racer);
+      expect(result).toEqual({ type: 'racer', racer });
     });
 
     it('detects a hit at the rear of the limo', () => {
       const racer = placeRacer();
       // 120px left of center — within HIT_LEFT=125
       const result = rc._hitTest(clickEvent(280, 300));
-      expect(result).toBe(racer);
+      expect(result).toEqual({ type: 'racer', racer });
     });
 
     it('misses beyond the rear of the limo', () => {
@@ -393,7 +393,7 @@ describe('RaceCanvas', () => {
       const racer = placeRacer();
       // 25px above — within HIT_TOP=28
       const result = rc._hitTest(clickEvent(400, 275));
-      expect(result).toBe(racer);
+      expect(result).toEqual({ type: 'racer', racer });
     });
 
     it('misses above the car', () => {
@@ -422,7 +422,7 @@ describe('RaceCanvas', () => {
       r2.displayY = 300;
 
       const result = rc._hitTest(clickEvent(405, 300));
-      expect(result).toBe(r1);
+      expect(result).toEqual({ type: 'racer', racer: r1 });
     });
 
     it('catches rear corner clicks the old circular hitbox missed', () => {
@@ -430,7 +430,7 @@ describe('RaceCanvas', () => {
       // 120px left, 15px up — circular distance ~121px (miss with old radius)
       // but within rectangular bounds (HIT_LEFT=125, HIT_TOP=28)
       const result = rc._hitTest(clickEvent(280, 285));
-      expect(result).toBe(racer);
+      expect(result).toEqual({ type: 'racer', racer });
     });
 
     it('handleClick invokes onRacerClick callback on hit', () => {

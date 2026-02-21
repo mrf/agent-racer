@@ -17,6 +17,14 @@ function isInsideHitbox(dx, dy) {
   return dx >= -HIT_LEFT && dx <= HIT_RIGHT && dy >= -HIT_TOP && dy <= HIT_BOTTOM;
 }
 
+// Hamster bounding box (20x15 hit area centered on displayX/displayY)
+const HAMSTER_HIT_HX = 10;
+const HAMSTER_HIT_HY = 7.5;
+
+function isInsideHamsterHitbox(dx, dy) {
+  return dx >= -HAMSTER_HIT_HX && dx <= HAMSTER_HIT_HX && dy >= -HAMSTER_HIT_HY && dy <= HAMSTER_HIT_HY;
+}
+
 // How long after the last data receipt to keep a session on track.
 // Bridges brief gaps between parsed entries during active agent loops.
 const DATA_FRESHNESS_MS = 30_000;
@@ -52,6 +60,7 @@ export class RaceCanvas {
     this.connected = false;
     this.animFrameId = null;
     this.onRacerClick = null;
+    this.onHamsterClick = null;
     this.onAfterDraw = null;
     this.engine = engine;
 
@@ -546,9 +555,20 @@ export class RaceCanvas {
   }
 
   handleClick(e) {
-    const racer = this._hitTest(e);
-    if (!racer) return;
+    const hit = this._hitTest(e);
+    if (!hit) return;
 
+    if (hit.type === 'hamster') {
+      if (this.onHamsterClick) {
+        this.onHamsterClick({
+          hamsterState: hit.hamster.state,
+          parentState: hit.racer.state,
+        });
+      }
+      return;
+    }
+
+    const racer = hit.racer;
     if (this.onRacerClick) {
       this.onRacerClick(racer.state);
     }
@@ -564,6 +584,19 @@ export class RaceCanvas {
     const my = e.clientY - rect.top;
 
     let hoveredAny = false;
+
+    // Check hamster hover
+    for (const racer of this.racers.values()) {
+      if (!racer.hamsters) continue;
+      for (const hamster of racer.hamsters.values()) {
+        const dx = mx - hamster.displayX;
+        const dy = my - hamster.displayY;
+        if (isInsideHamsterHitbox(dx, dy)) {
+          hoveredAny = true;
+        }
+      }
+    }
+
     for (const racer of this.racers.values()) {
       const dx = mx - racer.displayX;
       const dy = my - racer.displayY;
@@ -578,11 +611,24 @@ export class RaceCanvas {
     const mx = e.clientX - rect.left;
     const my = e.clientY - rect.top;
 
+    // Check hamster hitboxes first (smaller targets get priority)
+    for (const racer of this.racers.values()) {
+      if (!racer.hamsters) continue;
+      for (const hamster of racer.hamsters.values()) {
+        const dx = mx - hamster.displayX;
+        const dy = my - hamster.displayY;
+        if (isInsideHamsterHitbox(dx, dy)) {
+          return { type: 'hamster', hamster, racer };
+        }
+      }
+    }
+
+    // Then check racer hitboxes
     for (const racer of this.racers.values()) {
       const dx = mx - racer.displayX;
       const dy = my - racer.displayY;
       if (isInsideHitbox(dx, dy)) {
-        return racer;
+        return { type: 'racer', racer };
       }
     }
     return null;
@@ -625,6 +671,7 @@ export class RaceCanvas {
 
     // Clear callback references
     this.onRacerClick = null;
+    this.onHamsterClick = null;
     this.onAfterDraw = null;
     this.engine = null;
   }
