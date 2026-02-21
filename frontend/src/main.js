@@ -17,6 +17,7 @@ let sessions = new Map();
 let debugVisible = false;
 let muted = false;
 let selectedSessionId = null;
+let selectedHamsterId = null;
 let ambientStarted = false;
 
 // Flyout positioning state — tracks the current anchor side to avoid oscillation
@@ -116,6 +117,7 @@ function formatElapsed(startStr) {
 
 function showDetailFlyout(state, carX, carY) {
   selectedSessionId = state.id;
+  selectedHamsterId = null;
   flyoutAnchor = null;       // reset anchor for fresh placement
   flyoutCurrentX = null;
   flyoutCurrentY = null;
@@ -206,10 +208,15 @@ function positionFlyout(carX, carY) {
   }
 }
 
+function contextBarColor(utilization) {
+  if (utilization > 0.8) return '#e94560';
+  if (utilization > 0.5) return '#d97706';
+  return '#22c55e';
+}
+
 function renderDetailFlyout(state) {
   const pct = (state.contextUtilization * 100).toFixed(1);
-  const barColor = state.contextUtilization > 0.8 ? '#e94560' :
-                   state.contextUtilization > 0.5 ? '#d97706' : '#22c55e';
+  const barColor = contextBarColor(state.contextUtilization);
 
   flyoutContent.innerHTML = `
     <div class="detail-row">
@@ -302,7 +309,82 @@ function renderDetailFlyout(state) {
       <span class="label">Context %</span>
       <span class="value">${pct}%</span>
     </div>
+    ${(state.subagents && state.subagents.length > 0) ? `
+    <div class="detail-row" style="margin-top:10px;padding-top:8px;border-top:1px solid #333">
+      <span class="label" style="font-size:11px;font-weight:bold;color:#aaa">Subagents (${state.subagents.length})</span>
+    </div>
+    ${state.subagents.map(sub => `
+    <div class="detail-row">
+      <span class="label">${esc(sub.slug || sub.id)}</span>
+      <span class="value"><span class="detail-activity ${esc(sub.activity)}">${esc(sub.activity)}</span>${sub.currentTool ? ' · ' + esc(sub.currentTool) : ''}</span>
+    </div>`).join('')}` : ''}
   `;
+}
+
+function showHamsterFlyout(hamsterState, parentState, hamsterX, hamsterY) {
+  selectedSessionId = parentState.id;
+  selectedHamsterId = hamsterState.id;
+  flyoutAnchor = null;
+  flyoutCurrentX = null;
+  flyoutCurrentY = null;
+  renderHamsterFlyout(hamsterState, parentState);
+  detailFlyout.classList.remove('hidden');
+  positionFlyout(hamsterX, hamsterY);
+}
+
+function renderHamsterFlyout(hamsterState, parentState) {
+  flyoutContent.innerHTML = `
+    <div class="detail-row" style="margin-bottom:8px">
+      <span class="label" style="font-size:13px;font-weight:bold;color:#ccc">Subagent: ${esc(hamsterState.slug || hamsterState.id)}</span>
+    </div>
+    <div class="detail-row">
+      <span class="label">Activity</span>
+      <span class="value"><span class="detail-activity ${esc(hamsterState.activity)}">${esc(hamsterState.activity)}</span></span>
+    </div>
+    <div class="detail-row">
+      <span class="label">Model</span>
+      <span class="value">${esc(hamsterState.model) || 'unknown'}</span>
+    </div>
+    <div class="detail-row">
+      <span class="label">Current Tool</span>
+      <span class="value">${esc(hamsterState.currentTool) || '-'}</span>
+    </div>
+    <div class="detail-row">
+      <span class="label">Messages</span>
+      <span class="value">${hamsterState.messageCount || 0}</span>
+    </div>
+    <div class="detail-row">
+      <span class="label">Tool Calls</span>
+      <span class="value">${hamsterState.toolCallCount || 0}</span>
+    </div>
+    <div class="detail-row">
+      <span class="label">Duration</span>
+      <span class="value">${formatElapsed(hamsterState.startedAt)}</span>
+    </div>
+    <div class="detail-row" style="margin-top:10px;padding-top:8px;border-top:1px solid #333">
+      <span class="label">Parent</span>
+      <span class="value" title="${esc(parentState.workingDir) || ''}">${
+        parentState.workingDir ? esc(basename(parentState.workingDir)) : esc(parentState.name) || '-'
+      }</span>
+    </div>
+  `;
+}
+
+function updateOpenFlyout() {
+  if (!selectedSessionId || !sessions.has(selectedSessionId)) return;
+  const state = sessions.get(selectedSessionId);
+
+  if (selectedHamsterId) {
+    const sub = (state.subagents || []).find(s => s.id === selectedHamsterId);
+    if (sub) {
+      renderHamsterFlyout(sub, state);
+    } else {
+      selectedHamsterId = null;
+      renderDetailFlyout(state);
+    }
+  } else {
+    renderDetailFlyout(state);
+  }
 }
 
 function handleSnapshot(payload) {
@@ -335,11 +417,7 @@ function handleSnapshot(payload) {
   // Update crowd excitement based on current race state
   engine.updateExcitement(payload.sessions);
 
-  // Update detail flyout if open
-  if (selectedSessionId && sessions.has(selectedSessionId)) {
-    const state = sessions.get(selectedSessionId);
-    renderDetailFlyout(state);
-  }
+  updateOpenFlyout();
 }
 
 function handleDelta(payload) {
@@ -393,11 +471,7 @@ function handleDelta(payload) {
   // Update crowd excitement based on current race state
   engine.updateExcitement([...sessions.values()]);
 
-  // Update detail flyout if open
-  if (selectedSessionId && sessions.has(selectedSessionId)) {
-    const state = sessions.get(selectedSessionId);
-    renderDetailFlyout(state);
-  }
+  updateOpenFlyout();
 }
 
 function handleCompletion(payload) {
@@ -427,15 +501,40 @@ function handleStatus(status) {
 
 // Racer click -> detail flyout
 raceCanvas.onRacerClick = (state) => {
+  selectedHamsterId = null;
   const racer = raceCanvas.racers.get(state.id);
   if (racer) {
     showDetailFlyout(state, racer.displayX, racer.displayY);
   }
 };
 
-// Keep flyout attached to car as it moves
+// Hamster click -> hamster detail flyout
+raceCanvas.onHamsterClick = ({ hamsterState, parentState }) => {
+  const racer = raceCanvas.racers.get(parentState.id);
+  if (racer) {
+    const hamster = racer.hamsters && racer.hamsters.get(hamsterState.id);
+    if (hamster) {
+      showHamsterFlyout(hamsterState, parentState, hamster.displayX, hamster.displayY);
+    }
+  }
+};
+
+// Keep flyout attached to car/hamster as it moves
 raceCanvas.onAfterDraw = () => {
-  if (selectedSessionId && !detailFlyout.classList.contains('hidden')) {
+  if (detailFlyout.classList.contains('hidden')) return;
+
+  if (selectedHamsterId && selectedSessionId) {
+    const racer = raceCanvas.racers.get(selectedSessionId);
+    if (racer && racer.hamsters) {
+      const hamster = racer.hamsters.get(selectedHamsterId);
+      if (hamster) {
+        positionFlyout(hamster.displayX, hamster.displayY);
+        return;
+      }
+    }
+  }
+
+  if (selectedSessionId) {
     const racer = raceCanvas.racers.get(selectedSessionId);
     if (racer) {
       positionFlyout(racer.displayX, racer.displayY);
@@ -443,14 +542,17 @@ raceCanvas.onAfterDraw = () => {
   }
 };
 
-// Detail flyout close
-flyoutClose.addEventListener('click', () => {
+function closeFlyout() {
   detailFlyout.classList.add('hidden');
   selectedSessionId = null;
+  selectedHamsterId = null;
   flyoutAnchor = null;
   flyoutCurrentX = null;
   flyoutCurrentY = null;
-});
+}
+
+// Detail flyout close
+flyoutClose.addEventListener('click', closeFlyout);
 
 // Copy button in flyout
 detailFlyout.addEventListener('click', (e) => {
@@ -492,8 +594,7 @@ document.addEventListener('keydown', (e) => {
       break;
     case 'escape':
       if (!detailFlyout.classList.contains('hidden')) {
-        detailFlyout.classList.add('hidden');
-        selectedSessionId = null;
+        closeFlyout();
       }
       break;
   }

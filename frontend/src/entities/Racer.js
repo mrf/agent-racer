@@ -89,6 +89,8 @@ function lightenHex(hex, amount) {
   return `rgb(${Math.min(255, r + amount)},${Math.min(255, g + amount)},${Math.min(255, b + amount)})`;
 }
 
+import { Hamster } from './Hamster.js';
+
 export { getModelColor, hexToRgb, CAR_SCALE, LIMO_STRETCH };
 
 export class Racer {
@@ -107,55 +109,58 @@ export class Racer {
     this.thoughtBubblePhase = 0;
     this.initialized = false;
 
-    // New: wheel rotation
+    // Wheel rotation
     this.wheelAngle = 0;
 
-    // New: spring-based suspension
+    // Spring-based suspension
     this.springY = 0;
     this.springVel = 0;
     this.springDamping = 0.92;
     this.springStiffness = 0.15;
 
-    // New: activity transitions
+    // Activity transitions
     this.prevActivity = state.activity;
     this.transitionTimer = 0;
     this.glowIntensity = 0;
     this.targetGlow = 0;
     this.colorBrightness = 0;
 
-    // New: error multi-stage
-    this.errorStage = 0; // 0=skid, 1=spin accelerate, 2=smoke, 3=darken
+    // Error multi-stage: 0=skid, 1=spin accelerate, 2=smoke, 3=darken
+    this.errorStage = 0;
     this.errorTimer = 0;
     this.skidEmitted = false;
 
-    // New: completion effects
+    // Completion effects
     this.completionTimer = 0;
     this.goldFlash = 0;
 
-    // New: ghost trail for 'lost'
-    this.posHistory = []; // ring buffer of {x,y}
+    // Ghost trail for 'lost' (ring buffer of {x,y})
+    this.posHistory = [];
 
-    // New: dot animation for thought bubble
+    // Thought bubble dot animation
     this.dotPhase = 0;
 
-    // New: hammer animation for tool use
-    this.hammerSwing = 0; // 0-1 animation progress
+    // Hammer animation for tool use (0-1 progress)
+    this.hammerSwing = 0;
     this.hammerActive = false;
     this.hammerImpactEmitted = false;
 
-    // Pit lane state
+    // Pit lane dimming (0=normal, 1=fully dimmed)
     this.inPit = false;
-    this.pitDim = 0;       // current dimming (0=normal, 1=fully dimmed)
+    this.pitDim = 0;
     this.pitDimTarget = 0;
 
-    // Parking lot state
+    // Parking lot dimming (0=normal, 1=fully dimmed)
     this.inParkingLot = false;
-    this.parkingLotDim = 0;       // 0=normal, 1=fully dimmed
+    this.parkingLotDim = 0;
     this.parkingLotDimTarget = 0;
 
     // Zone transition waypoints (track <-> pit <-> parking lot)
     this.transitionWaypoints = null;
     this.waypointIndex = 0;
+
+    // Subagent hamsters
+    this.hamsters = new Map();
 
     // Flag flutter animation
     this.flagPhase = Math.random() * Math.PI * 2;
@@ -214,6 +219,21 @@ export class Racer {
         this.hammerActive = true;
         this.hammerSwing = 0;
         this.hammerImpactEmitted = false;
+      }
+    }
+
+    // Sync hamsters from subagents
+    const subagents = state.subagents || [];
+    const activeIds = new Set(subagents.map(s => s.id));
+
+    for (const id of this.hamsters.keys()) {
+      if (!activeIds.has(id)) this.hamsters.delete(id);
+    }
+    for (const sub of subagents) {
+      if (this.hamsters.has(sub.id)) {
+        this.hamsters.get(sub.id).update(sub);
+      } else {
+        this.hamsters.set(sub.id, new Hamster(sub));
       }
     }
   }
@@ -433,7 +453,6 @@ export class Racer {
     if (this.state.isChurning && !this.inParkingLot && activity !== 'thinking' && activity !== 'tool_use') {
       this.wheelAngle += 0.02 * dtScale;
       if (particles && Math.random() > 0.95) {
-        const S = CAR_SCALE;
         particles.emit('exhaust', this.displayX - (17 + LIMO_STRETCH) * S, this.displayY + 1 * S, 1);
       }
       this.springVel += (Math.random() - 0.5) * 0.3;
@@ -443,6 +462,26 @@ export class Racer {
     // Suppress effects when in pit or parking lot
     if (this.inPit || this.inParkingLot) {
       this.targetGlow = Math.min(this.targetGlow, 0.02);
+    }
+
+    // Position and animate hamsters in fan pattern behind car
+    if (this.hamsters.size > 0) {
+      const count = this.hamsters.size;
+      const carRearOffset = (17 + LIMO_STRETCH) * S;
+      const baseX = this.displayX - carRearOffset - 30;
+
+      // Compress spacing when count > 4, cap visual spread at lane height
+      const maxSpread = 50;
+      const ySpacing = count > 1 ? Math.min(25, maxSpread / (count - 1)) : 25;
+
+      let i = 0;
+      for (const hamster of this.hamsters.values()) {
+        const yOffset = (i - (count - 1) / 2) * ySpacing;
+        const xStagger = -i * 15;
+        hamster.setTarget(baseX + xStagger, this.displayY + yOffset);
+        hamster.animate(particles, dt);
+        i++;
+      }
     }
   }
 
@@ -464,6 +503,16 @@ export class Racer {
       ctx.filter = `saturate(${1 - this.parkingLotDim * 0.3})`;
     } else {
       ctx.filter = 'none';
+    }
+
+    // Draw hamsters behind the car (before error spin so they don't rotate)
+    const zoneAlpha = this.opacity * pitAlpha * parkingAlpha;
+    for (const hamster of this.hamsters.values()) {
+      this.drawTowRope(ctx, hamster);
+      const origOpacity = hamster.opacity;
+      hamster.opacity *= zoneAlpha;
+      hamster.draw(ctx);
+      hamster.opacity = origOpacity;
     }
 
     // Apply spin for errored
@@ -954,14 +1003,10 @@ export class Racer {
 
   _drawHammer(ctx, x, y) {
     const S = CAR_SCALE;
-    // Hammer positioned above hood, swinging down
-    // Hood is around x+12 to x+15, y-9 to y-3
 
-    // Calculate swing angle: -70deg (raised) -> 0deg (impact) -> -70deg
-    // Use easeInOutQuad for smooth motion
-    let t = this.hammerSwing;
-    // Ease function for natural swing
-    const easeInOutQuad = (t) => t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+    // Swing angle: -70deg (raised) -> 0deg (impact) with easeInOutQuad
+    const t = this.hammerSwing;
+    const easeInOutQuad = (v) => v < 0.5 ? 2 * v * v : 1 - Math.pow(-2 * v + 2, 2) / 2;
     const swingProgress = easeInOutQuad(t);
     const angle = -70 * (1 - swingProgress) * (Math.PI / 180); // -70deg to 0deg
 
@@ -976,7 +1021,7 @@ export class Racer {
     // Handle (wooden)
     const handleLength = 16;
     const handleWidth = 2;
-    ctx.fillStyle = '#8B4513'; // Brown
+    ctx.fillStyle = '#8B4513';
     ctx.fillRect(-handleWidth / 2, 0, handleWidth, handleLength);
 
     // Hammer head (metallic gray)
@@ -1002,7 +1047,7 @@ export class Racer {
 
     ctx.restore();
 
-    // Optional: Motion blur effect during fast swing (around impact point)
+    // Motion blur during fast swing near impact point
     if (t > 0.4 && t < 0.6) {
       ctx.save();
       ctx.globalAlpha = 0.2;
