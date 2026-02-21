@@ -45,6 +45,8 @@ export class Hamster {
     this.ropeSnapTimer = 0;
     this.fadeTimer = 0;
     this.completionBurst = false;
+    this.celebrationEmitted = false;
+    this.ropeSnapEmitted = false;
     this.starBurstPhase = 0;
     this.goldFlash = 0;
 
@@ -69,6 +71,8 @@ export class Hamster {
         this.ropeSnapTimer = 0;
         this.ropeSnapped = false;
         this.completionBurst = false;
+        this.celebrationEmitted = false;
+        this.ropeSnapEmitted = false;
         this.fadeTimer = 0;
         this.goldFlash = 0;
       }
@@ -125,15 +129,29 @@ export class Hamster {
     switch (activity) {
       case 'thinking':
         this.targetGlow = 0.06;
+        if (particles && speed > 0.5 && Math.random() > 0.85) {
+          particles.emit('exhaust', this.displayX - 10, this.displayY + 5, 1);
+        }
         break;
       case 'tool_use':
         this.targetGlow = 0.10;
+        if (particles && speed > 0.5 && Math.random() > 0.85) {
+          particles.emit('exhaust', this.displayX - 10, this.displayY + 5, 1);
+        }
         break;
       case 'complete':
         this.ropeSnapTimer += dt || 1 / 60;
         if (!this.ropeSnapped && this.ropeSnapTimer >= 0.3) {
           this.ropeSnapped = true;
           this.completionBurst = true;
+          if (!this.ropeSnapEmitted && particles) {
+            particles.emit('sparks', this.displayX + 20, this.displayY, 5);
+            this.ropeSnapEmitted = true;
+          }
+        }
+        if (!this.celebrationEmitted && particles) {
+          particles.emit('celebration', this.displayX, this.displayY, 15);
+          this.celebrationEmitted = true;
         }
         if (this.ropeSnapped) {
           this.fadeTimer += dt || 1 / 60;
