@@ -58,11 +58,16 @@ type BattlePass struct {
 	XP     int `json:"xp"`
 }
 
-// Equipped tracks which cosmetic items the user has active.
+// Equipped tracks which cosmetic item is active in each slot.
+// Each field holds a reward ID, or the empty string if the slot is empty.
 type Equipped struct {
+	Paint string `json:"paint,omitempty"`
 	Trail string `json:"trail,omitempty"`
+	Body  string `json:"body,omitempty"`
 	Badge string `json:"badge,omitempty"`
+	Sound string `json:"sound,omitempty"`
 	Theme string `json:"theme,omitempty"`
+	Title string `json:"title,omitempty"`
 }
 
 // Store handles loading and saving Stats to disk.
