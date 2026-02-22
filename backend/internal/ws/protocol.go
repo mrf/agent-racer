@@ -8,11 +8,12 @@ import (
 type MessageType string
 
 const (
-	MsgSnapshot   MessageType = "snapshot"
-	MsgDelta      MessageType = "delta"
-	MsgCompletion MessageType = "completion"
-	MsgEquipped   MessageType = "equipped"
-	MsgError      MessageType = "error"
+	MsgSnapshot            MessageType = "snapshot"
+	MsgDelta               MessageType = "delta"
+	MsgCompletion          MessageType = "completion"
+	MsgEquipped            MessageType = "equipped"
+	MsgError               MessageType = "error"
+	MsgAchievementUnlocked MessageType = "achievement_unlocked"
 )
 
 type WSMessage struct {
@@ -37,4 +38,18 @@ type CompletionPayload struct {
 
 type EquippedPayload struct {
 	Loadout gamification.Equipped `json:"loadout"`
+}
+
+type AchievementRewardPayload struct {
+	Type string `json:"type"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+type AchievementUnlockedPayload struct {
+	ID          string                    `json:"id"`
+	Name        string                    `json:"name"`
+	Description string                    `json:"description"`
+	Tier        string                    `json:"tier"`
+	Reward      *AchievementRewardPayload `json:"reward,omitempty"`
 }

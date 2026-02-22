@@ -82,6 +82,23 @@ func main() {
 		log.Fatalf("Failed to initialize stats tracker: %v", err)
 	}
 
+	tracker.OnAchievement(func(a gamification.Achievement, rw *gamification.Reward) {
+		payload := ws.AchievementUnlockedPayload{
+			ID:          a.ID,
+			Name:        a.Name,
+			Description: a.Description,
+			Tier:        string(a.Tier),
+		}
+		if rw != nil {
+			payload.Reward = &ws.AchievementRewardPayload{
+				Type: string(rw.Type),
+				ID:   rw.ID,
+				Name: rw.Name,
+			}
+		}
+		broadcaster.BroadcastAchievement(payload)
+	})
+
 	server.SetStatsTracker(tracker)
 
 	ctx, cancel := context.WithCancel(context.Background())
