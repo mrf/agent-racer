@@ -62,6 +62,17 @@ func (r *RewardRegistry) Registry() []Reward {
 	return out
 }
 
+// RewardForAchievement returns the reward unlocked by the given achievement ID,
+// or ok=false if no reward is linked to that achievement.
+func (r *RewardRegistry) RewardForAchievement(achievementID string) (Reward, bool) {
+	for _, rw := range r.rewards {
+		if rw.UnlockedBy == achievementID {
+			return rw, true
+		}
+	}
+	return Reward{}, false
+}
+
 // IsUnlocked reports whether the player has earned the named reward.
 // A reward is earned when its UnlockedBy achievement appears in
 // stats.AchievementsUnlocked, or — for battle pass rewards — when the

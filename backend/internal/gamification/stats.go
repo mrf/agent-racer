@@ -11,17 +11,25 @@ import (
 
 const saveInterval = 30 * time.Second
 
+// AchievementCallback is invoked for each newly unlocked achievement.
+// It receives the achievement and the associated reward (if any).
+type AchievementCallback func(achievement Achievement, reward *Reward)
+
 // StatsTracker observes session lifecycle events and maintains aggregate stats.
 // It receives events from the monitor via a channel and periodically persists
 // the accumulated stats to disk.
 type StatsTracker struct {
-	persist          *Store
-	stats            *Stats
-	events           chan session.Event
-	mu               sync.Mutex
-	dirty            bool
-	counted          map[string]bool  // session IDs already counted for TotalSessions
+	persist           *Store
+	stats             *Stats
+	events            chan session.Event
+	mu                sync.Mutex
+	dirty             bool
+	counted           map[string]bool  // session IDs already counted for TotalSessions
 	contextMilestones map[string]uint8 // session ID -> bitmask: bit0=50%, bit1=90%
+
+	achieveEngine  *AchievementEngine
+	rewardRegistry *RewardRegistry
+	onAchievement  AchievementCallback
 }
 
 // NewStatsTracker creates a StatsTracker backed by the given persistence store.
@@ -39,8 +47,16 @@ func NewStatsTracker(persist *Store) (*StatsTracker, chan<- session.Event, error
 		events:            ch,
 		counted:           make(map[string]bool),
 		contextMilestones: make(map[string]uint8),
+		achieveEngine:     NewAchievementEngine(),
+		rewardRegistry:    NewRewardRegistry(),
 	}
 	return t, ch, nil
+}
+
+// OnAchievement registers a callback invoked whenever an achievement unlocks.
+// Must be called before Run.
+func (t *StatsTracker) OnAchievement(cb AchievementCallback) {
+	t.onAchievement = cb
 }
 
 // Run processes events and periodically saves dirty stats to disk.
@@ -73,13 +89,13 @@ func (t *StatsTracker) Stats() *Stats {
 
 func (t *StatsTracker) processEvent(ev session.Event) {
 	t.mu.Lock()
-	defer t.mu.Unlock()
 
 	s := ev.State
 
 	switch ev.Type {
 	case session.EventNew:
 		if t.counted[s.ID] {
+			t.mu.Unlock()
 			return
 		}
 		t.counted[s.ID] = true
@@ -151,6 +167,22 @@ func (t *StatsTracker) processEvent(ev session.Event) {
 	}
 
 	t.dirty = true
+
+	// Evaluate achievements while still holding the lock so stats are consistent.
+	unlocked := t.achieveEngine.Evaluate(t.stats)
+	t.mu.Unlock()
+
+	// Dispatch callbacks outside the lock to avoid holding it during broadcast.
+	for _, a := range unlocked {
+		if t.onAchievement == nil {
+			break
+		}
+		var rw *Reward
+		if found, ok := t.rewardRegistry.RewardForAchievement(a.ID); ok {
+			rw = &found
+		}
+		t.onAchievement(a, rw)
+	}
 }
 
 func (t *StatsTracker) save() {

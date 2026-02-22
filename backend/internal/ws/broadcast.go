@@ -131,6 +131,13 @@ func (b *Broadcaster) QueueRemoval(ids []string) {
 	}
 }
 
+func (b *Broadcaster) BroadcastAchievement(payload AchievementUnlockedPayload) {
+	b.broadcast(WSMessage{
+		Type:    MsgAchievementUnlocked,
+		Payload: payload,
+	})
+}
+
 func (b *Broadcaster) QueueCompletion(sessionID string, activity session.Activity, name string) {
 	msg := WSMessage{
 		Type: MsgCompletion,

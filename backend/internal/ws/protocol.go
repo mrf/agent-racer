@@ -7,10 +7,11 @@ import (
 type MessageType string
 
 const (
-	MsgSnapshot   MessageType = "snapshot"
-	MsgDelta      MessageType = "delta"
-	MsgCompletion MessageType = "completion"
-	MsgError      MessageType = "error"
+	MsgSnapshot            MessageType = "snapshot"
+	MsgDelta               MessageType = "delta"
+	MsgCompletion          MessageType = "completion"
+	MsgError               MessageType = "error"
+	MsgAchievementUnlocked MessageType = "achievement_unlocked"
 )
 
 type WSMessage struct {
@@ -31,4 +32,18 @@ type CompletionPayload struct {
 	SessionID string           `json:"sessionId"`
 	Activity  session.Activity `json:"activity"`
 	Name      string           `json:"name"`
+}
+
+type AchievementRewardPayload struct {
+	Type string `json:"type"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+type AchievementUnlockedPayload struct {
+	ID          string                    `json:"id"`
+	Name        string                    `json:"name"`
+	Description string                    `json:"description"`
+	Tier        string                    `json:"tier"`
+	Reward      *AchievementRewardPayload `json:"reward,omitempty"`
 }
