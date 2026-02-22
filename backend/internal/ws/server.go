@@ -2,6 +2,7 @@ package ws
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -41,8 +42,9 @@ type Server struct {
 	allowedOrigins  map[string]bool
 	allowedHosts    map[string]bool
 	authToken       string
-	tracker         *gamification.StatsTracker
-	achievementEngine  *gamification.AchievementEngine
+	tracker           *gamification.StatsTracker
+	achievementEngine *gamification.AchievementEngine
+	rewardRegistry    *gamification.RewardRegistry
 }
 
 func NewServer(cfg *config.Config, store *session.Store, broadcaster *Broadcaster, frontendDir string, dev bool, embeddedHandler http.Handler, allowedOrigins []string, authToken string) *Server {
@@ -57,6 +59,7 @@ func NewServer(cfg *config.Config, store *session.Store, broadcaster *Broadcaste
 		allowedHosts:    make(map[string]bool),
 		authToken:       authToken,
 		achievementEngine: gamification.NewAchievementEngine(),
+		rewardRegistry:    gamification.NewRewardRegistry(),
 	}
 
 	for _, origin := range allowedOrigins {
@@ -86,6 +89,7 @@ func (s *Server) SetupRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/config", s.handleConfig)
 	mux.HandleFunc("/api/stats", s.handleStats)
 	mux.HandleFunc("/api/achievements", s.handleAchievements)
+	mux.HandleFunc("/api/equip", s.handleEquip)
 
 	if s.dev {
 		log.Printf("Serving frontend from filesystem: %s", s.frontendDir)
@@ -207,6 +211,58 @@ func (s *Server) handleAchievements(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(out)
+}
+
+type equipRequest struct {
+	RewardID string `json:"rewardId"`
+}
+
+func (s *Server) handleEquip(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !s.authorize(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if s.tracker == nil {
+		http.Error(w, "stats not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	var req equipRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.RewardID == "" {
+		http.Error(w, "rewardId is required", http.StatusBadRequest)
+		return
+	}
+
+	loadout, err := s.tracker.Equip(s.rewardRegistry, req.RewardID)
+	if err != nil {
+		if errors.Is(err, gamification.ErrUnknownReward) {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		if errors.Is(err, gamification.ErrNotUnlocked) {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
+		http.Error(w, "equip failed", http.StatusInternalServerError)
+		return
+	}
+
+	// Broadcast the change to all WebSocket clients.
+	s.broadcaster.BroadcastMessage(WSMessage{
+		Type:    MsgEquipped,
+		Payload: EquippedPayload{Loadout: loadout},
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(loadout)
 }
 
 func (s *Server) handleSessionRoutes(w http.ResponseWriter, r *http.Request) {
