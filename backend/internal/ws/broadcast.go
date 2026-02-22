@@ -208,6 +208,11 @@ func (b *Broadcaster) broadcast(msg WSMessage) {
 	}
 }
 
+// BroadcastMessage sends an arbitrary WSMessage to all connected clients.
+func (b *Broadcaster) BroadcastMessage(msg WSMessage) {
+	b.broadcast(msg)
+}
+
 func (b *Broadcaster) ClientCount() int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()

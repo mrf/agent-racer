@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"github.com/agent-racer/backend/internal/gamification"
 	"github.com/agent-racer/backend/internal/session"
 )
 
@@ -10,6 +11,7 @@ const (
 	MsgSnapshot   MessageType = "snapshot"
 	MsgDelta      MessageType = "delta"
 	MsgCompletion MessageType = "completion"
+	MsgEquipped   MessageType = "equipped"
 	MsgError      MessageType = "error"
 )
 
@@ -31,4 +33,8 @@ type CompletionPayload struct {
 	SessionID string           `json:"sessionId"`
 	Activity  session.Activity `json:"activity"`
 	Name      string           `json:"name"`
+}
+
+type EquippedPayload struct {
+	Loadout gamification.Equipped `json:"loadout"`
 }

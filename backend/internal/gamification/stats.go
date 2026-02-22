@@ -153,6 +153,25 @@ func (t *StatsTracker) processEvent(ev session.Event) {
 	t.dirty = true
 }
 
+// Equip validates and equips rewardID using the given registry, persists
+// the change immediately, and returns the updated loadout. It is safe for
+// concurrent use.
+func (t *StatsTracker) Equip(reg *RewardRegistry, rewardID string) (Equipped, error) {
+	t.mu.Lock()
+	if err := reg.Equip(rewardID, t.stats); err != nil {
+		t.mu.Unlock()
+		return Equipped{}, err
+	}
+	equipped := t.stats.Equipped
+	stats := t.stats.clone()
+	t.mu.Unlock()
+
+	if err := t.persist.Save(stats); err != nil {
+		log.Printf("Failed to save stats after equip: %v", err)
+	}
+	return equipped, nil
+}
+
 func (t *StatsTracker) save() {
 	t.mu.Lock()
 	stats := t.stats.clone()
