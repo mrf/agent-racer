@@ -79,6 +79,10 @@ type SourceUpdate struct {
 	// this chunk.
 	SessionID string
 
+	// Slug is the internal session name (e.g. "mighty-cuddling-castle").
+	// Extracted from the JSONL slug field. Empty means not yet seen.
+	Slug string
+
 	// Model is the model identifier seen in the latest parsed entries
 	// (e.g. "claude-opus-4-5-20251101"). Empty means no model info was
 	// found in this chunk.

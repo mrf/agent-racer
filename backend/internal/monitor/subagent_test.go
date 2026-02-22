@@ -803,6 +803,95 @@ func TestPhantomProgressEntriesFiltered(t *testing.T) {
 	}
 }
 
+// TestSessionSlugProgressEntriesFiltered verifies that progress entries
+// whose slug matches the parent session's own slug are not treated as
+// subagents. Claude Code 2.1.50+ emits progress entries for every
+// assistant turn, carrying the session's own slug — these are not real
+// subagent Task tool invocations.
+func TestSessionSlugProgressEntriesFiltered(t *testing.T) {
+	path := writeJSONLLines(t,
+		// Normal user entry that establishes the session slug
+		`{"type":"user","sessionId":"sess-selfslug","slug":"glimmering-beaming-parasol","timestamp":"2026-02-22T12:00:00.000Z","message":{"role":"user","content":[{"type":"text","text":"hello"}]}}`,
+		// Progress entry with the session's own slug — should be skipped
+		`{"type":"progress","toolUseID":"agent_msg_self","parentToolUseID":"toolu_xyz","sessionId":"sess-selfslug","slug":"glimmering-beaming-parasol","timestamp":"2026-02-22T12:00:01.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"tool_use","name":"Bash","id":"b1"}]}}}}`,
+		// Real subagent with a different slug — should be kept
+		`{"type":"progress","toolUseID":"agent_msg_real","parentToolUseID":"toolu_task","sessionId":"sess-selfslug","slug":"twinkly-zooming-backus","timestamp":"2026-02-22T12:00:02.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"text","text":"working"}]}}}}`,
+	)
+
+	result := parseJSONL(t, path)
+
+	if result.Slug != "glimmering-beaming-parasol" {
+		t.Errorf("session Slug = %s, want glimmering-beaming-parasol", result.Slug)
+	}
+
+	if len(result.Subagents) != 1 {
+		t.Fatalf("expected 1 subagent (self-slug filtered), got %d", len(result.Subagents))
+	}
+
+	sub := requireSubagent(t, result, "agent_msg_real")
+	if sub.Slug != "twinkly-zooming-backus" {
+		t.Errorf("Slug = %s, want twinkly-zooming-backus", sub.Slug)
+	}
+
+	if _, exists := result.Subagents["agent_msg_self"]; exists {
+		t.Error("progress entry with session's own slug should be filtered out")
+	}
+}
+
+// TestSluglessProgressEntriesFiltered verifies that progress entries
+// without a slug field are not treated as subagents. Claude Code 2.1.50+
+// emits agent_msg progress entries for every assistant turn; only named
+// subagents (Task tool invocations with a slug) should create hamsters.
+func TestSluglessProgressEntriesFiltered(t *testing.T) {
+	path := writeJSONLLines(t,
+		// Real subagent with slug — should create a subagent entry
+		`{"type":"progress","toolUseID":"agent_msg_real","parentToolUseID":"toolu_task","sessionId":"sess-slug","slug":"code-simplifier","timestamp":"2026-02-22T12:00:00.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"text","text":"simplifying"}]}}}}`,
+		// Generic assistant turn progress — no slug, should be skipped
+		`{"type":"progress","toolUseID":"agent_msg_noise","parentToolUseID":"toolu_other","sessionId":"sess-slug","timestamp":"2026-02-22T12:00:01.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"tool_use","name":"Read","id":"r1"}]}}}}`,
+	)
+
+	result := parseJSONL(t, path)
+
+	if len(result.Subagents) != 1 {
+		t.Fatalf("expected 1 subagent (slugless filtered), got %d", len(result.Subagents))
+	}
+
+	sub := requireSubagent(t, result, "agent_msg_real")
+	if sub.Slug != "code-simplifier" {
+		t.Errorf("Slug = %s, want code-simplifier", sub.Slug)
+	}
+
+	if _, exists := result.Subagents["agent_msg_noise"]; exists {
+		t.Error("slugless progress entry should not create a subagent")
+	}
+}
+
+// TestSluglessProgressUpdatesExistingSubagent verifies that a progress
+// entry without a slug can still update an existing subagent that was
+// already created by an earlier entry with a slug.
+func TestSluglessProgressUpdatesExistingSubagent(t *testing.T) {
+	path := writeJSONLLines(t,
+		// First entry creates the subagent with a slug
+		`{"type":"progress","toolUseID":"agent_msg_sub","parentToolUseID":"toolu_task","sessionId":"sess-update","slug":"my-task","timestamp":"2026-02-22T12:00:00.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"text","text":"start"}]}}}}`,
+		// Second entry has no slug but same toolUseID — should update the existing entry
+		`{"type":"progress","toolUseID":"agent_msg_sub","parentToolUseID":"toolu_task","sessionId":"sess-update","timestamp":"2026-02-22T12:00:01.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"tool_use","name":"Bash","id":"b1"}]}}}}`,
+	)
+
+	result := parseJSONL(t, path)
+
+	if len(result.Subagents) != 1 {
+		t.Fatalf("expected 1 subagent, got %d", len(result.Subagents))
+	}
+
+	sub := requireSubagent(t, result, "agent_msg_sub")
+	if sub.MessageCount != 2 {
+		t.Errorf("MessageCount = %d, want 2 (both entries counted)", sub.MessageCount)
+	}
+	if sub.ToolCalls != 1 {
+		t.Errorf("ToolCalls = %d, want 1", sub.ToolCalls)
+	}
+}
+
 // TestCrossBatchCompletionDetection verifies that a tool_result arriving
 // in a batch with no new progress entries still marks the subagent as
 // completed, using the knownParents map from prior batches.

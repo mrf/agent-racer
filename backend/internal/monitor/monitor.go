@@ -252,6 +252,10 @@ func (m *Monitor) poll() {
 				state.Model = update.Model
 			}
 
+			if update.Slug != "" && state.Slug == "" {
+				state.Slug = update.Slug
+			}
+
 			// Prefer source-reported context ceiling; fall back to config.
 			maxTokens := update.MaxContextTokens
 			if maxTokens == 0 {

@@ -28,6 +28,7 @@ type jsonlEntry struct {
 	Type      string          `json:"type"`
 	UUID      string          `json:"uuid"`
 	SessionID string          `json:"sessionId"`
+	Slug      string          `json:"slug"`
 	Timestamp string          `json:"timestamp"`
 	Cwd       string          `json:"cwd"`
 	Message   json.RawMessage `json:"message"`
@@ -86,6 +87,7 @@ type SubagentParseResult struct {
 
 type ParseResult struct {
 	SessionID    string
+	Slug         string // Internal session name (e.g. "mighty-cuddling-castle")
 	Model        string
 	LatestUsage  *TokenUsage
 	MessageCount int
@@ -200,6 +202,12 @@ func ParseSessionJSONL(path string, offset int64, knownParents map[string]string
 			result.SessionID = entry.SessionID
 		}
 
+		// Capture session slug only from non-progress entries. Progress
+		// entries carry subagent slugs, not the session's own slug.
+		if entry.Slug != "" && result.Slug == "" && entry.Type != "progress" {
+			result.Slug = entry.Slug
+		}
+
 		if entry.Cwd != "" {
 			result.WorkingDir = entry.Cwd
 		}
@@ -279,8 +287,19 @@ func parseProgressEntry(line []byte, result *ParseResult) {
 		return
 	}
 
+	// Claude Code 2.1.50+ emits progress entries for every assistant
+	// message turn (agent_msg_* toolUseID), not just Task tool subagents.
+	// These carry the parent session's own slug. Skip entries that either
+	// have no slug or whose slug matches the session's own slug.
+	if entry.Slug != "" && result.Slug != "" && entry.Slug == result.Slug {
+		return
+	}
+
 	sub, exists := result.Subagents[entry.ToolUseID]
 	if !exists {
+		if entry.Slug == "" {
+			return
+		}
 		sub = &SubagentParseResult{
 			ID:              entry.ToolUseID,
 			ParentToolUseID: entry.ParentToolUseID,

@@ -65,6 +65,7 @@ func (a *Activity) UnmarshalJSON(data []byte) error {
 type SessionState struct {
 	ID                 string          `json:"id"`
 	Name               string          `json:"name"`
+	Slug               string          `json:"slug,omitempty"` // Internal session name (e.g. "mighty-cuddling-castle")
 	Source             string          `json:"source"`
 	Activity           Activity        `json:"activity"`
 	TokensUsed         int             `json:"tokensUsed"`

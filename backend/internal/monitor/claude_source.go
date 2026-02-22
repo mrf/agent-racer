@@ -63,6 +63,7 @@ func (c *ClaudeSource) Parse(handle SessionHandle, offset int64) (SourceUpdate, 
 
 	update := SourceUpdate{
 		SessionID:    result.SessionID,
+		Slug:         result.Slug,
 		Model:        result.Model,
 		MessageCount: result.MessageCount,
 		ToolCalls:    result.ToolCalls,
