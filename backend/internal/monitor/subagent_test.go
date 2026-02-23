@@ -12,7 +12,7 @@ import (
 
 func TestSubagentSingleProgressEntry(t *testing.T) {
 	path := writeJSONLLines(t,
-		`{"type":"progress","toolUseID":"toolu_abc","parentToolUseID":"toolu_parent","sessionId":"sess-1","slug":"explore-codebase","timestamp":"2026-02-20T12:00:00.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-sonnet-4-6-20250514","role":"assistant","content":[{"type":"text","text":"Let me look at the code."},{"type":"tool_use","name":"Grep","id":"inner-1","input":{}}],"usage":{"input_tokens":200,"cache_creation_input_tokens":400,"cache_read_input_tokens":3000,"output_tokens":120}}}}}`,
+		`{"type":"progress","toolUseID":"toolu_abc","parentToolUseID":"toolu_abc","sessionId":"sess-1","slug":"explore-codebase","timestamp":"2026-02-20T12:00:00.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-sonnet-4-6-20250514","role":"assistant","content":[{"type":"text","text":"Let me look at the code."},{"type":"tool_use","name":"Grep","id":"inner-1","input":{}}],"usage":{"input_tokens":200,"cache_creation_input_tokens":400,"cache_read_input_tokens":3000,"output_tokens":120}}}}}`,
 	)
 
 	result := parseJSONL(t, path)
@@ -25,8 +25,8 @@ func TestSubagentSingleProgressEntry(t *testing.T) {
 	if sub.ID != "toolu_abc" {
 		t.Errorf("ID = %s, want toolu_abc", sub.ID)
 	}
-	if sub.ParentToolUseID != "toolu_parent" {
-		t.Errorf("ParentToolUseID = %s, want toolu_parent", sub.ParentToolUseID)
+	if sub.ParentToolUseID != "toolu_abc" {
+		t.Errorf("ParentToolUseID = %s, want toolu_abc", sub.ParentToolUseID)
 	}
 	if sub.Slug != "explore-codebase" {
 		t.Errorf("Slug = %s, want explore-codebase", sub.Slug)
@@ -63,13 +63,13 @@ func TestSubagentSingleProgressEntry(t *testing.T) {
 func TestSubagentMultipleEntriesSameAgent(t *testing.T) {
 	path := writeJSONLLines(t,
 		// assistant with Read tool
-		`{"type":"progress","toolUseID":"toolu_multi","parentToolUseID":"toolu_p1","sessionId":"sess-2","slug":"fix-bug","timestamp":"2026-02-20T14:00:00.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":[{"type":"tool_use","name":"Read","id":"r1"}],"usage":{"input_tokens":100,"cache_creation_input_tokens":200,"cache_read_input_tokens":800,"output_tokens":50}}}}}`,
+		`{"type":"progress","toolUseID":"toolu_multi","parentToolUseID":"toolu_multi","sessionId":"sess-2","slug":"fix-bug","timestamp":"2026-02-20T14:00:00.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":[{"type":"tool_use","name":"Read","id":"r1"}],"usage":{"input_tokens":100,"cache_creation_input_tokens":200,"cache_read_input_tokens":800,"output_tokens":50}}}}}`,
 		// user reply (tool result)
-		`{"type":"progress","toolUseID":"toolu_multi","parentToolUseID":"toolu_p1","sessionId":"sess-2","slug":"fix-bug","timestamp":"2026-02-20T14:00:01.000Z","data":{"message":{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"r1","content":"file contents"}]}}}}`,
+		`{"type":"progress","toolUseID":"toolu_multi","parentToolUseID":"toolu_multi","sessionId":"sess-2","slug":"fix-bug","timestamp":"2026-02-20T14:00:01.000Z","data":{"message":{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"r1","content":"file contents"}]}}}}`,
 		// assistant with Edit tool, updated model and usage
-		`{"type":"progress","toolUseID":"toolu_multi","parentToolUseID":"toolu_p1","sessionId":"sess-2","slug":"fix-bug","timestamp":"2026-02-20T14:00:02.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"text","text":"I see the issue."},{"type":"tool_use","name":"Edit","id":"e1"}],"usage":{"input_tokens":300,"cache_creation_input_tokens":400,"cache_read_input_tokens":2000,"output_tokens":100}}}}}`,
+		`{"type":"progress","toolUseID":"toolu_multi","parentToolUseID":"toolu_multi","sessionId":"sess-2","slug":"fix-bug","timestamp":"2026-02-20T14:00:02.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"text","text":"I see the issue."},{"type":"tool_use","name":"Edit","id":"e1"}],"usage":{"input_tokens":300,"cache_creation_input_tokens":400,"cache_read_input_tokens":2000,"output_tokens":100}}}}}`,
 		// another user reply
-		`{"type":"progress","toolUseID":"toolu_multi","parentToolUseID":"toolu_p1","sessionId":"sess-2","slug":"fix-bug","timestamp":"2026-02-20T14:00:03.000Z","data":{"message":{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"e1","content":"edited"}]}}}}`,
+		`{"type":"progress","toolUseID":"toolu_multi","parentToolUseID":"toolu_multi","sessionId":"sess-2","slug":"fix-bug","timestamp":"2026-02-20T14:00:03.000Z","data":{"message":{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"e1","content":"edited"}]}}}}`,
 	)
 
 	result := parseJSONL(t, path)
@@ -108,13 +108,13 @@ func TestSubagentMultipleEntriesSameAgent(t *testing.T) {
 func TestSubagentMultipleParallelSubagents(t *testing.T) {
 	path := writeJSONLLines(t,
 		// Subagent A: explore agent
-		`{"type":"progress","toolUseID":"toolu_A","parentToolUseID":"toolu_pA","sessionId":"sess-3","slug":"explore-api","timestamp":"2026-02-20T15:00:00.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-haiku-4-5-20251001","role":"assistant","content":[{"type":"tool_use","name":"Glob","id":"g1"}],"usage":{"input_tokens":50,"cache_creation_input_tokens":0,"cache_read_input_tokens":200,"output_tokens":30}}}}}`,
+		`{"type":"progress","toolUseID":"toolu_A","parentToolUseID":"toolu_A","sessionId":"sess-3","slug":"explore-api","timestamp":"2026-02-20T15:00:00.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-haiku-4-5-20251001","role":"assistant","content":[{"type":"tool_use","name":"Glob","id":"g1"}],"usage":{"input_tokens":50,"cache_creation_input_tokens":0,"cache_read_input_tokens":200,"output_tokens":30}}}}}`,
 		// Subagent B: test runner
-		`{"type":"progress","toolUseID":"toolu_B","parentToolUseID":"toolu_pB","sessionId":"sess-3","slug":"run-tests","timestamp":"2026-02-20T15:00:00.500Z","data":{"message":{"type":"assistant","message":{"model":"claude-sonnet-4-6-20250514","role":"assistant","content":[{"type":"tool_use","name":"Bash","id":"b1"}],"usage":{"input_tokens":80,"cache_creation_input_tokens":100,"cache_read_input_tokens":500,"output_tokens":40}}}}}`,
+		`{"type":"progress","toolUseID":"toolu_B","parentToolUseID":"toolu_B","sessionId":"sess-3","slug":"run-tests","timestamp":"2026-02-20T15:00:00.500Z","data":{"message":{"type":"assistant","message":{"model":"claude-sonnet-4-6-20250514","role":"assistant","content":[{"type":"tool_use","name":"Bash","id":"b1"}],"usage":{"input_tokens":80,"cache_creation_input_tokens":100,"cache_read_input_tokens":500,"output_tokens":40}}}}}`,
 		// Subagent A: user reply
-		`{"type":"progress","toolUseID":"toolu_A","parentToolUseID":"toolu_pA","sessionId":"sess-3","slug":"explore-api","timestamp":"2026-02-20T15:00:01.000Z","data":{"message":{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"g1","content":"files found"}]}}}}`,
+		`{"type":"progress","toolUseID":"toolu_A","parentToolUseID":"toolu_A","sessionId":"sess-3","slug":"explore-api","timestamp":"2026-02-20T15:00:01.000Z","data":{"message":{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"g1","content":"files found"}]}}}}`,
 		// Subagent B: user reply
-		`{"type":"progress","toolUseID":"toolu_B","parentToolUseID":"toolu_pB","sessionId":"sess-3","slug":"run-tests","timestamp":"2026-02-20T15:00:01.500Z","data":{"message":{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"b1","content":"tests passed"}]}}}}`,
+		`{"type":"progress","toolUseID":"toolu_B","parentToolUseID":"toolu_B","sessionId":"sess-3","slug":"run-tests","timestamp":"2026-02-20T15:00:01.500Z","data":{"message":{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"b1","content":"tests passed"}]}}}}`,
 	)
 
 	result := parseJSONL(t, path)
@@ -140,8 +140,8 @@ func TestSubagentMultipleParallelSubagents(t *testing.T) {
 	if subA.LastTool != "Glob" {
 		t.Errorf("A.LastTool = %s, want Glob", subA.LastTool)
 	}
-	if subA.ParentToolUseID != "toolu_pA" {
-		t.Errorf("A.ParentToolUseID = %s, want toolu_pA", subA.ParentToolUseID)
+	if subA.ParentToolUseID != "toolu_A" {
+		t.Errorf("A.ParentToolUseID = %s, want toolu_A", subA.ParentToolUseID)
 	}
 
 	if subB.Slug != "run-tests" {
@@ -159,8 +159,8 @@ func TestSubagentMultipleParallelSubagents(t *testing.T) {
 	if subB.LastTool != "Bash" {
 		t.Errorf("B.LastTool = %s, want Bash", subB.LastTool)
 	}
-	if subB.ParentToolUseID != "toolu_pB" {
-		t.Errorf("B.ParentToolUseID = %s, want toolu_pB", subB.ParentToolUseID)
+	if subB.ParentToolUseID != "toolu_B" {
+		t.Errorf("B.ParentToolUseID = %s, want toolu_B", subB.ParentToolUseID)
 	}
 
 	if subA.LastActivity != "waiting" {
@@ -185,14 +185,14 @@ func TestSubagentCompletion(t *testing.T) {
 		{
 			name:      "matching tool_result marks subagent completed",
 			toolUseID: "toolu_done",
-			parentID:  "toolu_task_invoke",
-			resultID:  "toolu_task_invoke",
+			parentID:  "toolu_done",
+			resultID:  "toolu_done",
 			wantDone:  true,
 		},
 		{
 			name:      "non-matching tool_result leaves subagent incomplete",
 			toolUseID: "toolu_still_running",
-			parentID:  "toolu_my_task",
+			parentID:  "toolu_still_running",
 			resultID:  "toolu_unrelated",
 			wantDone:  false,
 		},
@@ -216,11 +216,11 @@ func TestSubagentCompletion(t *testing.T) {
 
 func TestSubagentCompletionSelectiveMatch(t *testing.T) {
 	path := writeJSONLLines(t,
-		`{"type":"progress","toolUseID":"toolu_X","parentToolUseID":"toolu_taskX","sessionId":"sess-6","slug":"task-x","timestamp":"2026-02-20T17:00:00.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":[{"type":"text","text":"x"}]}}}}`,
-		`{"type":"progress","toolUseID":"toolu_Y","parentToolUseID":"toolu_taskY","sessionId":"sess-6","slug":"task-y","timestamp":"2026-02-20T17:00:01.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":[{"type":"text","text":"y"}]}}}}`,
-		`{"type":"progress","toolUseID":"toolu_Z","parentToolUseID":"toolu_taskZ","sessionId":"sess-6","slug":"task-z","timestamp":"2026-02-20T17:00:02.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":[{"type":"text","text":"z"}]}}}}`,
-		// Only subagent Y's parent gets a tool_result
-		`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_taskY","content":"y done"}]},"sessionId":"sess-6","timestamp":"2026-02-20T17:00:10.000Z"}`,
+		`{"type":"progress","toolUseID":"toolu_X","parentToolUseID":"toolu_X","sessionId":"sess-6","slug":"task-x","timestamp":"2026-02-20T17:00:00.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":[{"type":"text","text":"x"}]}}}}`,
+		`{"type":"progress","toolUseID":"toolu_Y","parentToolUseID":"toolu_Y","sessionId":"sess-6","slug":"task-y","timestamp":"2026-02-20T17:00:01.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":[{"type":"text","text":"y"}]}}}}`,
+		`{"type":"progress","toolUseID":"toolu_Z","parentToolUseID":"toolu_Z","sessionId":"sess-6","slug":"task-z","timestamp":"2026-02-20T17:00:02.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":[{"type":"text","text":"z"}]}}}}`,
+		// Only subagent Y gets a tool_result
+		`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_Y","content":"y done"}]},"sessionId":"sess-6","timestamp":"2026-02-20T17:00:10.000Z"}`,
 	)
 
 	result := parseJSONL(t, path)
@@ -244,8 +244,8 @@ func TestSubagentIncrementalParsingAccumulates(t *testing.T) {
 	path := filepath.Join(dir, "test-session.jsonl")
 
 	chunk1 :=
-		`{"type":"progress","toolUseID":"toolu_inc","parentToolUseID":"toolu_pinc","sessionId":"sess-7","slug":"incremental","timestamp":"2026-02-20T18:00:00.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":[{"type":"tool_use","name":"Read","id":"r1"}],"usage":{"input_tokens":100,"cache_creation_input_tokens":50,"cache_read_input_tokens":400,"output_tokens":30}}}}}` + "\n" +
-		`{"type":"progress","toolUseID":"toolu_inc","parentToolUseID":"toolu_pinc","sessionId":"sess-7","slug":"incremental","timestamp":"2026-02-20T18:00:01.000Z","data":{"message":{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"r1","content":"data"}]}}}}` + "\n"
+		`{"type":"progress","toolUseID":"toolu_inc","parentToolUseID":"toolu_inc","sessionId":"sess-7","slug":"incremental","timestamp":"2026-02-20T18:00:00.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":[{"type":"tool_use","name":"Read","id":"r1"}],"usage":{"input_tokens":100,"cache_creation_input_tokens":50,"cache_read_input_tokens":400,"output_tokens":30}}}}}` + "\n" +
+		`{"type":"progress","toolUseID":"toolu_inc","parentToolUseID":"toolu_inc","sessionId":"sess-7","slug":"incremental","timestamp":"2026-02-20T18:00:01.000Z","data":{"message":{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"r1","content":"data"}]}}}}` + "\n"
 
 	if err := os.WriteFile(path, []byte(chunk1), 0644); err != nil {
 		t.Fatal(err)
@@ -267,8 +267,8 @@ func TestSubagentIncrementalParsingAccumulates(t *testing.T) {
 	}
 
 	chunk2 :=
-		`{"type":"progress","toolUseID":"toolu_inc","parentToolUseID":"toolu_pinc","sessionId":"sess-7","slug":"incremental","timestamp":"2026-02-20T18:00:02.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":[{"type":"tool_use","name":"Write","id":"w1"},{"type":"tool_use","name":"Bash","id":"b1"}],"usage":{"input_tokens":250,"cache_creation_input_tokens":100,"cache_read_input_tokens":1200,"output_tokens":80}}}}}` + "\n" +
-		`{"type":"progress","toolUseID":"toolu_inc","parentToolUseID":"toolu_pinc","sessionId":"sess-7","slug":"incremental","timestamp":"2026-02-20T18:00:03.000Z","data":{"message":{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"w1","content":"written"}]}}}}` + "\n"
+		`{"type":"progress","toolUseID":"toolu_inc","parentToolUseID":"toolu_inc","sessionId":"sess-7","slug":"incremental","timestamp":"2026-02-20T18:00:02.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":[{"type":"tool_use","name":"Write","id":"w1"},{"type":"tool_use","name":"Bash","id":"b1"}],"usage":{"input_tokens":250,"cache_creation_input_tokens":100,"cache_read_input_tokens":1200,"output_tokens":80}}}}}` + "\n" +
+		`{"type":"progress","toolUseID":"toolu_inc","parentToolUseID":"toolu_inc","sessionId":"sess-7","slug":"incremental","timestamp":"2026-02-20T18:00:03.000Z","data":{"message":{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"w1","content":"written"}]}}}}` + "\n"
 
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
@@ -775,31 +775,35 @@ func TestClassifySubagentActivity(t *testing.T) {
 	}
 }
 
-// TestPhantomProgressEntriesFiltered verifies that progress entries where
-// toolUseID == parentToolUseID are skipped. These are phantom entries
-// emitted for tool calls within subagent sessions, not real subagents.
-func TestPhantomProgressEntriesFiltered(t *testing.T) {
+// TestSameIDProgressEntriesAccepted verifies that progress entries where
+// toolUseID == parentToolUseID are accepted when they carry a distinct
+// slug. Claude Code always emits toolUseID == parentToolUseID for all
+// progress entries, including real Task tool subagents. The slug filter
+// and slugless filter handle distinguishing self-progress from subagents.
+func TestSameIDProgressEntriesAccepted(t *testing.T) {
 	path := writeJSONLLines(t,
-		// Real subagent: toolUseID != parentToolUseID
-		`{"type":"progress","toolUseID":"agent_abc","parentToolUseID":"toolu_parent","sessionId":"sess-phantom","slug":"real-agent","timestamp":"2026-02-20T12:00:00.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"text","text":"working"}]}}}}`,
-		// Phantom: toolUseID == parentToolUseID (tool call within subagent)
-		`{"type":"progress","toolUseID":"toolu_phantom","parentToolUseID":"toolu_phantom","sessionId":"sess-phantom","slug":"phantom-agent","timestamp":"2026-02-20T12:00:01.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"tool_use","name":"Read","id":"r1"}]}}}}`,
+		// Establish session slug via a user entry
+		`{"type":"user","sessionId":"sess-sameid","slug":"parent-session-slug","timestamp":"2026-02-20T11:59:00.000Z","message":{"role":"user","content":[{"type":"text","text":"hello"}]}}`,
+		// Real subagent: toolUseID == parentToolUseID, different slug
+		`{"type":"progress","toolUseID":"toolu_sub1","parentToolUseID":"toolu_sub1","sessionId":"sess-sameid","slug":"real-agent","timestamp":"2026-02-20T12:00:00.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"text","text":"working"}]}}}}`,
+		// Self-progress: toolUseID == parentToolUseID, same slug as session
+		`{"type":"progress","toolUseID":"toolu_self","parentToolUseID":"toolu_self","sessionId":"sess-sameid","slug":"parent-session-slug","timestamp":"2026-02-20T12:00:01.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"tool_use","name":"Read","id":"r1"}]}}}}`,
 	)
 
 	result := parseJSONL(t, path)
 
 	if len(result.Subagents) != 1 {
-		t.Fatalf("expected 1 subagent (phantom filtered), got %d", len(result.Subagents))
+		t.Fatalf("expected 1 subagent, got %d", len(result.Subagents))
 	}
 
-	sub := requireSubagent(t, result, "agent_abc")
+	sub := requireSubagent(t, result, "toolu_sub1")
 	if sub.Slug != "real-agent" {
 		t.Errorf("Slug = %s, want real-agent", sub.Slug)
 	}
 
-	// Ensure the phantom is not present
-	if _, exists := result.Subagents["toolu_phantom"]; exists {
-		t.Error("phantom entry (toolUseID == parentToolUseID) should be filtered out")
+	// Self-progress entry (same slug as session) should not create a subagent
+	if _, exists := result.Subagents["toolu_self"]; exists {
+		t.Error("self-progress entry (same slug as session) should be filtered out")
 	}
 }
 
@@ -813,9 +817,9 @@ func TestSessionSlugProgressEntriesFiltered(t *testing.T) {
 		// Normal user entry that establishes the session slug
 		`{"type":"user","sessionId":"sess-selfslug","slug":"glimmering-beaming-parasol","timestamp":"2026-02-22T12:00:00.000Z","message":{"role":"user","content":[{"type":"text","text":"hello"}]}}`,
 		// Progress entry with the session's own slug — should be skipped
-		`{"type":"progress","toolUseID":"agent_msg_self","parentToolUseID":"toolu_xyz","sessionId":"sess-selfslug","slug":"glimmering-beaming-parasol","timestamp":"2026-02-22T12:00:01.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"tool_use","name":"Bash","id":"b1"}]}}}}`,
+		`{"type":"progress","toolUseID":"agent_msg_self","parentToolUseID":"agent_msg_self","sessionId":"sess-selfslug","slug":"glimmering-beaming-parasol","timestamp":"2026-02-22T12:00:01.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"tool_use","name":"Bash","id":"b1"}]}}}}`,
 		// Real subagent with a different slug — should be kept
-		`{"type":"progress","toolUseID":"agent_msg_real","parentToolUseID":"toolu_task","sessionId":"sess-selfslug","slug":"twinkly-zooming-backus","timestamp":"2026-02-22T12:00:02.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"text","text":"working"}]}}}}`,
+		`{"type":"progress","toolUseID":"agent_msg_real","parentToolUseID":"agent_msg_real","sessionId":"sess-selfslug","slug":"twinkly-zooming-backus","timestamp":"2026-02-22T12:00:02.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"text","text":"working"}]}}}}`,
 	)
 
 	result := parseJSONL(t, path)
@@ -845,9 +849,9 @@ func TestSessionSlugProgressEntriesFiltered(t *testing.T) {
 func TestSluglessProgressEntriesFiltered(t *testing.T) {
 	path := writeJSONLLines(t,
 		// Real subagent with slug — should create a subagent entry
-		`{"type":"progress","toolUseID":"agent_msg_real","parentToolUseID":"toolu_task","sessionId":"sess-slug","slug":"code-simplifier","timestamp":"2026-02-22T12:00:00.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"text","text":"simplifying"}]}}}}`,
+		`{"type":"progress","toolUseID":"agent_msg_real","parentToolUseID":"agent_msg_real","sessionId":"sess-slug","slug":"code-simplifier","timestamp":"2026-02-22T12:00:00.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"text","text":"simplifying"}]}}}}`,
 		// Generic assistant turn progress — no slug, should be skipped
-		`{"type":"progress","toolUseID":"agent_msg_noise","parentToolUseID":"toolu_other","sessionId":"sess-slug","timestamp":"2026-02-22T12:00:01.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"tool_use","name":"Read","id":"r1"}]}}}}`,
+		`{"type":"progress","toolUseID":"agent_msg_noise","parentToolUseID":"agent_msg_noise","sessionId":"sess-slug","timestamp":"2026-02-22T12:00:01.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"tool_use","name":"Read","id":"r1"}]}}}}`,
 	)
 
 	result := parseJSONL(t, path)
@@ -872,9 +876,9 @@ func TestSluglessProgressEntriesFiltered(t *testing.T) {
 func TestSluglessProgressUpdatesExistingSubagent(t *testing.T) {
 	path := writeJSONLLines(t,
 		// First entry creates the subagent with a slug
-		`{"type":"progress","toolUseID":"agent_msg_sub","parentToolUseID":"toolu_task","sessionId":"sess-update","slug":"my-task","timestamp":"2026-02-22T12:00:00.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"text","text":"start"}]}}}}`,
+		`{"type":"progress","toolUseID":"agent_msg_sub","parentToolUseID":"agent_msg_sub","sessionId":"sess-update","slug":"my-task","timestamp":"2026-02-22T12:00:00.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"text","text":"start"}]}}}}`,
 		// Second entry has no slug but same toolUseID — should update the existing entry
-		`{"type":"progress","toolUseID":"agent_msg_sub","parentToolUseID":"toolu_task","sessionId":"sess-update","timestamp":"2026-02-22T12:00:01.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"tool_use","name":"Bash","id":"b1"}]}}}}`,
+		`{"type":"progress","toolUseID":"agent_msg_sub","parentToolUseID":"agent_msg_sub","sessionId":"sess-update","timestamp":"2026-02-22T12:00:01.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"tool_use","name":"Bash","id":"b1"}]}}}}`,
 	)
 
 	result := parseJSONL(t, path)
@@ -901,8 +905,8 @@ func TestCrossBatchCompletionDetection(t *testing.T) {
 
 	// Batch 1: subagent appears via progress entries.
 	chunk1 :=
-		`{"type":"progress","toolUseID":"agent_1","parentToolUseID":"toolu_task1","sessionId":"sess-xbatch","slug":"my-task","timestamp":"2026-02-20T12:00:00.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"tool_use","name":"Bash","id":"b1"}]}}}}` + "\n" +
-		`{"type":"progress","toolUseID":"agent_1","parentToolUseID":"toolu_task1","sessionId":"sess-xbatch","slug":"my-task","timestamp":"2026-02-20T12:00:01.000Z","data":{"message":{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"b1","content":"ok"}]}}}}` + "\n"
+		`{"type":"progress","toolUseID":"agent_1","parentToolUseID":"agent_1","sessionId":"sess-xbatch","slug":"my-task","timestamp":"2026-02-20T12:00:00.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"tool_use","name":"Bash","id":"b1"}]}}}}` + "\n" +
+		`{"type":"progress","toolUseID":"agent_1","parentToolUseID":"agent_1","sessionId":"sess-xbatch","slug":"my-task","timestamp":"2026-02-20T12:00:01.000Z","data":{"message":{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"b1","content":"ok"}]}}}}` + "\n"
 
 	if err := os.WriteFile(path, []byte(chunk1), 0644); err != nil {
 		t.Fatal(err)
@@ -920,7 +924,7 @@ func TestCrossBatchCompletionDetection(t *testing.T) {
 	// Batch 2: tool_result arrives with no new progress entries.
 	// The knownParents map tells the parser about "agent_1".
 	chunk2 :=
-		`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_task1","content":"task done"}]},"sessionId":"sess-xbatch","timestamp":"2026-02-20T12:00:15.000Z"}` + "\n"
+		`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"agent_1","content":"task done"}]},"sessionId":"sess-xbatch","timestamp":"2026-02-20T12:00:15.000Z"}` + "\n"
 
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
@@ -931,7 +935,7 @@ func TestCrossBatchCompletionDetection(t *testing.T) {
 
 	// Pass knownParents from batch 1's results.
 	knownParents := map[string]string{
-		"toolu_task1": "agent_1", // parentToolUseID → toolUseID
+		"agent_1": "agent_1", // parentToolUseID → toolUseID (same in real JSONL)
 	}
 
 	result2, offset2, err := ParseSessionJSONL(path, offset1, knownParents)
@@ -955,13 +959,13 @@ func TestCrossBatchCompletionDetection(t *testing.T) {
 func TestCrossBatchCompletionDoesNotOverrideCurrentBatch(t *testing.T) {
 	path := writeJSONLLines(t,
 		// Progress and completion in the same batch
-		`{"type":"progress","toolUseID":"agent_2","parentToolUseID":"toolu_task2","sessionId":"sess-same","slug":"same-batch","timestamp":"2026-02-20T12:00:00.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"text","text":"done"}]}}}}`,
-		`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_task2","content":"result"}]},"sessionId":"sess-same","timestamp":"2026-02-20T12:00:01.000Z"}`,
+		`{"type":"progress","toolUseID":"agent_2","parentToolUseID":"agent_2","sessionId":"sess-same","slug":"same-batch","timestamp":"2026-02-20T12:00:00.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"text","text":"done"}]}}}}`,
+		`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"agent_2","content":"result"}]},"sessionId":"sess-same","timestamp":"2026-02-20T12:00:01.000Z"}`,
 	)
 
 	// Even with knownParents, the current batch's entry should be used
 	knownParents := map[string]string{
-		"toolu_task2": "agent_2",
+		"agent_2": "agent_2",
 	}
 
 	result, _, err := ParseSessionJSONL(path, 0, knownParents)

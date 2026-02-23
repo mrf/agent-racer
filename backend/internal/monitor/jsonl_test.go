@@ -382,7 +382,7 @@ func requireSubagent(t *testing.T, result *ParseResult, toolUseID string) *Subag
 func TestParseProgressEntry(t *testing.T) {
 	t.Run("assistant message with tool use", func(t *testing.T) {
 		path := writeJSONLLines(t,
-			`{"type":"progress","toolUseID":"tool-1","parentToolUseID":"parent-1","sessionId":"test-sub","slug":"my-subagent","timestamp":"2026-01-30T10:00:00.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":[{"type":"tool_use","name":"Read","id":"sub-tool-1"}],"usage":{"input_tokens":50,"cache_creation_input_tokens":100,"cache_read_input_tokens":500,"output_tokens":25}}}}}`,
+			`{"type":"progress","toolUseID":"tool-1","parentToolUseID":"tool-1","sessionId":"test-sub","slug":"my-subagent","timestamp":"2026-01-30T10:00:00.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":[{"type":"tool_use","name":"Read","id":"sub-tool-1"}],"usage":{"input_tokens":50,"cache_creation_input_tokens":100,"cache_read_input_tokens":500,"output_tokens":25}}}}}`,
 		)
 
 		result := parseJSONL(t, path)
@@ -395,8 +395,8 @@ func TestParseProgressEntry(t *testing.T) {
 		if sub.ID != "tool-1" {
 			t.Errorf("ID = %s, want tool-1", sub.ID)
 		}
-		if sub.ParentToolUseID != "parent-1" {
-			t.Errorf("ParentToolUseID = %s, want parent-1", sub.ParentToolUseID)
+		if sub.ParentToolUseID != "tool-1" {
+			t.Errorf("ParentToolUseID = %s, want tool-1", sub.ParentToolUseID)
 		}
 		if sub.Slug != "my-subagent" {
 			t.Errorf("Slug = %s, want my-subagent", sub.Slug)
@@ -426,7 +426,7 @@ func TestParseProgressEntry(t *testing.T) {
 
 	t.Run("user message sets waiting activity", func(t *testing.T) {
 		path := writeJSONLLines(t,
-			`{"type":"progress","toolUseID":"tool-2","parentToolUseID":"parent-2","sessionId":"test-sub","slug":"subagent-2","timestamp":"2026-01-30T10:00:01.000Z","data":{"message":{"type":"user","message":{"role":"user","content":[{"type":"text","text":"do something"}]}}}}`,
+			`{"type":"progress","toolUseID":"tool-2","parentToolUseID":"tool-2","sessionId":"test-sub","slug":"subagent-2","timestamp":"2026-01-30T10:00:01.000Z","data":{"message":{"type":"user","message":{"role":"user","content":[{"type":"text","text":"do something"}]}}}}`,
 		)
 
 		sub := requireSubagent(t, parseJSONL(t, path), "tool-2")
@@ -441,7 +441,7 @@ func TestParseProgressEntry(t *testing.T) {
 
 	t.Run("null data creates subagent without messages", func(t *testing.T) {
 		path := writeJSONLLines(t,
-			`{"type":"progress","toolUseID":"tool-6","parentToolUseID":"parent-6","sessionId":"test-sub","slug":"no-data","timestamp":"2026-01-30T10:00:00.000Z","data":null}`,
+			`{"type":"progress","toolUseID":"tool-6","parentToolUseID":"tool-6","sessionId":"test-sub","slug":"no-data","timestamp":"2026-01-30T10:00:00.000Z","data":null}`,
 		)
 
 		sub := requireSubagent(t, parseJSONL(t, path), "tool-6")
@@ -459,7 +459,7 @@ func TestParseProgressEntry(t *testing.T) {
 
 	t.Run("timestamp parsing", func(t *testing.T) {
 		path := writeJSONLLines(t,
-			`{"type":"progress","toolUseID":"tool-7","parentToolUseID":"parent-7","sessionId":"test-sub","slug":"timestamp-test","timestamp":"2026-02-20T15:30:45.123456789Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":[]}}}}`,
+			`{"type":"progress","toolUseID":"tool-7","parentToolUseID":"tool-7","sessionId":"test-sub","slug":"timestamp-test","timestamp":"2026-02-20T15:30:45.123456789Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":[]}}}}`,
 		)
 
 		sub := requireSubagent(t, parseJSONL(t, path), "tool-7")
@@ -481,11 +481,11 @@ func TestParseProgressEntry(t *testing.T) {
 func TestParseMultipleProgressEntries(t *testing.T) {
 	path := writeJSONLLines(t,
 		// assistant with Read tool
-		`{"type":"progress","toolUseID":"tool-3","parentToolUseID":"parent-3","sessionId":"test-sub","slug":"my-task","timestamp":"2026-01-30T10:00:00.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":[{"type":"tool_use","name":"Read","id":"t1"}],"usage":{"input_tokens":100,"cache_creation_input_tokens":200,"cache_read_input_tokens":1000,"output_tokens":50}}}}}`,
+		`{"type":"progress","toolUseID":"tool-3","parentToolUseID":"tool-3","sessionId":"test-sub","slug":"my-task","timestamp":"2026-01-30T10:00:00.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":[{"type":"tool_use","name":"Read","id":"t1"}],"usage":{"input_tokens":100,"cache_creation_input_tokens":200,"cache_read_input_tokens":1000,"output_tokens":50}}}}}`,
 		// user reply
-		`{"type":"progress","toolUseID":"tool-3","parentToolUseID":"parent-3","sessionId":"test-sub","slug":"my-task","timestamp":"2026-01-30T10:00:01.000Z","data":{"message":{"type":"user","message":{"role":"user","content":[{"type":"text","text":"continue"}]}}}}`,
+		`{"type":"progress","toolUseID":"tool-3","parentToolUseID":"tool-3","sessionId":"test-sub","slug":"my-task","timestamp":"2026-01-30T10:00:01.000Z","data":{"message":{"type":"user","message":{"role":"user","content":[{"type":"text","text":"continue"}]}}}}`,
 		// assistant with Write tool
-		`{"type":"progress","toolUseID":"tool-3","parentToolUseID":"parent-3","sessionId":"test-sub","slug":"my-task","timestamp":"2026-01-30T10:00:02.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":[{"type":"tool_use","name":"Write","id":"t2"}],"usage":{"input_tokens":150,"cache_creation_input_tokens":250,"cache_read_input_tokens":1500,"output_tokens":75}}}}}`,
+		`{"type":"progress","toolUseID":"tool-3","parentToolUseID":"tool-3","sessionId":"test-sub","slug":"my-task","timestamp":"2026-01-30T10:00:02.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":[{"type":"tool_use","name":"Write","id":"t2"}],"usage":{"input_tokens":150,"cache_creation_input_tokens":250,"cache_read_input_tokens":1500,"output_tokens":75}}}}}`,
 	)
 
 	result := parseJSONL(t, path)
@@ -528,14 +528,14 @@ func TestCheckSubagentCompletion(t *testing.T) {
 		{
 			name:      "matching tool_result marks subagent completed",
 			toolUseID: "tool-4",
-			parentID:  "task-1",
-			resultID:  "task-1",
+			parentID:  "tool-4",
+			resultID:  "tool-4",
 			wantDone:  true,
 		},
 		{
 			name:      "non-matching tool_result leaves subagent incomplete",
 			toolUseID: "tool-5",
-			parentID:  "task-2",
+			parentID:  "tool-5",
 			resultID:  "wrong-id",
 			wantDone:  false,
 		},
@@ -562,7 +562,7 @@ func TestCheckSubagentCompletion(t *testing.T) {
 func TestMultipleSubagentsIncrementalParsing(t *testing.T) {
 	path := writeJSONLLines(t,
 		`{"type":"user","message":{"role":"user","content":[{"type":"text","text":"start"}]},"sessionId":"sess-1","timestamp":"2026-01-30T10:00:00.000Z"}`,
-		`{"type":"progress","toolUseID":"sub-1","parentToolUseID":"parent-1","sessionId":"sess-1","slug":"sub1","timestamp":"2026-01-30T10:00:01.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":[{"type":"text","text":"working"}]}}}}`,
+		`{"type":"progress","toolUseID":"sub-1","parentToolUseID":"sub-1","sessionId":"sess-1","slug":"sub1","timestamp":"2026-01-30T10:00:01.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":[{"type":"text","text":"working"}]}}}}`,
 	)
 
 	result1, offset1, err := ParseSessionJSONL(path, 0, nil)
@@ -578,7 +578,7 @@ func TestMultipleSubagentsIncrementalParsing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.WriteString(`{"type":"progress","toolUseID":"sub-2","parentToolUseID":"parent-2","sessionId":"sess-1","slug":"sub2","timestamp":"2026-01-30T10:00:02.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":[{"type":"text","text":"also working"}]}}}}` + "\n")
+	f.WriteString(`{"type":"progress","toolUseID":"sub-2","parentToolUseID":"sub-2","sessionId":"sess-1","slug":"sub2","timestamp":"2026-01-30T10:00:02.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":[{"type":"text","text":"also working"}]}}}}` + "\n")
 	f.Close()
 
 	result2, offset2, err := ParseSessionJSONL(path, offset1, nil)
@@ -603,11 +603,11 @@ func TestMultipleSubagentsIncrementalParsing(t *testing.T) {
 func TestSubagentActivityTransitions(t *testing.T) {
 	path := writeJSONLLines(t,
 		// thinking (text-only assistant message)
-		`{"type":"progress","toolUseID":"tool-8","parentToolUseID":"parent-8","sessionId":"test-sub","slug":"activity-test","timestamp":"2026-01-30T10:00:00.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":[{"type":"text","text":"thinking"}]}}}}`,
+		`{"type":"progress","toolUseID":"tool-8","parentToolUseID":"tool-8","sessionId":"test-sub","slug":"activity-test","timestamp":"2026-01-30T10:00:00.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":[{"type":"text","text":"thinking"}]}}}}`,
 		// tool_use
-		`{"type":"progress","toolUseID":"tool-8","parentToolUseID":"parent-8","sessionId":"test-sub","slug":"activity-test","timestamp":"2026-01-30T10:00:01.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":[{"type":"tool_use","name":"Read","id":"t1"}]}}}}`,
+		`{"type":"progress","toolUseID":"tool-8","parentToolUseID":"tool-8","sessionId":"test-sub","slug":"activity-test","timestamp":"2026-01-30T10:00:01.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":[{"type":"tool_use","name":"Read","id":"t1"}]}}}}`,
 		// waiting (user message)
-		`{"type":"progress","toolUseID":"tool-8","parentToolUseID":"parent-8","sessionId":"test-sub","slug":"activity-test","timestamp":"2026-01-30T10:00:02.000Z","data":{"message":{"type":"user","message":{"role":"user","content":[{"type":"text","text":"waiting for input"}]}}}}`,
+		`{"type":"progress","toolUseID":"tool-8","parentToolUseID":"tool-8","sessionId":"test-sub","slug":"activity-test","timestamp":"2026-01-30T10:00:02.000Z","data":{"message":{"type":"user","message":{"role":"user","content":[{"type":"text","text":"waiting for input"}]}}}}`,
 	)
 
 	sub := requireSubagent(t, parseJSONL(t, path), "tool-8")

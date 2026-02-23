@@ -49,7 +49,9 @@ type contentBlock struct {
 }
 
 // progressEntry is the top-level structure for type:"progress" JSONL entries
-// emitted by Claude Code subagents. These share the parent's JSONL file.
+// emitted by Claude Code. These appear in the parent's JSONL file for both
+// self-progress (assistant turns) and subagent progress (Task tool invocations).
+// In both cases, ToolUseID == ParentToolUseID; the slug field distinguishes them.
 type progressEntry struct {
 	Type            string          `json:"type"`
 	ToolUseID       string          `json:"toolUseID"`
@@ -281,22 +283,17 @@ func parseProgressEntry(line []byte, result *ParseResult) {
 	if err := json.Unmarshal(line, &entry); err != nil || entry.ToolUseID == "" {
 		return
 	}
-	// Phantom entries: tool calls within subagent sessions emit progress
-	// with toolUseID == parentToolUseID. These are not real subagents.
-	if entry.ParentToolUseID != "" && entry.ToolUseID == entry.ParentToolUseID {
-		return
-	}
-
-	// Claude Code 2.1.50+ emits progress entries for every assistant
-	// message turn (agent_msg_* toolUseID), not just Task tool subagents.
-	// These carry the parent session's own slug. Skip entries that either
-	// have no slug or whose slug matches the session's own slug.
+	// Claude Code emits progress entries for every assistant turn,
+	// not just Task tool subagents. Self-progress entries carry the
+	// session's own slug. Skip entries whose slug matches the session slug.
 	if entry.Slug != "" && result.Slug != "" && entry.Slug == result.Slug {
 		return
 	}
 
 	sub, exists := result.Subagents[entry.ToolUseID]
 	if !exists {
+		// Only create new subagents from entries that carry a slug.
+		// Slugless entries are generic assistant-turn progress, not Task tool invocations.
 		if entry.Slug == "" {
 			return
 		}
@@ -385,7 +382,7 @@ func checkSubagentCompletion(raw json.RawMessage, result *ParseResult, knownPare
 		return
 	}
 
-	// Build a reverse lookup: parentToolUseID → subagent toolUseID
+	// Build a lookup: parentToolUseID → subagent toolUseID
 	parentToSub := make(map[string]string, len(result.Subagents)+len(knownParents))
 	for id, sub := range result.Subagents {
 		if sub.ParentToolUseID != "" {
@@ -432,11 +429,9 @@ func checkSubagentCompletion(raw json.RawMessage, result *ParseResult, knownPare
 }
 
 func encodeProjectPath(path string) string {
-	// Claude Code uses a simple encoding: replace / with -
-	// But leading / is also replaced, so /home/user/proj becomes -home-user-proj
-	clean := filepath.Clean(path)
-	encoded := strings.ReplaceAll(clean, "/", "-")
-	return encoded
+	// Claude Code encodes project paths by replacing / with -.
+	// Leading / is also replaced, so /home/user/proj becomes -home-user-proj.
+	return strings.ReplaceAll(filepath.Clean(path), "/", "-")
 }
 
 func FindAllSessionFiles(workingDir string) ([]string, error) {
