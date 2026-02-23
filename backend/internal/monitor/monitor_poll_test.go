@@ -26,7 +26,7 @@ func (s *testSource) Discover() ([]SessionHandle, error) {
 }
 
 func (s *testSource) Parse(handle SessionHandle, offset int64) (SourceUpdate, int64, error) {
-	result, newOffset, err := ParseSessionJSONL(handle.LogPath, offset, handle.KnownSubagentParents)
+	result, newOffset, err := ParseSessionJSONL(handle.LogPath, offset, handle.KnownSlug, handle.KnownSubagentParents)
 	if err != nil {
 		return SourceUpdate{}, offset, err
 	}

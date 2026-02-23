@@ -138,11 +138,14 @@ func FindSessionFile(workingDir string) (string, error) {
 }
 
 // ParseSessionJSONL incrementally parses a Claude JSONL session file from
-// the given byte offset. knownParents maps parentToolUseID → toolUseID for
-// subagents already tracked in the session state, enabling cross-batch
-// completion detection when a tool_result arrives in a batch with no new
-// progress entries. Pass nil when no prior subagent state exists.
-func ParseSessionJSONL(path string, offset int64, knownParents map[string]string) (*ParseResult, int64, error) {
+// the given byte offset. knownSlug is the session's slug from a previous
+// parse batch — it seeds the result so incremental batches can filter
+// self-progress even when no non-progress entries appear. knownParents
+// maps parentToolUseID → toolUseID for subagents already tracked in the
+// session state, enabling cross-batch completion detection when a
+// tool_result arrives in a batch with no new progress entries. Pass ""
+// and nil when no prior state exists.
+func ParseSessionJSONL(path string, offset int64, knownSlug string, knownParents map[string]string) (*ParseResult, int64, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, offset, err
@@ -156,6 +159,7 @@ func ParseSessionJSONL(path string, offset int64, knownParents map[string]string
 	}
 
 	result := &ParseResult{
+		Slug:      knownSlug,
 		Subagents: make(map[string]*SubagentParseResult),
 	}
 	reader := bufio.NewReader(f)

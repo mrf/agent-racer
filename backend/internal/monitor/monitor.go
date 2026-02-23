@@ -159,6 +159,7 @@ func (m *Monitor) poll() {
 			}
 
 			oldOffset := ts.fileOffset
+			ts.handle.KnownSlug = m.knownSlug(key)
 			ts.handle.KnownSubagentParents = m.knownSubagentParents(key)
 			update, newOffset, err := src.Parse(ts.handle, ts.fileOffset)
 			if err != nil {
@@ -818,6 +819,18 @@ func mergeSubagents(state *session.SessionState, parsed map[string]*SubagentPars
 		}
 	}
 	state.Subagents = state.Subagents[:n]
+}
+
+// knownSlug returns the session's slug from the store, or "" if unknown.
+// The monitor passes this into ParseSessionJSONL so that incremental
+// batches (which may contain only progress entries) can filter
+// self-progress even when no non-progress entries set the slug.
+func (m *Monitor) knownSlug(storeKey string) string {
+	state, ok := m.store.Get(storeKey)
+	if !ok {
+		return ""
+	}
+	return state.Slug
 }
 
 // knownSubagentParents builds a parentToolUseID -> toolUseID map from the

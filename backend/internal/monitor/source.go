@@ -63,6 +63,12 @@ type SessionHandle struct {
 	// means unknown.
 	StartedAt time.Time
 
+	// KnownSlug is the session's slug from a previous parse batch.
+	// Populated by the monitor before each Parse call so that
+	// incremental batches (which may contain only progress entries)
+	// can still filter self-progress by slug.
+	KnownSlug string
+
 	// KnownSubagentParents maps parentToolUseID → toolUseID for
 	// subagents already tracked in the session state. Populated by the
 	// monitor before each Parse call to enable cross-batch completion

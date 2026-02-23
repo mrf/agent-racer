@@ -251,7 +251,7 @@ func TestSubagentIncrementalParsingAccumulates(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result1, offset1, err := ParseSessionJSONL(path, 0, nil)
+	result1, offset1, err := ParseSessionJSONL(path, 0, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -280,7 +280,7 @@ func TestSubagentIncrementalParsingAccumulates(t *testing.T) {
 	}
 	f.Close()
 
-	result2, offset2, err := ParseSessionJSONL(path, offset1, nil)
+	result2, offset2, err := ParseSessionJSONL(path, offset1, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -896,6 +896,61 @@ func TestSluglessProgressUpdatesExistingSubagent(t *testing.T) {
 	}
 }
 
+// TestIncrementalBashProgressFiltered verifies that bash-progress entries
+// (toolUseID != parentToolUseID but slug == session slug) are filtered out
+// even in incremental batches where no non-progress entries set result.Slug.
+// This is a regression test for the phantom subagent bug where incremental
+// parsing lost the session slug.
+func TestIncrementalBashProgressFiltered(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test-session.jsonl")
+
+	// Batch 1: normal session entries establish the slug.
+	chunk1 :=
+		`{"type":"user","message":{"role":"user","content":[{"type":"text","text":"hello"}]},"sessionId":"sess-bash","slug":"my-session","timestamp":"2026-02-23T10:00:00.000Z"}` + "\n" +
+		`{"type":"assistant","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"tool_use","name":"Bash","id":"toolu_abc"}]},"sessionId":"sess-bash","slug":"my-session","timestamp":"2026-02-23T10:00:01.000Z"}` + "\n"
+
+	if err := os.WriteFile(path, []byte(chunk1), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result1, offset1, err := ParseSessionJSONL(path, 0, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result1.Slug != "my-session" {
+		t.Fatalf("batch 1: Slug = %q, want my-session", result1.Slug)
+	}
+	if len(result1.Subagents) != 0 {
+		t.Fatalf("batch 1: expected 0 subagents, got %d", len(result1.Subagents))
+	}
+
+	// Batch 2: only bash-progress entries (slug matches session, toolUseID != parentToolUseID).
+	// Without the knownSlug fix, these leak through as phantom subagents.
+	chunk2 :=
+		`{"type":"progress","toolUseID":"bash-progress-0","parentToolUseID":"toolu_abc","sessionId":"sess-bash","slug":"my-session","timestamp":"2026-02-23T10:00:02.000Z","data":null}` + "\n" +
+		`{"type":"progress","toolUseID":"bash-progress-1","parentToolUseID":"toolu_abc","sessionId":"sess-bash","slug":"my-session","timestamp":"2026-02-23T10:00:03.000Z","data":null}` + "\n"
+
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.WriteString(chunk2)
+	f.Close()
+
+	// Pass knownSlug from batch 1 to seed the incremental parse.
+	result2, _, err := ParseSessionJSONL(path, offset1, result1.Slug, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result2.Subagents) != 0 {
+		t.Errorf("batch 2: expected 0 subagents (bash-progress filtered), got %d", len(result2.Subagents))
+		for id, sub := range result2.Subagents {
+			t.Logf("  phantom: id=%s slug=%s", id, sub.Slug)
+		}
+	}
+}
+
 // TestCrossBatchCompletionDetection verifies that a tool_result arriving
 // in a batch with no new progress entries still marks the subagent as
 // completed, using the knownParents map from prior batches.
@@ -912,7 +967,7 @@ func TestCrossBatchCompletionDetection(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result1, offset1, err := ParseSessionJSONL(path, 0, nil)
+	result1, offset1, err := ParseSessionJSONL(path, 0, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -938,7 +993,7 @@ func TestCrossBatchCompletionDetection(t *testing.T) {
 		"agent_1": "agent_1", // parentToolUseID → toolUseID (same in real JSONL)
 	}
 
-	result2, offset2, err := ParseSessionJSONL(path, offset1, knownParents)
+	result2, offset2, err := ParseSessionJSONL(path, offset1, "", knownParents)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -968,7 +1023,7 @@ func TestCrossBatchCompletionDoesNotOverrideCurrentBatch(t *testing.T) {
 		"agent_2": "agent_2",
 	}
 
-	result, _, err := ParseSessionJSONL(path, 0, knownParents)
+	result, _, err := ParseSessionJSONL(path, 0, "", knownParents)
 	if err != nil {
 		t.Fatal(err)
 	}
