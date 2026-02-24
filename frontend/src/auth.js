@@ -1,4 +1,4 @@
-const params = new URLSearchParams(location.search);
+const params = new URLSearchParams(typeof location !== 'undefined' ? location.search : '');
 const authToken = params.get('token') || '';
 
 /** Wraps fetch, injecting an Authorization header when a token is configured. */
