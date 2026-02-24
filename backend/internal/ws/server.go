@@ -147,9 +147,15 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 			log.Printf("WebSocket client disconnected: %s", r.RemoteAddr)
 		}()
 		for {
-			_, _, err := conn.ReadMessage()
+			_, msg, err := conn.ReadMessage()
 			if err != nil {
 				return
+			}
+			var req struct {
+				Type string `json:"type"`
+			}
+			if json.Unmarshal(msg, &req) == nil && req.Type == "resync" {
+				s.broadcaster.SendSnapshot(c)
 			}
 		}
 	}()

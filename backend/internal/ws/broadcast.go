@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/agent-racer/backend/internal/session"
@@ -55,6 +56,7 @@ type Broadcaster struct {
 	flushTimer     *time.Timer
 	flushMu        sync.Mutex
 	healthHook     func() []SourceHealthPayload
+	seq            atomic.Uint64
 }
 
 func NewBroadcaster(store *session.Store, throttle, snapshotInterval time.Duration, maxConns int) *Broadcaster {
@@ -104,13 +106,7 @@ func (b *Broadcaster) AddClient(conn *websocket.Conn) (*client, error) {
 	b.clients[c] = true
 	b.mu.Unlock()
 
-	data, _ := json.Marshal(b.snapshotMessage())
-
-	select {
-	case c.send <- data:
-	default:
-		// Client too slow, drop the snapshot
-	}
+	b.SendSnapshot(c)
 
 	return c, nil
 }
@@ -215,6 +211,7 @@ func (b *Broadcaster) snapshotMessage() WSMessage {
 }
 
 func (b *Broadcaster) broadcast(msg WSMessage) {
+	msg.Seq = b.seq.Add(1)
 	data, err := json.Marshal(msg)
 	if err != nil {
 		log.Printf("broadcast marshal error: %v", err)
@@ -236,6 +233,21 @@ func (b *Broadcaster) broadcast(msg WSMessage) {
 			log.Printf("ws client too slow, disconnecting")
 			b.RemoveClient(c)
 		}
+	}
+}
+
+// SendSnapshot sends a sequenced snapshot to a single client.
+func (b *Broadcaster) SendSnapshot(c *client) {
+	msg := b.snapshotMessage()
+	msg.Seq = b.seq.Add(1)
+	data, err := json.Marshal(msg)
+	if err != nil {
+		log.Printf("snapshot marshal error: %v", err)
+		return
+	}
+	select {
+	case c.send <- data:
+	default:
 	}
 }
 
