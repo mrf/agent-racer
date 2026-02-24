@@ -1,5 +1,5 @@
 import { Hamster } from './Hamster.js';
-import { getEquippedPaint } from '../gamification/CosmeticRegistry.js';
+import { getEquippedPaint, getEquippedBody } from '../gamification/CosmeticRegistry.js';
 
 const MODEL_COLORS = {
   'claude-opus-4-5-20251101': { main: '#a855f7', dark: '#7c3aed', light: '#c084fc', name: 'Opus' },
@@ -90,6 +90,19 @@ function hexToRgb(hex) {
 function lightenHex(hex, amount) {
   const { r, g, b } = hexToRgb(hex);
   return `rgb(${Math.min(255, r + amount)},${Math.min(255, g + amount)},${Math.min(255, b + amount)})`;
+}
+
+/**
+ * Returns the index of the vertex with the smallest y value (visually highest).
+ * @param {Array<{x: number, y: number}>} verts
+ * @returns {number}
+ */
+function findTopmostIndex(verts) {
+  let idx = 0;
+  for (let i = 1; i < verts.length; i++) {
+    if (verts[i].y < verts[idx].y) idx = i;
+  }
+  return idx;
 }
 
 /**
@@ -701,18 +714,23 @@ export class Racer {
     } else {
       ctx.fillStyle = bodyColor;
     }
+    const bodyVerts = getEquippedBody(L);
     ctx.beginPath();
-    ctx.moveTo(x - 17 - L, y + 2);    // rear bottom (limo)
-    ctx.lineTo(x - 17 - L, y - 3);    // rear face
-    ctx.lineTo(x - 13 - L, y - 7);    // rear roofline
-    ctx.lineTo(x - 4 - L, y - 9);     // roof
-    ctx.lineTo(x + 3, y - 9);         // roof front
-    ctx.lineTo(x + 9, y - 5);         // windshield slope
-    ctx.lineTo(x + 15, y - 3);        // hood
-    ctx.lineTo(x + 21, y - 1);        // nose top
-    ctx.quadraticCurveTo(x + 23, y, x + 21, y + 1); // nose tip curve
-    ctx.lineTo(x + 18, y + 2);        // front bottom
-    ctx.closePath();                    // flat underbody
+    if (bodyVerts) {
+      this._tracePolygon(ctx, x, y, bodyVerts);
+    } else {
+      ctx.moveTo(x - 17 - L, y + 2);    // rear bottom (limo)
+      ctx.lineTo(x - 17 - L, y - 3);    // rear face
+      ctx.lineTo(x - 13 - L, y - 7);    // rear roofline
+      ctx.lineTo(x - 4 - L, y - 9);     // roof
+      ctx.lineTo(x + 3, y - 9);         // roof front
+      ctx.lineTo(x + 9, y - 5);         // windshield slope
+      ctx.lineTo(x + 15, y - 3);        // hood
+      ctx.lineTo(x + 21, y - 1);        // nose top
+      ctx.quadraticCurveTo(x + 23, y, x + 21, y + 1); // nose tip curve
+      ctx.lineTo(x + 18, y + 2);        // front bottom
+    }
+    ctx.closePath();
     ctx.fill();
 
     // Body outline
@@ -723,11 +741,22 @@ export class Racer {
     // Lower panel / side skirt (darker shade for depth)
     ctx.fillStyle = color.dark;
     ctx.beginPath();
-    ctx.moveTo(x - 17 - L, y + 2);
-    ctx.lineTo(x - 17 - L, y);
-    ctx.lineTo(x + 19, y);
-    ctx.lineTo(x + 21, y + 1);
-    ctx.lineTo(x + 18, y + 2);
+    if (bodyVerts) {
+      const rear = bodyVerts[0];
+      const front = bodyVerts[bodyVerts.length - 1];
+      const frontPrev = bodyVerts[bodyVerts.length - 2];
+      ctx.moveTo(x + rear.x, y + rear.y);
+      ctx.lineTo(x + rear.x, y);
+      ctx.lineTo(x + frontPrev.x, y);
+      ctx.lineTo(x + frontPrev.x, y + frontPrev.y);
+      ctx.lineTo(x + front.x, y + front.y);
+    } else {
+      ctx.moveTo(x - 17 - L, y + 2);
+      ctx.lineTo(x - 17 - L, y);
+      ctx.lineTo(x + 19, y);
+      ctx.lineTo(x + 21, y + 1);
+      ctx.lineTo(x + 18, y + 2);
+    }
     ctx.closePath();
     ctx.fill();
 
@@ -735,9 +764,19 @@ export class Racer {
     ctx.strokeStyle = lightenHex(color.main, 35);
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(x - 12 - L, y - 7);
-    ctx.lineTo(x - 4 - L, y - 9);
-    ctx.lineTo(x + 3, y - 9);
+    if (bodyVerts) {
+      const topIdx = findTopmostIndex(bodyVerts);
+      const start = Math.max(0, topIdx - 1);
+      const end = Math.min(bodyVerts.length - 1, topIdx + 1);
+      ctx.moveTo(x + bodyVerts[start].x, y + bodyVerts[start].y);
+      for (let i = start + 1; i <= end; i++) {
+        ctx.lineTo(x + bodyVerts[i].x, y + bodyVerts[i].y);
+      }
+    } else {
+      ctx.moveTo(x - 12 - L, y - 7);
+      ctx.lineTo(x - 4 - L, y - 9);
+      ctx.lineTo(x + 3, y - 9);
+    }
     ctx.stroke();
 
     // Racing stripe (paint overrides: racing_stripe uses white, gold_stripe uses gold)
@@ -749,71 +788,80 @@ export class Racer {
       ctx.lineWidth = 1.5;
     }
     ctx.beginPath();
-    ctx.moveTo(x - 15 - L, y - 2);
-    ctx.lineTo(x + 19, y - 2);
+    if (bodyVerts) {
+      ctx.moveTo(x + bodyVerts[0].x + 2, y - 2);
+      ctx.lineTo(x + bodyVerts[bodyVerts.length - 2].x, y - 2);
+    } else {
+      ctx.moveTo(x - 15 - L, y - 2);
+      ctx.lineTo(x + 19, y - 2);
+    }
     ctx.stroke();
 
-    // Windshield (side view)
-    ctx.fillStyle = 'rgba(100,180,255,0.3)';
-    ctx.beginPath();
-    ctx.moveTo(x + 3, y - 9);
-    ctx.lineTo(x + 9, y - 5);
-    ctx.lineTo(x + 9, y);
-    ctx.lineTo(x + 3, y);
-    ctx.closePath();
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(180,210,255,0.3)';
-    ctx.lineWidth = 0.5;
-    ctx.stroke();
-
-    // Limo passenger windows along the stretched body
-    const winY = y - 7;
-    const winH = 5;
-    const winW = 6;
-    const winGap = 2;
-    const winStartX = x - L + 2;
-    const numWindows = Math.floor((L - 4) / (winW + winGap));
-    ctx.fillStyle = 'rgba(100,180,255,0.25)';
-    for (let i = 0; i < numWindows; i++) {
-      const wx = winStartX + i * (winW + winGap);
-      const wr = 1.5;
+    // Windshield, limo windows, and chrome trim — skip for custom bodies
+    if (!bodyVerts) {
+      ctx.fillStyle = 'rgba(100,180,255,0.3)';
       ctx.beginPath();
-      ctx.moveTo(wx + wr, winY);
-      ctx.lineTo(wx + winW - wr, winY);
-      ctx.quadraticCurveTo(wx + winW, winY, wx + winW, winY + wr);
-      ctx.lineTo(wx + winW, winY + winH - wr);
-      ctx.quadraticCurveTo(wx + winW, winY + winH, wx + winW - wr, winY + winH);
-      ctx.lineTo(wx + wr, winY + winH);
-      ctx.quadraticCurveTo(wx, winY + winH, wx, winY + winH - wr);
-      ctx.lineTo(wx, winY + wr);
-      ctx.quadraticCurveTo(wx, winY, wx + wr, winY);
+      ctx.moveTo(x + 3, y - 9);
+      ctx.lineTo(x + 9, y - 5);
+      ctx.lineTo(x + 9, y);
+      ctx.lineTo(x + 3, y);
       ctx.closePath();
       ctx.fill();
-    }
-    // Chrome trim along window line
-    ctx.strokeStyle = 'rgba(200,200,220,0.5)';
-    ctx.lineWidth = 0.5;
-    ctx.beginPath();
-    ctx.moveTo(x - L + 1, winY + winH + 1);
-    ctx.lineTo(x + 2, winY + winH + 1);
-    ctx.stroke();
+      ctx.strokeStyle = 'rgba(180,210,255,0.3)';
+      ctx.lineWidth = 0.5;
+      ctx.stroke();
 
-    // Headlight
+      // Limo passenger windows along the stretched body
+      const winY = y - 7;
+      const winH = 5;
+      const winW = 6;
+      const winGap = 2;
+      const winStartX = x - L + 2;
+      const numWindows = Math.floor((L - 4) / (winW + winGap));
+      ctx.fillStyle = 'rgba(100,180,255,0.25)';
+      for (let i = 0; i < numWindows; i++) {
+        const wx = winStartX + i * (winW + winGap);
+        const wr = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(wx + wr, winY);
+        ctx.lineTo(wx + winW - wr, winY);
+        ctx.quadraticCurveTo(wx + winW, winY, wx + winW, winY + wr);
+        ctx.lineTo(wx + winW, winY + winH - wr);
+        ctx.quadraticCurveTo(wx + winW, winY + winH, wx + winW - wr, winY + winH);
+        ctx.lineTo(wx + wr, winY + winH);
+        ctx.quadraticCurveTo(wx, winY + winH, wx, winY + winH - wr);
+        ctx.lineTo(wx, winY + wr);
+        ctx.quadraticCurveTo(wx, winY, wx + wr, winY);
+        ctx.closePath();
+        ctx.fill();
+      }
+      // Chrome trim along window line
+      ctx.strokeStyle = 'rgba(200,200,220,0.5)';
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      ctx.moveTo(x - L + 1, winY + winH + 1);
+      ctx.lineTo(x + 2, winY + winH + 1);
+      ctx.stroke();
+    }
+
+    // Headlight — position at front of body
+    const headlightX = bodyVerts ? bodyVerts[bodyVerts.length - 2].x : 20;
     ctx.fillStyle = 'rgba(255,255,220,0.7)';
     ctx.beginPath();
-    ctx.arc(x + 20, y, 2, 0, Math.PI * 2);
+    ctx.arc(x + headlightX, y, 2, 0, Math.PI * 2);
     ctx.fill();
 
-    // Taillight
+    // Taillight — position at rear of body
+    const rearX = bodyVerts ? bodyVerts[1].x : -17 - L;
     ctx.fillStyle = 'rgba(255,30,30,0.7)';
     ctx.beginPath();
-    ctx.arc(x - 17 - L, y - 1, 2, 0, Math.PI * 2);
+    ctx.arc(x + rearX, y - 1, 2, 0, Math.PI * 2);
     ctx.fill();
 
     // Exhaust pipe
     ctx.fillStyle = '#333';
     ctx.beginPath();
-    ctx.arc(x - 17 - L, y + 1, 1.5, 0, Math.PI * 2);
+    ctx.arc(x + rearX, y + 1, 1.5, 0, Math.PI * 2);
     ctx.fill();
 
     // X overlay for errored stage 3
@@ -831,6 +879,13 @@ export class Racer {
     }
 
     ctx.restore();
+  }
+
+  _tracePolygon(ctx, cx, cy, verts) {
+    ctx.moveTo(cx + verts[0].x, cy + verts[0].y);
+    for (let i = 1; i < verts.length; i++) {
+      ctx.lineTo(cx + verts[i].x, cy + verts[i].y);
+    }
   }
 
   _drawWheel(ctx, cx, cy, r) {
