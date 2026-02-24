@@ -120,7 +120,7 @@ func newTestHandle(sessionID, logPath, workingDir string, startedAt time.Time) S
 // wired to the given test source and config overrides.
 func newPollTestMonitor(src *testSource, cfg *config.Config) (*Monitor, *session.Store, *ws.Broadcaster) {
 	store := session.NewStore()
-	broadcaster := ws.NewBroadcaster(store, 50*time.Millisecond, 10*time.Second)
+	broadcaster := ws.NewBroadcaster(store, 50*time.Millisecond, 10*time.Second, 0)
 	m := NewMonitor(cfg, store, broadcaster, []Source{src})
 	return m, store, broadcaster
 }

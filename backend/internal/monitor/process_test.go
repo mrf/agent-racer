@@ -216,7 +216,7 @@ func TestActivityByDir_MultipleDirectories(t *testing.T) {
 
 func TestChurningAppliedToActiveSessions(t *testing.T) {
 	store := session.NewStore()
-	broadcaster := ws.NewBroadcaster(store, 100*time.Millisecond, 5*time.Second)
+	broadcaster := ws.NewBroadcaster(store, 100*time.Millisecond, 5*time.Second, 0)
 
 	cfg := &config.Config{
 		Monitor: config.MonitorConfig{

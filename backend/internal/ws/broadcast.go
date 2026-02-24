@@ -2,6 +2,7 @@ package ws
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"sync"
 	"time"
@@ -9,6 +10,10 @@ import (
 	"github.com/agent-racer/backend/internal/session"
 	"github.com/gorilla/websocket"
 )
+
+// ErrTooManyConnections is returned by AddClient when the maximum number of
+// concurrent WebSocket connections has been reached.
+var ErrTooManyConnections = errors.New("too many WebSocket connections")
 
 type client struct {
 	conn *websocket.Conn
@@ -40,6 +45,7 @@ func (c *client) close() {
 type Broadcaster struct {
 	mu             sync.RWMutex
 	clients        map[*client]bool
+	maxConns       int
 	store          *session.Store
 	privacy        *session.PrivacyFilter
 	throttle       time.Duration
@@ -50,9 +56,10 @@ type Broadcaster struct {
 	flushMu        sync.Mutex
 }
 
-func NewBroadcaster(store *session.Store, throttle, snapshotInterval time.Duration) *Broadcaster {
+func NewBroadcaster(store *session.Store, throttle, snapshotInterval time.Duration, maxConns int) *Broadcaster {
 	b := &Broadcaster{
 		clients:  make(map[*client]bool),
+		maxConns: maxConns,
 		store:    store,
 		privacy:  &session.PrivacyFilter{},
 		throttle: throttle,
@@ -76,10 +83,17 @@ func (b *Broadcaster) FilterSessions(sessions []*session.SessionState) []*sessio
 	return b.privacy.FilterSlice(sessions)
 }
 
-func (b *Broadcaster) AddClient(conn *websocket.Conn) *client {
-	c := newClient(conn)
-
+func (b *Broadcaster) AddClient(conn *websocket.Conn) (*client, error) {
 	b.mu.Lock()
+	if b.maxConns > 0 && len(b.clients) >= b.maxConns {
+		b.mu.Unlock()
+		conn.WriteMessage(websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseTryAgainLater, "too many connections"))
+		conn.Close()
+		return nil, ErrTooManyConnections
+	}
+
+	c := newClient(conn)
 	b.clients[c] = true
 	b.mu.Unlock()
 
@@ -97,7 +111,7 @@ func (b *Broadcaster) AddClient(conn *websocket.Conn) *client {
 		// Client too slow, drop the snapshot
 	}
 
-	return c
+	return c, nil
 }
 
 func (b *Broadcaster) RemoveClient(c *client) {
