@@ -1,3 +1,5 @@
+import { getEquippedBadge, getEquippedTitle } from '../gamification/CosmeticRegistry.js';
+
 const DASHBOARD_GAP = 30;
 const DASHBOARD_PADDING = { top: 20, bottom: 20, left: 20, right: 20 };
 const STATS_HEIGHT = 40;
@@ -149,8 +151,9 @@ export class Dashboard {
     // Column layout
     const cols = {
       rank: x + 20,
-      name: x + 50,
-      model: x + width * 0.35,
+      badge: x + 46,
+      name: x + 68,
+      model: x + width * 0.38,
       tokens: x + width * 0.52,
       bar: x + width * 0.64,
       barWidth: width * 0.22,
@@ -166,6 +169,7 @@ export class Dashboard {
     ctx.fillText('#', cols.rank, y + LEADERBOARD_HEADER_HEIGHT / 2);
     ctx.fillText('SESSION', cols.name, y + LEADERBOARD_HEADER_HEIGHT / 2);
     ctx.fillText('MODEL', cols.model, y + LEADERBOARD_HEADER_HEIGHT / 2);
+    // Badge header intentionally blank — emoji column is self-explanatory
     ctx.fillText('TOKENS', cols.tokens, y + LEADERBOARD_HEADER_HEIGHT / 2);
     ctx.fillText('CONTEXT', cols.bar, y + LEADERBOARD_HEADER_HEIGHT / 2);
     ctx.textAlign = 'right';
@@ -180,18 +184,22 @@ export class Dashboard {
     ctx.lineTo(x + width - 10, y + LEADERBOARD_HEADER_HEIGHT);
     ctx.stroke();
 
+    // Resolve cosmetics once (global, not per-session)
+    const badge = getEquippedBadge();
+    const title = getEquippedTitle();
+
     // Rows
     const rowsStartY = y + LEADERBOARD_HEADER_HEIGHT;
     for (let i = 0; i < rows.length; i++) {
       const rowY = rowsStartY + i * LEADERBOARD_ROW_HEIGHT + LEADERBOARD_ROW_HEIGHT / 2;
       if (rowY - y > maxHeight) break;
-      this._drawLeaderboardRow(ctx, cols, rowY, i + 1, rows[i]);
+      this._drawLeaderboardRow(ctx, cols, rowY, i + 1, rows[i], badge, title);
     }
 
     ctx.textBaseline = 'alphabetic';
   }
 
-  _drawLeaderboardRow(ctx, cols, cy, rank, session) {
+  _drawLeaderboardRow(ctx, cols, cy, rank, session, badge, title) {
     const util = session.contextUtilization || 0;
     const pct = (util * 100).toFixed(0);
     const isTerminal = TERMINAL_ACTIVITIES.has(session.activity);
@@ -206,6 +214,13 @@ export class Dashboard {
     ctx.textBaseline = 'middle';
     ctx.fillText(`${rank}`, cols.rank + 16, cy);
 
+    // Badge
+    if (badge) {
+      ctx.font = '13px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(badge.emoji, cols.badge, cy);
+    }
+
     // Activity dot
     const dotColor = ACTIVITY_COLORS[session.activity] || '#4b5563';
     ctx.beginPath();
@@ -213,11 +228,19 @@ export class Dashboard {
     ctx.fillStyle = dotColor;
     ctx.fill();
 
-    // Session name
-    ctx.fillStyle = '#bbb';
+    // Session name (with optional title prefix)
     ctx.font = '12px Courier New';
     ctx.textAlign = 'left';
-    ctx.fillText(shortName(session.name), cols.name, cy);
+    if (title) {
+      ctx.fillStyle = '#d4a017';
+      ctx.fillText(title, cols.name, cy);
+      const titleWidth = ctx.measureText(title + ' ').width;
+      ctx.fillStyle = '#bbb';
+      ctx.fillText(shortName(session.name, 18), cols.name + titleWidth, cy);
+    } else {
+      ctx.fillStyle = '#bbb';
+      ctx.fillText(shortName(session.name), cols.name, cy);
+    }
 
     // Model
     ctx.fillStyle = '#666';
