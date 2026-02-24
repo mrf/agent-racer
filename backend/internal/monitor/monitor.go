@@ -62,7 +62,9 @@ type Monitor struct {
 	removedKeys      map[string]bool // keys removed from store; prevents re-creation while file is still discovered
 	prevCPU          map[int]cpuSample
 	lastProcessPoll  time.Time
-	statsEvents      chan<- session.Event // nil disables stats event emission
+	statsEvents      chan<- session.Event       // nil disables stats event emission
+	statsDropped     int64                      // events dropped since last log
+	statsLastDropLog time.Time                  // last time a drop was logged
 	health           map[string]*sourceHealth   // keyed by source name
 }
 
@@ -96,7 +98,8 @@ func (m *Monitor) SetStatsEvents(ch chan<- session.Event) {
 
 // emitEvent sends a session event to the stats channel if configured.
 // Uses non-blocking send to avoid stalling the monitor if the consumer
-// falls behind.
+// falls behind. Dropped events are counted and logged at most once per
+// 10 seconds to avoid log spam under sustained backpressure.
 func (m *Monitor) emitEvent(evType session.EventType, state *session.SessionState) {
 	if m.statsEvents == nil {
 		return
@@ -109,7 +112,13 @@ func (m *Monitor) emitEvent(evType session.EventType, state *session.SessionStat
 		ActiveCount: m.store.ActiveCount(),
 	}:
 	default:
-		log.Printf("Stats event dropped (channel full)")
+		m.statsDropped++
+		now := time.Now()
+		if m.statsLastDropLog.IsZero() || now.Sub(m.statsLastDropLog) >= 10*time.Second {
+			log.Printf("Stats events dropped: %d (channel full)", m.statsDropped)
+			m.statsDropped = 0
+			m.statsLastDropLog = now
+		}
 	}
 }
 

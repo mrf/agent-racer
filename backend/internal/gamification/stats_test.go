@@ -17,7 +17,7 @@ func startTracker(t *testing.T) (*StatsTracker, chan<- session.Event) {
 	t.Helper()
 	dir := t.TempDir()
 	store := NewStore(dir)
-	tracker, eventCh, err := NewStatsTracker(store)
+	tracker, eventCh, err := NewStatsTracker(store, 0)
 	if err != nil {
 		t.Fatalf("NewStatsTracker error: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestStatsTracker_NewStatsTracker_LoadsExistingStats(t *testing.T) {
 	}
 
 	// Create tracker - should load existing stats
-	tracker, _, err := NewStatsTracker(store)
+	tracker, _, err := NewStatsTracker(store, 0)
 	if err != nil {
 		t.Fatalf("NewStatsTracker error: %v", err)
 	}
@@ -444,7 +444,7 @@ func TestStatsTracker_Stats_ReturnsCopy(t *testing.T) {
 func TestStatsTracker_DebouncedSave(t *testing.T) {
 	dir := t.TempDir()
 	store := NewStore(dir)
-	tracker, eventCh, err := NewStatsTracker(store)
+	tracker, eventCh, err := NewStatsTracker(store, 0)
 	if err != nil {
 		t.Fatalf("NewStatsTracker error: %v", err)
 	}
@@ -489,7 +489,7 @@ func TestStatsTracker_DebouncedSave(t *testing.T) {
 func TestStatsTracker_SavesOnContextCancel(t *testing.T) {
 	dir := t.TempDir()
 	store := NewStore(dir)
-	tracker, eventCh, err := NewStatsTracker(store)
+	tracker, eventCh, err := NewStatsTracker(store, 0)
 	if err != nil {
 		t.Fatalf("NewStatsTracker error: %v", err)
 	}

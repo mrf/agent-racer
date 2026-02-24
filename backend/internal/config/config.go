@@ -103,6 +103,7 @@ type MonitorConfig struct {
 	ChurningCPUThreshold    float64       `yaml:"churning_cpu_threshold"`
 	ChurningRequiresNetwork bool          `yaml:"churning_requires_network"`
 	HealthWarningThreshold  int           `yaml:"health_warning_threshold"`
+	StatsEventBuffer        int           `yaml:"stats_event_buffer"`
 }
 
 type SoundConfig struct {
@@ -158,6 +159,7 @@ func defaultConfig() *Config {
 			ChurningCPUThreshold:    15.0,
 			ChurningRequiresNetwork: false,
 			HealthWarningThreshold:  3,
+			StatsEventBuffer:        256,
 		},
 		Sources: SourcesConfig{
 			Claude: true,

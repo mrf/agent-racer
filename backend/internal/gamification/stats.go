@@ -9,7 +9,10 @@ import (
 	"github.com/agent-racer/backend/internal/session"
 )
 
-const saveInterval = 30 * time.Second
+const (
+	saveInterval           = 30 * time.Second
+	defaultEventBufferSize = 256
+)
 
 // AchievementCallback is invoked for each newly unlocked achievement.
 // It receives the achievement and the associated reward (if any).
@@ -34,13 +37,17 @@ type StatsTracker struct {
 
 // NewStatsTracker creates a StatsTracker backed by the given persistence store.
 // It loads existing stats from disk and returns a send-only channel for the
-// monitor to deliver events on. The caller must run Run in a goroutine.
-func NewStatsTracker(persist *Store) (*StatsTracker, chan<- session.Event, error) {
+// monitor to deliver events on. bufferSize controls the channel capacity;
+// values <= 0 use defaultEventBufferSize. The caller must run Run in a goroutine.
+func NewStatsTracker(persist *Store, bufferSize int) (*StatsTracker, chan<- session.Event, error) {
+	if bufferSize <= 0 {
+		bufferSize = defaultEventBufferSize
+	}
 	stats, err := persist.Load()
 	if err != nil {
 		return nil, nil, err
 	}
-	ch := make(chan session.Event, 256)
+	ch := make(chan session.Event, bufferSize)
 	t := &StatsTracker{
 		persist:           persist,
 		stats:             stats,
