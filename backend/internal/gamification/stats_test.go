@@ -17,7 +17,7 @@ func startTracker(t *testing.T) (*StatsTracker, chan<- session.Event) {
 	t.Helper()
 	dir := t.TempDir()
 	store := NewStore(dir)
-	tracker, eventCh, err := NewStatsTracker(store)
+	tracker, eventCh, err := NewStatsTracker(store, nil)
 	if err != nil {
 		t.Fatalf("NewStatsTracker error: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestStatsTracker_NewStatsTracker_LoadsExistingStats(t *testing.T) {
 	}
 
 	// Create tracker - should load existing stats
-	tracker, _, err := NewStatsTracker(store)
+	tracker, _, err := NewStatsTracker(store, nil)
 	if err != nil {
 		t.Fatalf("NewStatsTracker error: %v", err)
 	}
@@ -444,7 +444,7 @@ func TestStatsTracker_Stats_ReturnsCopy(t *testing.T) {
 func TestStatsTracker_DebouncedSave(t *testing.T) {
 	dir := t.TempDir()
 	store := NewStore(dir)
-	tracker, eventCh, err := NewStatsTracker(store)
+	tracker, eventCh, err := NewStatsTracker(store, nil)
 	if err != nil {
 		t.Fatalf("NewStatsTracker error: %v", err)
 	}
@@ -489,7 +489,7 @@ func TestStatsTracker_DebouncedSave(t *testing.T) {
 func TestStatsTracker_SavesOnContextCancel(t *testing.T) {
 	dir := t.TempDir()
 	store := NewStore(dir)
-	tracker, eventCh, err := NewStatsTracker(store)
+	tracker, eventCh, err := NewStatsTracker(store, nil)
 	if err != nil {
 		t.Fatalf("NewStatsTracker error: %v", err)
 	}
@@ -562,5 +562,179 @@ func TestStatsTracker_ThreadSafety(t *testing.T) {
 	stats := tracker.Stats()
 	if stats.TotalSessions != numGoroutines*eventsPerGoroutine {
 		t.Errorf("TotalSessions = %d, want %d", stats.TotalSessions, numGoroutines*eventsPerGoroutine)
+	}
+}
+
+func TestSeasonRotation_ArchivesOldSeason(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStore(dir)
+
+	// Pre-populate with season progress.
+	initial := newStats()
+	initial.BattlePass = BattlePass{Season: "2025-06", Tier: 7, XP: 4200}
+	initial.AchievementsUnlocked["first_lap"] = time.Now()
+	if err := store.Save(initial); err != nil {
+		t.Fatalf("Save error: %v", err)
+	}
+
+	// Create tracker with a new season.
+	sc := &SeasonConfig{Enabled: true, Season: "2025-07"}
+	tracker, _, err := NewStatsTracker(store, sc)
+	if err != nil {
+		t.Fatalf("NewStatsTracker error: %v", err)
+	}
+
+	stats := tracker.Stats()
+
+	// Battle pass should be reset.
+	if stats.BattlePass.Season != "2025-07" {
+		t.Errorf("BattlePass.Season = %s, want 2025-07", stats.BattlePass.Season)
+	}
+	if stats.BattlePass.Tier != 0 {
+		t.Errorf("BattlePass.Tier = %d, want 0", stats.BattlePass.Tier)
+	}
+	if stats.BattlePass.XP != 0 {
+		t.Errorf("BattlePass.XP = %d, want 0", stats.BattlePass.XP)
+	}
+
+	// Old season should be archived.
+	if len(stats.ArchivedSeasons) != 1 {
+		t.Fatalf("ArchivedSeasons length = %d, want 1", len(stats.ArchivedSeasons))
+	}
+	archived := stats.ArchivedSeasons[0]
+	if archived.Season != "2025-06" {
+		t.Errorf("archived.Season = %s, want 2025-06", archived.Season)
+	}
+	if archived.Tier != 7 || archived.XP != 4200 {
+		t.Errorf("archived = {Tier:%d, XP:%d}, want {Tier:7, XP:4200}", archived.Tier, archived.XP)
+	}
+
+	// Achievements should be preserved.
+	if _, ok := stats.AchievementsUnlocked["first_lap"]; !ok {
+		t.Error("achievements should be preserved across season rotation")
+	}
+}
+
+func TestSeasonRotation_SameSeasonNoOp(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStore(dir)
+
+	initial := newStats()
+	initial.BattlePass = BattlePass{Season: "2025-07", Tier: 3, XP: 1500}
+	if err := store.Save(initial); err != nil {
+		t.Fatalf("Save error: %v", err)
+	}
+
+	sc := &SeasonConfig{Enabled: true, Season: "2025-07"}
+	tracker, _, err := NewStatsTracker(store, sc)
+	if err != nil {
+		t.Fatalf("NewStatsTracker error: %v", err)
+	}
+
+	stats := tracker.Stats()
+	if stats.BattlePass.Tier != 3 || stats.BattlePass.XP != 1500 {
+		t.Errorf("same season should not reset progress: Tier=%d XP=%d", stats.BattlePass.Tier, stats.BattlePass.XP)
+	}
+	if len(stats.ArchivedSeasons) != 0 {
+		t.Errorf("ArchivedSeasons should be empty, got %d", len(stats.ArchivedSeasons))
+	}
+}
+
+func TestSeasonRotation_DisabledNoOp(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStore(dir)
+
+	initial := newStats()
+	initial.BattlePass = BattlePass{Season: "2025-06", Tier: 5, XP: 3000}
+	if err := store.Save(initial); err != nil {
+		t.Fatalf("Save error: %v", err)
+	}
+
+	sc := &SeasonConfig{Enabled: false, Season: "2025-07"}
+	tracker, _, err := NewStatsTracker(store, sc)
+	if err != nil {
+		t.Fatalf("NewStatsTracker error: %v", err)
+	}
+
+	stats := tracker.Stats()
+	if stats.BattlePass.Season != "2025-06" {
+		t.Errorf("disabled battle pass should not rotate: Season=%s", stats.BattlePass.Season)
+	}
+	if stats.BattlePass.Tier != 5 {
+		t.Errorf("disabled battle pass should not reset: Tier=%d", stats.BattlePass.Tier)
+	}
+}
+
+func TestSeasonRotation_NilConfigNoOp(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStore(dir)
+
+	initial := newStats()
+	initial.BattlePass = BattlePass{Season: "2025-06", Tier: 5, XP: 3000}
+	if err := store.Save(initial); err != nil {
+		t.Fatalf("Save error: %v", err)
+	}
+
+	tracker, _, err := NewStatsTracker(store, nil)
+	if err != nil {
+		t.Fatalf("NewStatsTracker error: %v", err)
+	}
+
+	stats := tracker.Stats()
+	if stats.BattlePass.Season != "2025-06" || stats.BattlePass.Tier != 5 {
+		t.Errorf("nil config should not rotate season")
+	}
+}
+
+func TestSeasonRotation_EmptyOldSeasonNotArchived(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStore(dir)
+
+	// Fresh stats with no prior season.
+	initial := newStats()
+	if err := store.Save(initial); err != nil {
+		t.Fatalf("Save error: %v", err)
+	}
+
+	sc := &SeasonConfig{Enabled: true, Season: "2025-07"}
+	tracker, _, err := NewStatsTracker(store, sc)
+	if err != nil {
+		t.Fatalf("NewStatsTracker error: %v", err)
+	}
+
+	stats := tracker.Stats()
+	if stats.BattlePass.Season != "2025-07" {
+		t.Errorf("Season = %s, want 2025-07", stats.BattlePass.Season)
+	}
+	if len(stats.ArchivedSeasons) != 0 {
+		t.Errorf("empty old season should not be archived, got %d entries", len(stats.ArchivedSeasons))
+	}
+}
+
+func TestSeasonRotation_PersistsToDisk(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStore(dir)
+
+	initial := newStats()
+	initial.BattlePass = BattlePass{Season: "2025-06", Tier: 4, XP: 2000}
+	if err := store.Save(initial); err != nil {
+		t.Fatalf("Save error: %v", err)
+	}
+
+	sc := &SeasonConfig{Enabled: true, Season: "2025-07"}
+	if _, _, err := NewStatsTracker(store, sc); err != nil {
+		t.Fatalf("NewStatsTracker error: %v", err)
+	}
+
+	// Reload from disk to verify persistence.
+	loaded, err := store.Load()
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if loaded.BattlePass.Season != "2025-07" {
+		t.Errorf("persisted Season = %s, want 2025-07", loaded.BattlePass.Season)
+	}
+	if len(loaded.ArchivedSeasons) != 1 {
+		t.Fatalf("persisted ArchivedSeasons length = %d, want 1", len(loaded.ArchivedSeasons))
 	}
 }

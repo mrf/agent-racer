@@ -46,6 +46,7 @@ type Stats struct {
 	// Gamification state
 	AchievementsUnlocked map[string]time.Time `json:"achievementsUnlocked"`
 	BattlePass           BattlePass           `json:"battlePass"`
+	ArchivedSeasons      []ArchivedSeason     `json:"archivedSeasons,omitempty"`
 	Equipped             Equipped             `json:"equipped"`
 
 	LastUpdated time.Time `json:"lastUpdated"`
@@ -53,9 +54,17 @@ type Stats struct {
 
 // BattlePass tracks seasonal progression.
 type BattlePass struct {
-	Season int `json:"season"`
-	Tier   int `json:"tier"`
-	XP     int `json:"xp"`
+	Season string `json:"season"`
+	Tier   int    `json:"tier"`
+	XP     int    `json:"xp"`
+}
+
+// ArchivedSeason holds the final state of a completed season.
+type ArchivedSeason struct {
+	Season   string `json:"season"`
+	Tier     int    `json:"tier"`
+	XP       int    `json:"xp"`
+	Archived string `json:"archived"` // RFC 3339 timestamp
 }
 
 // Equipped tracks which cosmetic item is active in each slot.
@@ -190,6 +199,10 @@ func (st *Stats) clone() *Stats {
 	cp.AchievementsUnlocked = make(map[string]time.Time, len(st.AchievementsUnlocked))
 	for k, v := range st.AchievementsUnlocked {
 		cp.AchievementsUnlocked[k] = v
+	}
+	if len(st.ArchivedSeasons) > 0 {
+		cp.ArchivedSeasons = make([]ArchivedSeason, len(st.ArchivedSeasons))
+		copy(cp.ArchivedSeasons, st.ArchivedSeasons)
 	}
 	return &cp
 }

@@ -45,3 +45,9 @@ models:
   gemini-1.5-pro*: 2097152
   gemini-1.5-flash*: 1048576
   default: 200000
+
+# Gamification settings
+# gamification:
+#   battle_pass:
+#     enabled: false
+#     season: "2025-07"  # Change to rotate seasons (archives old stats, resets XP + tier)

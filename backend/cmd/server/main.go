@@ -77,7 +77,11 @@ func main() {
 
 	// Stats tracker for gamification system.
 	gamStore := gamification.NewStore("")
-	tracker, statsCh, err := gamification.NewStatsTracker(gamStore)
+	seasonCfg := &gamification.SeasonConfig{
+		Enabled: cfg.Gamification.BattlePass.Enabled,
+		Season:  cfg.Gamification.BattlePass.Season,
+	}
+	tracker, statsCh, err := gamification.NewStatsTracker(gamStore, seasonCfg)
 	if err != nil {
 		log.Fatalf("Failed to initialize stats tracker: %v", err)
 	}
