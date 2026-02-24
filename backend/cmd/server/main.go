@@ -92,7 +92,7 @@ func main() {
 
 	// Stats tracker for gamification system.
 	gamStore := gamification.NewStore("")
-	tracker, statsCh, err := gamification.NewStatsTracker(gamStore)
+	tracker, statsCh, err := gamification.NewStatsTracker(gamStore, cfg.Monitor.StatsEventBuffer)
 	if err != nil {
 		log.Fatalf("Failed to initialize stats tracker: %v", err)
 	}
