@@ -101,7 +101,7 @@ func TestRegistry_BattlePassRewardsHaveEmptyUnlockedBy(t *testing.T) {
 
 func TestRegistry_AllRewardsHaveValidType(t *testing.T) {
 	for _, rw := range buildRewardList() {
-		if !validSlot(rw.Type) {
+		if !ValidSlot(rw.Type) {
 			t.Errorf("reward %q has invalid type %q", rw.ID, rw.Type)
 		}
 	}
@@ -433,14 +433,14 @@ func TestValidSlot_AllKnownSlots(t *testing.T) {
 		RewardTypeBadge, RewardTypeSound, RewardTypeTheme, RewardTypeTitle,
 	}
 	for _, s := range slots {
-		if !validSlot(s) {
-			t.Errorf("validSlot(%q) = false, want true", s)
+		if !ValidSlot(s) {
+			t.Errorf("ValidSlot(%q) = false, want true", s)
 		}
 	}
 }
 
 func TestValidSlot_UnknownSlot(t *testing.T) {
-	if validSlot(RewardType("rocket")) {
-		t.Error("validSlot(rocket) = true, want false")
+	if ValidSlot(RewardType("rocket")) {
+		t.Error("ValidSlot(rocket) = true, want false")
 	}
 }

@@ -233,6 +233,7 @@ func (s *Server) handleAchievements(w http.ResponseWriter, r *http.Request) {
 
 type equipRequest struct {
 	RewardID string `json:"rewardId"`
+	Slot     string `json:"slot"`
 }
 
 func (s *Server) handleEquip(w http.ResponseWriter, r *http.Request) {
@@ -256,6 +257,27 @@ func (s *Server) handleEquip(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.RewardID == "" {
 		http.Error(w, "rewardId is required", http.StatusBadRequest)
+		return
+	}
+	if req.Slot == "" {
+		http.Error(w, "slot is required", http.StatusBadRequest)
+		return
+	}
+
+	slot := gamification.RewardType(req.Slot)
+	if !gamification.ValidSlot(slot) {
+		http.Error(w, "invalid slot", http.StatusBadRequest)
+		return
+	}
+
+	// Verify the reward exists and its type matches the requested slot.
+	rw, ok := s.rewardRegistry.Lookup(req.RewardID)
+	if !ok {
+		http.Error(w, fmt.Sprintf("%s: %s", gamification.ErrUnknownReward, req.RewardID), http.StatusNotFound)
+		return
+	}
+	if rw.Type != slot {
+		http.Error(w, fmt.Sprintf("slot mismatch: reward is %s, not %s", rw.Type, req.Slot), http.StatusBadRequest)
 		return
 	}
 
