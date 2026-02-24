@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 )
 
@@ -57,6 +58,38 @@ type BattlePass struct {
 	Season string `json:"season"`
 	Tier   int    `json:"tier"`
 	XP     int    `json:"xp"`
+}
+
+// UnmarshalJSON handles migration from older stats files where Season was an int.
+func (bp *BattlePass) UnmarshalJSON(data []byte) error {
+	type Alias BattlePass
+	aux := &struct {
+		Season json.RawMessage `json:"season"`
+		*Alias
+	}{Alias: (*Alias)(bp)}
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+	if len(aux.Season) == 0 {
+		return nil
+	}
+	// Try string first.
+	var s string
+	if err := json.Unmarshal(aux.Season, &s); err == nil {
+		bp.Season = s
+		return nil
+	}
+	// Fall back to number (legacy format).
+	var n float64
+	if err := json.Unmarshal(aux.Season, &n); err == nil {
+		if n == 0 {
+			bp.Season = ""
+		} else {
+			bp.Season = strconv.Itoa(int(n))
+		}
+		return nil
+	}
+	return fmt.Errorf("cannot parse season field: %s", string(aux.Season))
 }
 
 // ArchivedSeason holds the final state of a completed season.

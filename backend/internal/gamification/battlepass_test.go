@@ -156,10 +156,10 @@ func TestTierRewards_Tier10_HasTwoRewards(t *testing.T) {
 
 func TestSeasonReset_ClearsXPAndTier_PreservesAchievements(t *testing.T) {
 	stats := newStats()
-	stats.BattlePass = BattlePass{Season: 1, Tier: 5, XP: 4500}
+	stats.BattlePass = BattlePass{Season: "s1", Tier: 5, XP: 4500}
 	stats.AchievementsUnlocked["first_session"] = stats.LastUpdated
 
-	stats.BattlePass = BattlePass{Season: 2}
+	stats.BattlePass = BattlePass{Season: "s2"}
 
 	if stats.BattlePass.XP != 0 {
 		t.Errorf("XP = %d, want 0 after season reset", stats.BattlePass.XP)
@@ -167,8 +167,8 @@ func TestSeasonReset_ClearsXPAndTier_PreservesAchievements(t *testing.T) {
 	if stats.BattlePass.Tier != 0 {
 		t.Errorf("Tier = %d, want 0 after season reset", stats.BattlePass.Tier)
 	}
-	if stats.BattlePass.Season != 2 {
-		t.Errorf("Season = %d, want 2", stats.BattlePass.Season)
+	if stats.BattlePass.Season != "s2" {
+		t.Errorf("Season = %s, want s2", stats.BattlePass.Season)
 	}
 	if _, ok := stats.AchievementsUnlocked["first_session"]; !ok {
 		t.Error("Achievements should be preserved across season reset")
@@ -237,7 +237,7 @@ func TestGetProgress_ZeroTier_ClampsToOne(t *testing.T) {
 func TestStatsTracker_AwardXP_AndGetProgress(t *testing.T) {
 	tracker, _ := startTracker(t)
 
-	tracker.AwardXP(500)
+	tracker.AwardXP(500, "test")
 	p := tracker.GetProgress()
 	if p.XP != 500 {
 		t.Errorf("XP = %d, want 500", p.XP)
@@ -246,7 +246,7 @@ func TestStatsTracker_AwardXP_AndGetProgress(t *testing.T) {
 		t.Errorf("Tier = %d, want 1", p.Tier)
 	}
 
-	tracker.AwardXP(500)
+	tracker.AwardXP(500, "test")
 	p = tracker.GetProgress()
 	if p.XP != 1000 {
 		t.Errorf("XP = %d, want 1000", p.XP)
@@ -259,12 +259,12 @@ func TestStatsTracker_AwardXP_AndGetProgress(t *testing.T) {
 func TestStatsTracker_AwardXP_SetsDirtyFlag(t *testing.T) {
 	dir := t.TempDir()
 	store := NewStore(dir)
-	tracker, _, err := NewStatsTracker(store)
+	tracker, _, err := NewStatsTracker(store, 0, nil)
 	if err != nil {
 		t.Fatalf("NewStatsTracker error: %v", err)
 	}
 
-	tracker.AwardXP(100)
+	tracker.AwardXP(100, "test")
 
 	tracker.mu.Lock()
 	dirty := tracker.dirty
