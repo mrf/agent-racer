@@ -3,8 +3,10 @@ package config
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -247,6 +249,99 @@ func defaultStateDir() string {
 		return ""
 	}
 	return filepath.Join(homeDir, ".local", "state")
+}
+
+// Diff compares two configs and returns human-readable descriptions of what changed.
+// Only sections that are safe to reload at runtime are compared (models, privacy,
+// sources, token normalization, monitor timings, sound).
+func Diff(old, new *Config) []string {
+	var changes []string
+
+	// Models
+	for k, v := range new.Models {
+		if ov, ok := old.Models[k]; !ok {
+			changes = append(changes, fmt.Sprintf("models: added %s=%d", k, v))
+		} else if ov != v {
+			changes = append(changes, fmt.Sprintf("models: %s changed %d → %d", k, ov, v))
+		}
+	}
+	for k := range old.Models {
+		if _, ok := new.Models[k]; !ok {
+			changes = append(changes, fmt.Sprintf("models: removed %s", k))
+		}
+	}
+
+	// Sources
+	if old.Sources.Claude != new.Sources.Claude {
+		changes = append(changes, fmt.Sprintf("sources.claude: %v → %v", old.Sources.Claude, new.Sources.Claude))
+	}
+	if old.Sources.Codex != new.Sources.Codex {
+		changes = append(changes, fmt.Sprintf("sources.codex: %v → %v", old.Sources.Codex, new.Sources.Codex))
+	}
+	if old.Sources.Gemini != new.Sources.Gemini {
+		changes = append(changes, fmt.Sprintf("sources.gemini: %v → %v", old.Sources.Gemini, new.Sources.Gemini))
+	}
+
+	// Privacy
+	if old.Privacy.MaskWorkingDirs != new.Privacy.MaskWorkingDirs {
+		changes = append(changes, fmt.Sprintf("privacy.mask_working_dirs: %v → %v", old.Privacy.MaskWorkingDirs, new.Privacy.MaskWorkingDirs))
+	}
+	if old.Privacy.MaskSessionIDs != new.Privacy.MaskSessionIDs {
+		changes = append(changes, fmt.Sprintf("privacy.mask_session_ids: %v → %v", old.Privacy.MaskSessionIDs, new.Privacy.MaskSessionIDs))
+	}
+	if old.Privacy.MaskPIDs != new.Privacy.MaskPIDs {
+		changes = append(changes, fmt.Sprintf("privacy.mask_pids: %v → %v", old.Privacy.MaskPIDs, new.Privacy.MaskPIDs))
+	}
+	if old.Privacy.MaskTmuxTargets != new.Privacy.MaskTmuxTargets {
+		changes = append(changes, fmt.Sprintf("privacy.mask_tmux_targets: %v → %v", old.Privacy.MaskTmuxTargets, new.Privacy.MaskTmuxTargets))
+	}
+	if !slices.Equal(old.Privacy.AllowedPaths, new.Privacy.AllowedPaths) {
+		changes = append(changes, fmt.Sprintf("privacy.allowed_paths: %v → %v", old.Privacy.AllowedPaths, new.Privacy.AllowedPaths))
+	}
+	if !slices.Equal(old.Privacy.BlockedPaths, new.Privacy.BlockedPaths) {
+		changes = append(changes, fmt.Sprintf("privacy.blocked_paths: %v → %v", old.Privacy.BlockedPaths, new.Privacy.BlockedPaths))
+	}
+
+	// Token normalization
+	if old.TokenNorm.TokensPerMessage != new.TokenNorm.TokensPerMessage {
+		changes = append(changes, fmt.Sprintf("token_normalization.tokens_per_message: %d → %d", old.TokenNorm.TokensPerMessage, new.TokenNorm.TokensPerMessage))
+	}
+	for k, v := range new.TokenNorm.Strategies {
+		if ov, ok := old.TokenNorm.Strategies[k]; !ok {
+			changes = append(changes, fmt.Sprintf("token_normalization.strategies: added %s=%s", k, v))
+		} else if ov != v {
+			changes = append(changes, fmt.Sprintf("token_normalization.strategies: %s changed %s → %s", k, ov, v))
+		}
+	}
+	for k := range old.TokenNorm.Strategies {
+		if _, ok := new.TokenNorm.Strategies[k]; !ok {
+			changes = append(changes, fmt.Sprintf("token_normalization.strategies: removed %s", k))
+		}
+	}
+
+	// Monitor timings
+	if old.Monitor.SessionStaleAfter != new.Monitor.SessionStaleAfter {
+		changes = append(changes, fmt.Sprintf("monitor.session_stale_after: %s → %s", old.Monitor.SessionStaleAfter, new.Monitor.SessionStaleAfter))
+	}
+	if old.Monitor.CompletionRemoveAfter != new.Monitor.CompletionRemoveAfter {
+		changes = append(changes, fmt.Sprintf("monitor.completion_remove_after: %s → %s", old.Monitor.CompletionRemoveAfter, new.Monitor.CompletionRemoveAfter))
+	}
+	if old.Monitor.ChurningCPUThreshold != new.Monitor.ChurningCPUThreshold {
+		changes = append(changes, fmt.Sprintf("monitor.churning_cpu_threshold: %.1f → %.1f", old.Monitor.ChurningCPUThreshold, new.Monitor.ChurningCPUThreshold))
+	}
+	if old.Monitor.ChurningRequiresNetwork != new.Monitor.ChurningRequiresNetwork {
+		changes = append(changes, fmt.Sprintf("monitor.churning_requires_network: %v → %v", old.Monitor.ChurningRequiresNetwork, new.Monitor.ChurningRequiresNetwork))
+	}
+	if old.Monitor.HealthWarningThreshold != new.Monitor.HealthWarningThreshold {
+		changes = append(changes, fmt.Sprintf("monitor.health_warning_threshold: %d → %d", old.Monitor.HealthWarningThreshold, new.Monitor.HealthWarningThreshold))
+	}
+
+	// Sound
+	if old.Sound != new.Sound {
+		changes = append(changes, "sound: configuration changed")
+	}
+
+	return changes
 }
 
 func defaultConfigDir() string {

@@ -327,6 +327,58 @@ func TestGenerateToken(t *testing.T) {
 	}
 }
 
+func TestDiffNoChanges(t *testing.T) {
+	a := defaultConfig()
+	b := defaultConfig()
+	if changes := Diff(a, b); len(changes) != 0 {
+		t.Errorf("Diff of identical configs = %v, want empty", changes)
+	}
+}
+
+func TestDiffDetectsChanges(t *testing.T) {
+	old := defaultConfig()
+	new := defaultConfig()
+
+	// Models
+	new.Models["claude-opus-4-5"] = 300000
+	delete(new.Models, "default")
+
+	// Sources
+	new.Sources.Codex = true
+
+	// Privacy
+	new.Privacy.MaskWorkingDirs = true
+	new.Privacy.BlockedPaths = []string{"/tmp/secret"}
+
+	// Token norm
+	new.TokenNorm.TokensPerMessage = 3000
+
+	changes := Diff(old, new)
+	if len(changes) == 0 {
+		t.Fatal("Diff should detect changes, got none")
+	}
+
+	// Check specific changes are present.
+	found := map[string]bool{}
+	for _, c := range changes {
+		found[c] = true
+	}
+
+	want := []string{
+		"models: added claude-opus-4-5=300000",
+		"models: removed default",
+		"sources.codex: false → true",
+		"privacy.mask_working_dirs: false → true",
+		"privacy.blocked_paths: [] → [/tmp/secret]",
+		"token_normalization.tokens_per_message: 2000 → 3000",
+	}
+	for _, w := range want {
+		if !found[w] {
+			t.Errorf("Missing expected change: %q\nGot: %v", w, changes)
+		}
+	}
+}
+
 func TestDefaultConfigTokenNorm(t *testing.T) {
 	cfg := defaultConfig()
 

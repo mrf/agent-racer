@@ -89,6 +89,33 @@ func NewMonitor(cfg *config.Config, store *session.Store, broadcaster *ws.Broadc
 	return m
 }
 
+// SetConfig replaces the monitor's config pointer. The new config is read on
+// the next poll tick. Only fields consulted during polling are affected
+// (models, token normalization, monitor timings, churning thresholds).
+// Server-level settings (port, host, auth) are NOT applied — those require
+// a full restart.
+func (m *Monitor) SetConfig(cfg *config.Config) {
+	m.cfg = cfg
+}
+
+// SetSources replaces the monitor's source list with newSources. Sources that
+// are no longer present are removed; new sources are added. Existing tracked
+// sessions for removed sources are left in the store (they'll age out via
+// stale detection). Health tracking is updated to match.
+func (m *Monitor) SetSources(newSources []Source) {
+	newHealth := make(map[string]*sourceHealth, len(newSources))
+	for _, src := range newSources {
+		name := src.Name()
+		if existing, ok := m.health[name]; ok {
+			newHealth[name] = existing
+		} else {
+			newHealth[name] = newSourceHealth()
+		}
+	}
+	m.sources = newSources
+	m.health = newHealth
+}
+
 // SetStatsEvents configures a channel for session lifecycle events.
 // The monitor sends events on new session discovery, per-poll updates,
 // and terminal state transitions. Pass nil to disable.
