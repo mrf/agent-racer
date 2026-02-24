@@ -49,6 +49,7 @@ type Stats struct {
 	BattlePass           BattlePass           `json:"battlePass"`
 	ArchivedSeasons      []ArchivedSeason     `json:"archivedSeasons,omitempty"`
 	Equipped             Equipped             `json:"equipped"`
+	WeeklyChallenges     WeeklyChallengeState `json:"weeklyChallenges"`
 
 	LastUpdated time.Time `json:"lastUpdated"`
 }
@@ -216,6 +217,7 @@ func (st *Stats) initMaps() {
 	if st.AchievementsUnlocked == nil {
 		st.AchievementsUnlocked = make(map[string]time.Time)
 	}
+	initWeeklyChallengeState(&st.WeeklyChallenges)
 }
 
 // clone returns a deep copy of Stats with all maps duplicated.
@@ -236,6 +238,22 @@ func (st *Stats) clone() *Stats {
 	if len(st.ArchivedSeasons) > 0 {
 		cp.ArchivedSeasons = make([]ArchivedSeason, len(st.ArchivedSeasons))
 		copy(cp.ArchivedSeasons, st.ArchivedSeasons)
+	}
+	cp.WeeklyChallenges.ActiveIDs = make([]string, len(st.WeeklyChallenges.ActiveIDs))
+	copy(cp.WeeklyChallenges.ActiveIDs, st.WeeklyChallenges.ActiveIDs)
+	cp.WeeklyChallenges.Completed = make([]string, len(st.WeeklyChallenges.Completed))
+	copy(cp.WeeklyChallenges.Completed, st.WeeklyChallenges.Completed)
+	cp.WeeklyChallenges.Snapshot.SessionsPerModel = make(map[string]int, len(st.WeeklyChallenges.Snapshot.SessionsPerModel))
+	for k, v := range st.WeeklyChallenges.Snapshot.SessionsPerModel {
+		cp.WeeklyChallenges.Snapshot.SessionsPerModel[k] = v
+	}
+	cp.WeeklyChallenges.Snapshot.SessionsPerSource = make(map[string]int, len(st.WeeklyChallenges.Snapshot.SessionsPerSource))
+	for k, v := range st.WeeklyChallenges.Snapshot.SessionsPerSource {
+		cp.WeeklyChallenges.Snapshot.SessionsPerSource[k] = v
+	}
+	cp.WeeklyChallenges.XPAwarded = make(map[string]bool, len(st.WeeklyChallenges.XPAwarded))
+	for k, v := range st.WeeklyChallenges.XPAwarded {
+		cp.WeeklyChallenges.XPAwarded[k] = v
 	}
 	return &cp
 }
