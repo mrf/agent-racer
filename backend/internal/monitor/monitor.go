@@ -315,7 +315,6 @@ func (m *Monitor) poll() {
 			// Calculate burn rate from token history
 			state.BurnRatePerMinute = m.calculateBurnRate(ts, state.TokensUsed, now)
 
-			m.store.Update(state)
 			if !existed {
 				m.emitEvent(session.EventNew, state)
 			} else if hasNewData {
@@ -365,10 +364,7 @@ func (m *Monitor) poll() {
 				}
 			}
 		}
-		if state.IsChurning != churning {
-			state.IsChurning = churning
-			m.store.Update(state)
-		}
+		state.IsChurning = churning
 	}
 
 	// Resolve tmux targets for tracked sessions (after PID population).
@@ -382,7 +378,22 @@ func (m *Monitor) poll() {
 			continue
 		}
 		state.TmuxTarget = target
-		m.store.Update(state)
+	}
+
+	// Build a lookup of this cycle's updates for the stale detection
+	// loop below, avoiding store.Get reads before the atomic commit.
+	updatedByKey := make(map[string]*session.SessionState, len(updates))
+	for _, state := range updates {
+		updatedByKey[state.ID] = state
+	}
+
+	// getSessionState returns a session from this poll's updates first,
+	// then falls back to the store for sessions not touched this cycle.
+	getSessionState := func(key string) (*session.SessionState, bool) {
+		if s, ok := updatedByKey[key]; ok {
+			return s, true
+		}
+		return m.store.Get(key)
 	}
 
 	// Mark stale sessions as lost (disappeared without session end marker).
@@ -391,7 +402,7 @@ func (m *Monitor) poll() {
 		if activeKeys[key] {
 			// Terminal sessions stay tracked for resume detection;
 			// skip stale marking for them.
-			if state, ok := m.store.Get(key); ok && state.IsTerminal() {
+			if state, ok := getSessionState(key); ok && state.IsTerminal() {
 				continue
 			}
 			// Still discovered and not stale by time — skip.
@@ -403,7 +414,7 @@ func (m *Monitor) poll() {
 				key, ts.lastDataTime.Format("15:04:05"), now.Sub(ts.lastDataTime).Round(time.Second), m.cfg.Monitor.SessionStaleAfter)
 		}
 
-		if state, ok := m.store.Get(key); ok {
+		if state, ok := getSessionState(key); ok {
 			if state.IsTerminal() {
 				// Already terminal and file disappeared — just clean up tracking.
 				// Add to removedKeys so the session isn't re-created with offset 0
@@ -451,14 +462,22 @@ func (m *Monitor) poll() {
 		}
 	}
 
+	// Atomically commit all session updates to the store and queue the
+	// broadcast under the same lock. This prevents HTTP handlers from
+	// reading partial state via store.GetAll() before WebSocket clients
+	// have been notified of the changes.
 	if len(updates) > 0 {
-		m.broadcaster.QueueUpdate(updates)
+		m.store.BatchUpdateAndNotify(updates, func() {
+			m.broadcaster.QueueUpdate(updates)
+		})
 	}
 
 	m.flushRemovals(now)
 }
 
 // markTerminal marks a session with a terminal state (Complete, Errored, or Lost).
+// The store update and broadcast are performed atomically so that HTTP readers
+// cannot observe the terminal state before WebSocket clients are notified.
 func (m *Monitor) markTerminal(state *session.SessionState, activity session.Activity, completedAt time.Time) {
 	if state == nil {
 		return
@@ -466,13 +485,14 @@ func (m *Monitor) markTerminal(state *session.SessionState, activity session.Act
 	wasTerminal := state.IsTerminal()
 	state.Activity = activity
 	state.CompletedAt = &completedAt
-	m.store.Update(state)
-	if !wasTerminal {
-		log.Printf("Session %s terminal: %s → %s (broadcasting completion)", state.ID, state.Name, activity)
-		m.broadcaster.QueueCompletion(state.ID, activity, state.Name)
-		m.emitEvent(session.EventTerminal, state)
-	}
-	m.broadcaster.QueueUpdate([]*session.SessionState{state})
+	m.store.UpdateAndNotify(state, func() {
+		if !wasTerminal {
+			log.Printf("Session %s terminal: %s → %s (broadcasting completion)", state.ID, state.Name, activity)
+			m.broadcaster.QueueCompletion(state.ID, activity, state.Name)
+			m.emitEvent(session.EventTerminal, state)
+		}
+		m.broadcaster.QueueUpdate([]*session.SessionState{state})
+	})
 	m.scheduleRemoval(state.ID, completedAt)
 }
 
@@ -504,12 +524,13 @@ func (m *Monitor) flushRemovals(now time.Time) {
 			log.Printf("Removing session %s from store (scheduled at %s)", id, removeAt.Format("15:04:05"))
 			removeIDs = append(removeIDs, id)
 			delete(m.pendingRemoval, id)
-			m.store.Remove(id)
 			m.removedKeys[id] = true
 		}
 	}
 	if len(removeIDs) > 0 {
-		m.broadcaster.QueueRemoval(removeIDs)
+		m.store.BatchRemoveAndNotify(removeIDs, func() {
+			m.broadcaster.QueueRemoval(removeIDs)
+		})
 	}
 }
 

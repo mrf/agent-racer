@@ -260,3 +260,138 @@ func TestConcurrentAccess(t *testing.T) {
 
 	wg.Wait()
 }
+
+func TestUpdateAndNotify(t *testing.T) {
+	s := NewStore()
+	notified := false
+	s.UpdateAndNotify(&SessionState{ID: "a", Name: "alpha"}, func() {
+		notified = true
+		// Inside the callback, the session should already be in the store.
+		// We can't call s.Get (it would deadlock with write lock held),
+		// but we verify the callback was invoked synchronously.
+	})
+	if !notified {
+		t.Error("UpdateAndNotify did not call notify callback")
+	}
+	got, ok := s.Get("a")
+	if !ok || got.Name != "alpha" {
+		t.Errorf("UpdateAndNotify did not store session: ok=%v, state=%+v", ok, got)
+	}
+}
+
+func TestUpdateAndNotifyNilCallback(t *testing.T) {
+	s := NewStore()
+	// Should not panic with nil callback.
+	s.UpdateAndNotify(&SessionState{ID: "a"}, nil)
+	if _, ok := s.Get("a"); !ok {
+		t.Error("UpdateAndNotify with nil callback did not store session")
+	}
+}
+
+func TestBatchUpdateAndNotify(t *testing.T) {
+	s := NewStore()
+	states := []*SessionState{
+		{ID: "a", Name: "alpha"},
+		{ID: "b", Name: "beta"},
+	}
+	notified := false
+	s.BatchUpdateAndNotify(states, func() {
+		notified = true
+	})
+	if !notified {
+		t.Error("BatchUpdateAndNotify did not call notify callback")
+	}
+	all := s.GetAll()
+	if len(all) != 2 {
+		t.Fatalf("BatchUpdateAndNotify stored %d sessions, want 2", len(all))
+	}
+}
+
+func TestBatchUpdateAndNotifyPreservesLanes(t *testing.T) {
+	s := NewStore()
+	s.Update(&SessionState{ID: "a"})
+	s.Update(&SessionState{ID: "b"})
+
+	aLane, _ := s.Get("a")
+	bLane, _ := s.Get("b")
+
+	// Re-update via batch — lanes should be preserved.
+	s.BatchUpdateAndNotify([]*SessionState{
+		{ID: "a", Name: "updated-a"},
+		{ID: "b", Name: "updated-b"},
+	}, nil)
+
+	gotA, _ := s.Get("a")
+	gotB, _ := s.Get("b")
+	if gotA.Lane != aLane.Lane {
+		t.Errorf("BatchUpdateAndNotify changed lane for a: %d → %d", aLane.Lane, gotA.Lane)
+	}
+	if gotB.Lane != bLane.Lane {
+		t.Errorf("BatchUpdateAndNotify changed lane for b: %d → %d", bLane.Lane, gotB.Lane)
+	}
+}
+
+func TestBatchRemoveAndNotify(t *testing.T) {
+	s := NewStore()
+	s.Update(&SessionState{ID: "a"})
+	s.Update(&SessionState{ID: "b"})
+	s.Update(&SessionState{ID: "c"})
+
+	notified := false
+	s.BatchRemoveAndNotify([]string{"a", "b"}, func() {
+		notified = true
+	})
+	if !notified {
+		t.Error("BatchRemoveAndNotify did not call notify callback")
+	}
+	if _, ok := s.Get("a"); ok {
+		t.Error("BatchRemoveAndNotify did not remove session a")
+	}
+	if _, ok := s.Get("b"); ok {
+		t.Error("BatchRemoveAndNotify did not remove session b")
+	}
+	if _, ok := s.Get("c"); !ok {
+		t.Error("BatchRemoveAndNotify incorrectly removed session c")
+	}
+}
+
+func TestAtomicUpdateBlocksGetAll(t *testing.T) {
+	s := NewStore()
+
+	// Verify that GetAll cannot observe state written by BatchUpdateAndNotify
+	// before the notify callback completes. We test this by having the notify
+	// callback signal readiness, then a concurrent goroutine calls GetAll.
+	// If GetAll returns before the callback finishes, the lock isn't held.
+	callbackStarted := make(chan struct{})
+	callbackDone := make(chan struct{})
+	getAllDone := make(chan struct{})
+
+	go func() {
+		s.BatchUpdateAndNotify([]*SessionState{
+			{ID: "x", Name: "test"},
+		}, func() {
+			close(callbackStarted)
+			// Hold the lock briefly to give GetAll a chance to contend.
+			<-callbackDone
+		})
+	}()
+
+	go func() {
+		<-callbackStarted
+		// This GetAll should block until the callback finishes.
+		s.GetAll()
+		close(getAllDone)
+	}()
+
+	// The callback is running. GetAll should be blocked.
+	select {
+	case <-getAllDone:
+		// getAllDone before we release — the lock wasn't held.
+		t.Error("GetAll completed while BatchUpdateAndNotify callback was still running")
+	default:
+		// Good — GetAll is still blocked.
+	}
+
+	close(callbackDone)
+	<-getAllDone
+}
