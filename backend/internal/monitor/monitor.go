@@ -678,7 +678,10 @@ func (m *Monitor) resolveTokens(state *session.SessionState, update SourceUpdate
 	state.UpdateUtilization()
 }
 
-const burnRateWindow = 60 * time.Second
+const (
+	burnRateWindow    = 60 * time.Second
+	maxTokenSnapshots = 120
+)
 
 // calculateBurnRate computes the token consumption rate (tokens per minute)
 // using a rolling window of recent token snapshots.
@@ -707,6 +710,11 @@ func (m *Monitor) calculateBurnRate(ts *trackedSession, currentTokens int, now t
 		ts.tokenSnapshots = ts.tokenSnapshots[startIdx:]
 	} else if startIdx >= len(ts.tokenSnapshots) {
 		ts.tokenSnapshots = ts.tokenSnapshots[:0]
+	}
+
+	// Hard cap to prevent unbounded growth if time-based trim is insufficient
+	if len(ts.tokenSnapshots) > maxTokenSnapshots {
+		ts.tokenSnapshots = append([]tokenSnapshot(nil), ts.tokenSnapshots[len(ts.tokenSnapshots)-maxTokenSnapshots:]...)
 	}
 
 	// Need at least 2 snapshots for rate calculation
