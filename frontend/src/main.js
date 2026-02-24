@@ -4,6 +4,8 @@ import { SoundEngine } from './audio/SoundEngine.js';
 import { requestPermission, notifyCompletion } from './notifications.js';
 import { AchievementPanel } from './gamification/AchievementPanel.js';
 import { UnlockToast } from './gamification/UnlockToast.js';
+import { RewardSelector } from './gamification/RewardSelector.js';
+import { setEquipped } from './gamification/CosmeticRegistry.js';
 import { authFetch, getAuthToken } from './auth.js';
 import { createFlyout } from './ui/detailFlyout.js';
 import { createSessionTracker } from './ui/sessionTracker.js';
@@ -30,6 +32,7 @@ window.raceCanvas = raceCanvas;
 
 const achievementPanel = new AchievementPanel();
 const unlockToast = new UnlockToast(engine);
+const rewardSelector = new RewardSelector();
 
 const flyout = createFlyout({ detailFlyout, flyoutContent, canvas });
 const tracker = createSessionTracker(engine);
@@ -140,6 +143,13 @@ function handleAchievementUnlocked(payload) {
   unlockToast.show(payload);
 }
 
+function handleEquipped(payload) {
+  if (payload.loadout) {
+    setEquipped(payload.loadout);
+    log('Cosmetic loadout updated via WebSocket', 'info');
+  }
+}
+
 function handleStatus(status) {
   statusDot.className = `status-dot ${status}`;
   raceCanvas.setConnected(status === 'connected');
@@ -217,6 +227,9 @@ document.addEventListener('keydown', (e) => {
     case 'a':
       achievementPanel.toggle();
       break;
+    case 'g':
+      rewardSelector.toggle();
+      break;
     case 'd':
       debugVisible = !debugVisible;
       debugPanel.classList.toggle('hidden', !debugVisible);
@@ -234,7 +247,9 @@ document.addEventListener('keydown', (e) => {
       }
       break;
     case 'escape':
-      if (achievementPanel.isVisible) {
+      if (rewardSelector.isVisible) {
+        rewardSelector.hide();
+      } else if (achievementPanel.isVisible) {
         achievementPanel.hide();
       } else if (flyout.isVisible()) {
         flyout.hide();
@@ -251,10 +266,11 @@ const conn = new RaceConnection({
   authToken: getAuthToken(),
   onSourceHealth: handleSourceHealth,
   onAchievementUnlocked: handleAchievementUnlocked,
+  onEquipped: handleEquipped,
 });
 
 conn.connect();
 requestPermission();
 loadSoundConfig();
 log('Agent Racing Dashboard initialized', 'info');
-log('Shortcuts: A=achievements, D=debug, M=mute, F=fullscreen, Click racer=details', 'info');
+log('Shortcuts: A=achievements, G=garage, D=debug, M=mute, F=fullscreen, Click racer=details', 'info');
