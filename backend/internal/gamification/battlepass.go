@@ -5,14 +5,30 @@ const (
 	xpPerTier = 1000
 	maxTiers  = 10
 
-	XPSessionObserved = 10
+	XPSessionObserved  = 10
 	XPSessionCompletes = 25
-	XPContext50Pct    = 15
-	XPContext90Pct    = 30
-	XPNewModel        = 50
-	XPNewSource       = 100
-	XPWeeklyChallenge = 150
+	XPContext50Pct     = 15
+	XPContext90Pct     = 30
+	XPNewModel         = 50
+	XPNewSource        = 100
+	XPWeeklyChallenge  = 150
 )
+
+// AchievementXP returns the XP award for unlocking an achievement of the given tier.
+func AchievementXP(tier Tier) int {
+	switch tier {
+	case TierBronze:
+		return 50
+	case TierSilver:
+		return 100
+	case TierGold:
+		return 150
+	case TierPlatinum:
+		return 200
+	default:
+		return 50
+	}
+}
 
 // BattlePassProgress describes the player's current position within the season.
 type BattlePassProgress struct {
@@ -75,9 +91,9 @@ func tierRewards(tier int) []string {
 	}
 }
 
-// AwardXP adds XP and advances tiers. Safe for concurrent callers outside
-// the event-processing loop (e.g. the achievement engine).
-func (t *StatsTracker) AwardXP(amount int) {
+// AwardXP adds XP and advances tiers. Safe for concurrent callers
+// outside the event-processing loop (e.g. the achievement engine).
+func (t *StatsTracker) AwardXP(amount int, reason string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	awardXP(&t.stats.BattlePass, amount)
