@@ -372,11 +372,13 @@ func (s *Server) authorize(r *http.Request) bool {
 
 func (s *Server) checkOrigin(r *http.Request) bool {
 	origin := r.Header.Get("Origin")
-	if origin == "" {
-		return true
-	}
 
 	if len(s.allowedOrigins) > 0 {
+		// Explicit allowlist configured: require Origin header and match
+		// against the configured origins.
+		if origin == "" {
+			return false
+		}
 		if s.allowedOrigins[origin] {
 			return true
 		}
@@ -384,6 +386,13 @@ func (s *Server) checkOrigin(r *http.Request) bool {
 			return s.allowedHosts[parsed.Host]
 		}
 		return false
+	}
+
+	// No allowlist configured — dev-only fallback.
+	// Accepts same-origin, localhost, and missing Origin headers.
+	// Configure allowed_origins in production to restrict access.
+	if origin == "" {
+		return true
 	}
 
 	parsed, err := url.Parse(origin)
@@ -400,13 +409,9 @@ func (s *Server) checkOrigin(r *http.Request) bool {
 		return true
 	}
 
-	if strings.HasPrefix(host, "localhost:") || host == "localhost" {
-		return true
-	}
-	if strings.HasPrefix(host, "127.0.0.1:") || host == "127.0.0.1" {
-		return true
-	}
-	if strings.HasPrefix(host, "[::1]:") || host == "::1" {
+	// Dev-only: accept loopback addresses when no allowlist is configured.
+	switch parsed.Hostname() {
+	case "localhost", "127.0.0.1", "::1":
 		return true
 	}
 
