@@ -156,6 +156,7 @@ func main() {
 		<-sigCh
 		log.Println("Shutting down...")
 		cancel()
+		broadcaster.Stop()
 		wg.Wait() // allow stats tracker to flush
 		os.Exit(0)
 	}()
