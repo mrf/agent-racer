@@ -394,6 +394,14 @@ function updateOpenFlyout() {
   }
 }
 
+function handleSourceHealth(payload) {
+  const status = payload.status || 'unknown';
+  const src = payload.source || 'unknown';
+  const errMsg = payload.lastError ? ` — ${payload.lastError}` : '';
+  const level = status === 'healthy' ? 'info' : 'error';
+  log(`Source [${src}] health: ${status} (discover=${payload.discoverFailures}, parse=${payload.parseFailures})${errMsg}`, level);
+}
+
 function handleSnapshot(payload) {
   const oldIds = new Set(knownSessionIds);
   sessions.clear();
@@ -414,6 +422,13 @@ function handleSnapshot(payload) {
   for (const id of oldIds) {
     if (!knownSessionIds.has(id)) {
       engine.playDisappear();
+    }
+  }
+
+  // Log source health from snapshot
+  if (payload.sourceHealth) {
+    for (const sh of payload.sourceHealth) {
+      handleSourceHealth(sh);
     }
   }
 
@@ -614,6 +629,7 @@ const conn = new RaceConnection({
   onDelta: handleDelta,
   onCompletion: handleCompletion,
   onStatus: handleStatus,
+  onSourceHealth: handleSourceHealth,
 });
 
 conn.connect();

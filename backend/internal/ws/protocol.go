@@ -1,6 +1,8 @@
 package ws
 
 import (
+	"time"
+
 	"github.com/agent-racer/backend/internal/gamification"
 	"github.com/agent-racer/backend/internal/session"
 )
@@ -14,6 +16,7 @@ const (
 	MsgEquipped            MessageType = "equipped"
 	MsgError               MessageType = "error"
 	MsgAchievementUnlocked MessageType = "achievement_unlocked"
+	MsgSourceHealth        MessageType = "source_health"
 )
 
 type WSMessage struct {
@@ -21,8 +24,26 @@ type WSMessage struct {
 	Payload interface{} `json:"payload"`
 }
 
+type SourceHealthStatus string
+
+const (
+	StatusHealthy  SourceHealthStatus = "healthy"
+	StatusDegraded SourceHealthStatus = "degraded"
+	StatusFailed   SourceHealthStatus = "failed"
+)
+
+type SourceHealthPayload struct {
+	Source           string             `json:"source"`
+	Status           SourceHealthStatus `json:"status"`
+	DiscoverFailures int                `json:"discoverFailures"`
+	ParseFailures    int                `json:"parseFailures"`
+	LastError        string             `json:"lastError,omitempty"`
+	Timestamp        time.Time          `json:"timestamp"`
+}
+
 type SnapshotPayload struct {
-	Sessions []*session.SessionState `json:"sessions"`
+	Sessions     []*session.SessionState `json:"sessions"`
+	SourceHealth []SourceHealthPayload   `json:"sourceHealth,omitempty"`
 }
 
 type DeltaPayload struct {
