@@ -3,6 +3,7 @@ import { RaceCanvas } from './canvas/RaceCanvas.js';
 import { SoundEngine } from './audio/SoundEngine.js';
 import { requestPermission, notifyCompletion } from './notifications.js';
 import { AchievementPanel } from './gamification/AchievementPanel.js';
+import { authFetch, getAuthToken } from './auth.js';
 
 const debugPanel = document.getElementById('debug-panel');
 const debugLog = document.getElementById('debug-log');
@@ -42,7 +43,7 @@ const achievementPanel = new AchievementPanel();
 // Load sound configuration from backend
 async function loadSoundConfig() {
   try {
-    const response = await fetch('/api/config');
+    const response = await authFetch('/api/config');
     if (response.ok) {
       const config = await response.json();
       engine.applyConfig(config);
@@ -614,6 +615,7 @@ const conn = new RaceConnection({
   onDelta: handleDelta,
   onCompletion: handleCompletion,
   onStatus: handleStatus,
+  authToken: getAuthToken(),
 });
 
 conn.connect();

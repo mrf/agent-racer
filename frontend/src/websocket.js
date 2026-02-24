@@ -1,9 +1,10 @@
 export class RaceConnection {
-  constructor({ onSnapshot, onDelta, onCompletion, onStatus }) {
+  constructor({ onSnapshot, onDelta, onCompletion, onStatus, authToken }) {
     this.onSnapshot = onSnapshot;
     this.onDelta = onDelta;
     this.onCompletion = onCompletion;
     this.onStatus = onStatus;
+    this.authToken = authToken || '';
     this.ws = null;
     this.reconnectDelay = 1000;
     this.maxReconnectDelay = 30000;
@@ -13,15 +14,15 @@ export class RaceConnection {
 
   connect() {
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const params = new URLSearchParams(location.search);
-    const token = params.get('token');
-    const tokenQuery = token ? `?token=${encodeURIComponent(token)}` : '';
-    const url = `${protocol}//${location.host}/ws${tokenQuery}`;
+    const url = `${protocol}//${location.host}/ws`;
 
     this.onStatus('connecting');
     this.ws = new WebSocket(url);
 
     this.ws.onopen = () => {
+      if (this.authToken) {
+        this.ws.send(JSON.stringify({ type: 'auth', token: this.authToken }));
+      }
       this.reconnectAttempts = 0;
       this.reconnectDelay = 1000;
       this.onStatus('connected');

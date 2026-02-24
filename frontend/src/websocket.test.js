@@ -10,7 +10,12 @@ class MockWebSocket {
     this.onmessage = null;
     this.onclose = null;
     this.onerror = null;
+    this.sentMessages = [];
     MockWebSocket.instances.push(this);
+  }
+
+  send(data) {
+    this.sentMessages.push(data);
   }
 
   close() {
@@ -44,6 +49,7 @@ function createConnection(overrides = {}) {
     onDelta: overrides.onDelta ?? vi.fn(),
     onCompletion: overrides.onCompletion ?? vi.fn(),
     onStatus: overrides.onStatus ?? vi.fn(),
+    authToken: overrides.authToken,
   });
 }
 
@@ -286,12 +292,23 @@ describe('RaceConnection', () => {
       expect(latestSocket().url).toBe('ws://example.com/ws');
     });
 
-    it('appends token query param when present', () => {
-      location.search = '?token=abc123';
+    it('sends auth message when authToken is provided', () => {
+      const conn = createConnection({ authToken: 'abc123' });
+      conn.connect();
+
+      expect(latestSocket().url).toBe('wss://example.com/ws');
+      latestSocket().simulateOpen();
+      expect(latestSocket().sentMessages[0]).toBe(
+        JSON.stringify({ type: 'auth', token: 'abc123' })
+      );
+    });
+
+    it('does not send auth message when no authToken', () => {
       const conn = createConnection();
       conn.connect();
 
-      expect(latestSocket().url).toBe('wss://example.com/ws?token=abc123');
+      latestSocket().simulateOpen();
+      expect(latestSocket().sentMessages).toHaveLength(0);
     });
   });
 

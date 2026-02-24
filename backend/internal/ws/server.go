@@ -100,12 +100,13 @@ func (s *Server) SetupRoutes(mux *http.ServeMux) {
 	}
 }
 
-func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
-	if !s.authorize(r) {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
+// wsAuthMessage is the first message a WebSocket client sends to authenticate.
+type wsAuthMessage struct {
+	Type  string `json:"type"`
+	Token string `json:"token"`
+}
 
+func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	upgrader := websocket.Upgrader{
 		CheckOrigin: s.checkOrigin,
 	}
@@ -114,6 +115,23 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("ws upgrade error: %v", err)
 		return
+	}
+
+	if s.authToken != "" {
+		conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+		_, msg, err := conn.ReadMessage()
+		conn.SetReadDeadline(time.Time{})
+		if err != nil {
+			conn.Close()
+			return
+		}
+		var auth wsAuthMessage
+		if err := json.Unmarshal(msg, &auth); err != nil || auth.Type != "auth" || auth.Token != s.authToken {
+			conn.WriteMessage(websocket.CloseMessage,
+				websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "unauthorized"))
+			conn.Close()
+			return
+		}
 	}
 
 	log.Printf("WebSocket client connected: %s", r.RemoteAddr)
@@ -315,21 +333,8 @@ func (s *Server) authorize(r *http.Request) bool {
 	if s.authToken == "" {
 		return true
 	}
-
-	if r.URL.Query().Get("token") == s.authToken {
-		return true
-	}
-
-	if r.Header.Get("X-Agent-Racer-Token") == s.authToken {
-		return true
-	}
-
-	auth := r.Header.Get("Authorization")
-	if strings.HasPrefix(auth, "Bearer ") && strings.TrimPrefix(auth, "Bearer ") == s.authToken {
-		return true
-	}
-
-	return false
+	token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	return ok && token == s.authToken
 }
 
 func (s *Server) checkOrigin(r *http.Request) bool {

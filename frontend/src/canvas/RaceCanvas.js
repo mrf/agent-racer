@@ -2,6 +2,7 @@ import { ParticleSystem } from './Particles.js';
 import { Track } from './Track.js';
 import { Dashboard } from './Dashboard.js';
 import { Racer, getModelColor, hexToRgb } from '../entities/Racer.js';
+import { authFetch } from '../auth.js';
 
 const DEFAULT_CONTEXT_WINDOW = 200000;
 const TERMINAL_ACTIVITIES = new Set(['complete', 'errored', 'lost']);
@@ -654,7 +655,7 @@ export class RaceCanvas {
 
   async focusSession(sessionId) {
     try {
-      const resp = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/focus`, {
+      const resp = await authFetch(`/api/sessions/${encodeURIComponent(sessionId)}/focus`, {
         method: 'POST',
       });
       if (!resp.ok) {

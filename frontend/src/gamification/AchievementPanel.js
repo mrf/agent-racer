@@ -1,3 +1,5 @@
+import { authFetch } from '../auth.js';
+
 const CATEGORIES = [
   'Session Milestones',
   'Source Diversity',
@@ -279,7 +281,7 @@ export class AchievementPanel {
 
   async hydrate() {
     try {
-      const resp = await fetch('/api/achievements');
+      const resp = await authFetch('/api/achievements');
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       this._achievements = await resp.json();
       this._render();

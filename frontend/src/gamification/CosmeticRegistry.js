@@ -1,6 +1,7 @@
 // CosmeticRegistry maps reward IDs to render parameters.
 // Consumed by Racer.js (paint, body), Particles.js (trail), Dashboard.js (badge, title).
 // Hydrates equipped state from the backend /api/stats endpoint on page load.
+import { authFetch } from '../auth.js';
 
 // ── Paint definitions ──────────────────────────────────────────────────
 const PAINTS = {
@@ -258,7 +259,7 @@ export function onEquippedChange(fn) {
 export async function hydrate() {
   if (hydrated) return;
   try {
-    const resp = await fetch('/api/stats');
+    const resp = await authFetch('/api/stats');
     if (!resp.ok) return;
     const stats = await resp.json();
     if (stats.equipped) {
