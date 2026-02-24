@@ -598,6 +598,82 @@ func TestMultipleSubagentsIncrementalParsing(t *testing.T) {
 	}
 }
 
+// TestCompactBoundaryDetection verifies that type:"system" subtype:"compact_boundary"
+// entries are counted as compaction events.
+func TestCompactBoundaryDetection(t *testing.T) {
+	t.Run("single compaction event", func(t *testing.T) {
+		path := writeJSONLLines(t,
+			`{"type":"user","message":{"role":"user","content":[{"type":"text","text":"hello"}]},"sessionId":"test-compact","slug":"my-session","timestamp":"2026-01-30T10:00:00.000Z"}`,
+			`{"type":"assistant","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"text","text":"hi"}],"usage":{"input_tokens":100,"output_tokens":50}},"sessionId":"test-compact","slug":"my-session","timestamp":"2026-01-30T10:00:01.000Z"}`,
+			`{"type":"system","subtype":"compact_boundary","content":"Conversation compacted","sessionId":"test-compact","slug":"my-session","timestamp":"2026-01-30T10:00:02.000Z","uuid":"abc-123","level":"info","isMeta":false,"compactMetadata":{"trigger":"auto","preTokens":167220}}`,
+			`{"type":"assistant","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"text","text":"continuing after compaction"}],"usage":{"input_tokens":50,"output_tokens":30}},"sessionId":"test-compact","slug":"my-session","timestamp":"2026-01-30T10:00:03.000Z"}`,
+		)
+
+		result := parseJSONL(t, path)
+
+		if result.CompactionCount != 1 {
+			t.Errorf("CompactionCount = %d, want 1", result.CompactionCount)
+		}
+		if result.MessageCount != 3 {
+			t.Errorf("MessageCount = %d, want 3 (system entries are not messages)", result.MessageCount)
+		}
+	})
+
+	t.Run("multiple compaction events", func(t *testing.T) {
+		path := writeJSONLLines(t,
+			`{"type":"user","message":{"role":"user","content":[{"type":"text","text":"hello"}]},"sessionId":"test-compact-2","slug":"my-session","timestamp":"2026-01-30T10:00:00.000Z"}`,
+			`{"type":"system","subtype":"compact_boundary","content":"Conversation compacted","sessionId":"test-compact-2","slug":"my-session","timestamp":"2026-01-30T10:00:01.000Z","uuid":"abc-1","level":"info"}`,
+			`{"type":"system","subtype":"compact_boundary","content":"Conversation compacted","sessionId":"test-compact-2","slug":"my-session","timestamp":"2026-01-30T10:00:02.000Z","uuid":"abc-2","level":"info"}`,
+		)
+
+		result := parseJSONL(t, path)
+
+		if result.CompactionCount != 2 {
+			t.Errorf("CompactionCount = %d, want 2", result.CompactionCount)
+		}
+	})
+
+	t.Run("other system subtypes are not counted", func(t *testing.T) {
+		path := writeJSONLLines(t,
+			`{"type":"system","subtype":"turn_duration","durationMs":5000,"sessionId":"test-sys","slug":"my-session","timestamp":"2026-01-30T10:00:00.000Z","uuid":"abc-3"}`,
+			`{"type":"system","subtype":"stop_hook_summary","sessionId":"test-sys","slug":"my-session","timestamp":"2026-01-30T10:00:01.000Z","uuid":"abc-4"}`,
+		)
+
+		result := parseJSONL(t, path)
+
+		if result.CompactionCount != 0 {
+			t.Errorf("CompactionCount = %d, want 0", result.CompactionCount)
+		}
+	})
+
+	t.Run("incremental parse detects compaction", func(t *testing.T) {
+		path := writeJSONLLines(t,
+			`{"type":"user","message":{"role":"user","content":[{"type":"text","text":"hello"}]},"sessionId":"test-inc","slug":"my-session","timestamp":"2026-01-30T10:00:00.000Z"}`,
+		)
+
+		_, offset, err := ParseSessionJSONL(path, 0, "", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Append compaction event
+		f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0644)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.WriteString(`{"type":"system","subtype":"compact_boundary","content":"Conversation compacted","sessionId":"test-inc","slug":"my-session","timestamp":"2026-01-30T10:00:05.000Z","uuid":"abc-5","level":"info","compactMetadata":{"trigger":"auto","preTokens":167000}}` + "\n")
+		f.Close()
+
+		result, _, err := ParseSessionJSONL(path, offset, "", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.CompactionCount != 1 {
+			t.Errorf("CompactionCount = %d, want 1", result.CompactionCount)
+		}
+	})
+}
+
 // TestSubagentActivityTransitions verifies that activity state tracks the latest
 // progress entry: thinking -> tool_use -> waiting.
 func TestSubagentActivityTransitions(t *testing.T) {

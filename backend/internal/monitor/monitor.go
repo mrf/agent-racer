@@ -281,6 +281,7 @@ func (m *Monitor) poll() {
 			// that estimation strategies can use the updated counts.
 			state.MessageCount += update.MessageCount
 			state.ToolCallCount += update.ToolCalls
+			state.CompactionCount += update.CompactionCount
 			if update.LastTool != "" {
 				state.CurrentTool = update.LastTool
 			}
