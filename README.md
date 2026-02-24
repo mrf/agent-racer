@@ -348,6 +348,10 @@ agent-racer/
 | `make build` | Embed frontend into Go binary, produce `./agent-racer` |
 | `make dist` | Cross-compile for linux/darwin amd64/arm64 |
 | `make test` | Run all Go tests |
+| `make test-frontend` | Run frontend Vitest suite |
+| `make test-e2e` | Run Playwright E2E tests |
+| `make lint` | Run `go vet` on backend |
+| `make ci` | Run all checks: test, lint, test-frontend, test-e2e |
 | `make clean` | Remove binary and embedded files |
 | `make deps` | Download Go dependencies |
 
