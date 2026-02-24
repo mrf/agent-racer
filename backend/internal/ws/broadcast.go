@@ -159,6 +159,13 @@ func (b *Broadcaster) BroadcastAchievement(payload AchievementUnlockedPayload) {
 	})
 }
 
+func (b *Broadcaster) BroadcastBattlePassProgress(payload BattlePassProgressPayload) {
+	b.broadcast(WSMessage{
+		Type:    MsgBattlePassProgress,
+		Payload: payload,
+	})
+}
+
 func (b *Broadcaster) QueueCompletion(sessionID string, activity session.Activity, name string) {
 	msg := WSMessage{
 		Type: MsgCompletion,

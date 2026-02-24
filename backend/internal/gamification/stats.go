@@ -14,9 +14,19 @@ const (
 	defaultEventBufferSize = 256
 )
 
+// XPEntry records a single XP award with a human-readable reason.
+type XPEntry struct {
+	Reason string `json:"reason"`
+	Amount int    `json:"amount"`
+}
+
 // AchievementCallback is invoked for each newly unlocked achievement.
 // It receives the achievement and the associated reward (if any).
 type AchievementCallback func(achievement Achievement, reward *Reward)
+
+// BattlePassCallback is invoked after XP is awarded, with the updated progress
+// and the list of XP entries that triggered the update.
+type BattlePassCallback func(progress BattlePassProgress, recentXP []XPEntry)
 
 // StatsTracker observes session lifecycle events and maintains aggregate stats.
 // It receives events from the monitor via a channel and periodically persists
@@ -33,6 +43,7 @@ type StatsTracker struct {
 	achieveEngine  *AchievementEngine
 	rewardRegistry *RewardRegistry
 	onAchievement  AchievementCallback
+	onBattlePass   BattlePassCallback
 }
 
 // NewStatsTracker creates a StatsTracker backed by the given persistence store.
@@ -64,6 +75,12 @@ func NewStatsTracker(persist *Store, bufferSize int) (*StatsTracker, chan<- sess
 // Must be called before Run.
 func (t *StatsTracker) OnAchievement(cb AchievementCallback) {
 	t.onAchievement = cb
+}
+
+// OnBattlePassProgress registers a callback invoked whenever XP is awarded.
+// Must be called before Run.
+func (t *StatsTracker) OnBattlePassProgress(cb BattlePassCallback) {
+	t.onBattlePass = cb
 }
 
 // Run processes events and periodically saves dirty stats to disk.
@@ -98,6 +115,12 @@ func (t *StatsTracker) processEvent(ev session.Event) {
 	t.mu.Lock()
 
 	s := ev.State
+	var xpEntries []XPEntry
+
+	trackXP := func(reason string, amount int) {
+		awardXP(&t.stats.BattlePass, amount)
+		xpEntries = append(xpEntries, XPEntry{Reason: reason, Amount: amount})
+	}
 
 	switch ev.Type {
 	case session.EventNew:
@@ -112,9 +135,9 @@ func (t *StatsTracker) processEvent(ev session.Event) {
 		if ev.ActiveCount > t.stats.MaxConcurrentActive {
 			t.stats.MaxConcurrentActive = ev.ActiveCount
 		}
-		awardXP(&t.stats.BattlePass, XPSessionObserved)
+		trackXP("session_observed", XPSessionObserved)
 		if t.stats.SessionsPerSource[s.Source] == 1 {
-			awardXP(&t.stats.BattlePass, XPNewSource)
+			trackXP("new_source", XPNewSource)
 		}
 
 	case session.EventUpdate:
@@ -129,10 +152,10 @@ func (t *StatsTracker) processEvent(ev session.Event) {
 		}
 		mask := t.contextMilestones[s.ID]
 		if s.ContextUtilization >= 0.9 && mask&0x02 == 0 {
-			awardXP(&t.stats.BattlePass, XPContext90Pct)
+			trackXP("context_90pct", XPContext90Pct)
 			t.contextMilestones[s.ID] = mask | 0x02
 		} else if s.ContextUtilization >= 0.5 && mask&0x01 == 0 {
-			awardXP(&t.stats.BattlePass, XPContext50Pct)
+			trackXP("context_50pct", XPContext50Pct)
 			t.contextMilestones[s.ID] = mask | 0x01
 		}
 
@@ -141,7 +164,7 @@ func (t *StatsTracker) processEvent(ev session.Event) {
 		case session.Complete:
 			t.stats.TotalCompletions++
 			t.stats.ConsecutiveCompletions++
-			awardXP(&t.stats.BattlePass, XPSessionCompletes)
+			trackXP("session_complete", XPSessionCompletes)
 		case session.Errored:
 			t.stats.TotalErrors++
 			t.stats.ConsecutiveCompletions = 0
@@ -153,7 +176,7 @@ func (t *StatsTracker) processEvent(ev session.Event) {
 			t.stats.SessionsPerModel[s.Model]++
 			t.stats.DistinctModelsUsed = len(t.stats.SessionsPerModel)
 			if t.stats.SessionsPerModel[s.Model] == 1 {
-				awardXP(&t.stats.BattlePass, XPNewModel)
+				trackXP("new_model", XPNewModel)
 			}
 		}
 		if s.ToolCallCount > t.stats.MaxToolCalls {
@@ -175,6 +198,12 @@ func (t *StatsTracker) processEvent(ev session.Event) {
 
 	t.dirty = true
 
+	// Capture battlepass progress while still under lock.
+	var bpProgress BattlePassProgress
+	if len(xpEntries) > 0 {
+		bpProgress = getProgress(&t.stats.BattlePass)
+	}
+
 	// Evaluate achievements while still holding the lock so stats are consistent.
 	unlocked := t.achieveEngine.Evaluate(t.stats)
 	for _, a := range unlocked {
@@ -183,6 +212,10 @@ func (t *StatsTracker) processEvent(ev session.Event) {
 	t.mu.Unlock()
 
 	// Dispatch callbacks outside the lock to avoid holding it during broadcast.
+	if len(xpEntries) > 0 && t.onBattlePass != nil {
+		t.onBattlePass(bpProgress, xpEntries)
+	}
+
 	if t.onAchievement != nil {
 		for _, a := range unlocked {
 			var rw *Reward
