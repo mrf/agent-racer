@@ -256,6 +256,11 @@ func (b *Broadcaster) BroadcastMessage(msg WSMessage) {
 	b.broadcast(msg)
 }
 
+// Stop stops the snapshot ticker, preventing further broadcast ticks.
+func (b *Broadcaster) Stop() {
+	b.snapshotTicker.Stop()
+}
+
 func (b *Broadcaster) ClientCount() int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
