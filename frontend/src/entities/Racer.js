@@ -1,4 +1,5 @@
 import { Hamster } from './Hamster.js';
+import { getEquippedPaint } from '../gamification/CosmeticRegistry.js';
 
 const MODEL_COLORS = {
   'claude-opus-4-5-20251101': { main: '#a855f7', dark: '#7c3aed', light: '#c084fc', name: 'Opus' },
@@ -89,6 +90,53 @@ function hexToRgb(hex) {
 function lightenHex(hex, amount) {
   const { r, g, b } = hexToRgb(hex);
   return `rgb(${Math.min(255, r + amount)},${Math.min(255, g + amount)},${Math.min(255, b + amount)})`;
+}
+
+/**
+ * Convert HSL (0-360, 0-100, 0-100) to a hex color string.
+ */
+function hslToHex(h, s, l) {
+  const sNorm = s / 100;
+  const lNorm = l / 100;
+  const a = sNorm * Math.min(lNorm, 1 - lNorm);
+  const f = (n) => {
+    const k = (n + h / 30) % 12;
+    const c = lNorm - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+    return Math.round(255 * c).toString(16).padStart(2, '0');
+  };
+  return `#${f(0)}${f(8)}${f(4)}`;
+}
+
+/**
+ * Applies equipped paint override to model color.
+ * Returns { main, dark, light, name, paint } where paint is the raw paint
+ * definition (or null if no paint equipped).
+ */
+function applyPaintOverride(baseColor, time) {
+  const paint = getEquippedPaint();
+  if (!paint) return { ...baseColor, paint: null };
+
+  // Holographic: animated hue cycle, ignores base color
+  if (paint.pattern === 'holographic') {
+    const hue = ((time || 0) * 60) % 360;
+    const main = hslToHex(hue, 80, 55);
+    const dark = hslToHex(hue, 80, 40);
+    const light = hslToHex(hue, 80, 70);
+    return { main, dark, light, name: baseColor.name, paint };
+  }
+
+  // Racing stripe / gold stripe: keep base color, pattern applied in drawCar
+  if (paint.pattern === 'racing_stripe' || paint.pattern === 'gold_stripe') {
+    return { ...baseColor, paint };
+  }
+
+  // Solid / chrome / metallic / gradient / stripe: override fill + stroke
+  if (paint.fill) {
+    const light = lightenHex(paint.fill, 40);
+    return { main: paint.fill, dark: paint.stroke, light, name: baseColor.name, paint };
+  }
+
+  return { ...baseColor, paint };
 }
 
 export { getModelColor, hexToRgb, CAR_SCALE, LIMO_STRETCH };
@@ -371,10 +419,11 @@ export class Racer {
         if (particles && Math.random() > 0.6) {
           particles.emit('sparks', this.displayX + 10 * S, this.displayY + 5 * S, 1);
         }
-        // Speed lines for fast movement
+        // Speed lines for fast movement (uses paint color if equipped)
         if (particles && speed > 1.5) {
-          const color = getModelColor(this.state.model, this.state.source);
-          const rgb = hexToRgb(color.main);
+          const baseC = getModelColor(this.state.model, this.state.source);
+          const paintedC = applyPaintOverride(baseC, performance.now() / 1000);
+          const rgb = hexToRgb(paintedC.main);
           particles.emitWithColor('speedLines', this.displayX - (20 + LIMO_STRETCH) * S, this.displayY, 1, rgb);
         }
         // Hammer animation
@@ -509,7 +558,8 @@ export class Racer {
   draw(ctx) {
     const x = this.displayX;
     const y = this.displayY;
-    const color = getModelColor(this.state.model, this.state.source);
+    const baseColor = getModelColor(this.state.model, this.state.source);
+    const color = applyPaintOverride(baseColor, performance.now() / 1000);
     const activity = this.state.activity;
 
     ctx.save();
@@ -612,6 +662,7 @@ export class Racer {
     ctx.translate(-x, -y);
 
     // Determine car color (grayscale for errored stage 3, gold tint for complete)
+    const paint = color.paint;
     let bodyColor = color.main;
     if (activity === 'errored' && this.errorStage >= 3) {
       bodyColor = '#555';
@@ -636,7 +687,20 @@ export class Racer {
     this._drawWheel(ctx, frontWheelX, wheelY, wheelR);
 
     // --- Car body - side profile racing car facing right ---
-    ctx.fillStyle = bodyColor;
+    // Chrome / metallic paints use a vertical gradient for a reflective look
+    if (paint && (paint.pattern === 'chrome' || paint.pattern === 'metallic') &&
+        activity !== 'errored') {
+      const grad = ctx.createLinearGradient(x, y - 9, x, y + 2);
+      const highlight = lightenHex(color.main, 80);
+      grad.addColorStop(0, highlight);
+      grad.addColorStop(0.4, color.main);
+      grad.addColorStop(0.6, color.dark);
+      grad.addColorStop(0.8, color.main);
+      grad.addColorStop(1, highlight);
+      ctx.fillStyle = grad;
+    } else {
+      ctx.fillStyle = bodyColor;
+    }
     ctx.beginPath();
     ctx.moveTo(x - 17 - L, y + 2);    // rear bottom (limo)
     ctx.lineTo(x - 17 - L, y - 3);    // rear face
@@ -676,9 +740,14 @@ export class Racer {
     ctx.lineTo(x + 3, y - 9);
     ctx.stroke();
 
-    // Racing stripe
-    ctx.strokeStyle = lightenHex(color.main, 60);
-    ctx.lineWidth = 1.5;
+    // Racing stripe (paint overrides: racing_stripe uses white, gold_stripe uses gold)
+    if (paint && (paint.pattern === 'racing_stripe' || paint.pattern === 'gold_stripe')) {
+      ctx.strokeStyle = paint.stripeColor;
+      ctx.lineWidth = 2.5;
+    } else {
+      ctx.strokeStyle = lightenHex(color.main, 60);
+      ctx.lineWidth = 1.5;
+    }
     ctx.beginPath();
     ctx.moveTo(x - 15 - L, y - 2);
     ctx.lineTo(x + 19, y - 2);
