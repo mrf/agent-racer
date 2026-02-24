@@ -35,6 +35,15 @@ func trackingKey(source, sessionID string) string {
 	return source + ":" + sessionID
 }
 
+// sourceFromKey extracts the source name from a composite tracking key.
+// Returns empty string if the key has no separator.
+func sourceFromKey(key string) string {
+	if i := strings.IndexByte(key, ':'); i >= 0 {
+		return key[:i]
+	}
+	return ""
+}
+
 type sessionEndMarker struct {
 	SessionID      string `json:"session_id"`
 	TranscriptPath string `json:"transcript_path"`
@@ -54,10 +63,15 @@ type Monitor struct {
 	prevCPU          map[int]cpuSample
 	lastProcessPoll  time.Time
 	statsEvents      chan<- session.Event // nil disables stats event emission
+	health           map[string]*sourceHealth   // keyed by source name
 }
 
 func NewMonitor(cfg *config.Config, store *session.Store, broadcaster *ws.Broadcaster, sources []Source) *Monitor {
-	return &Monitor{
+	healthMap := make(map[string]*sourceHealth, len(sources))
+	for _, src := range sources {
+		healthMap[src.Name()] = newSourceHealth()
+	}
+	m := &Monitor{
 		cfg:             cfg,
 		store:           store,
 		broadcaster:     broadcaster,
@@ -67,7 +81,10 @@ func NewMonitor(cfg *config.Config, store *session.Store, broadcaster *ws.Broadc
 		removedKeys:     make(map[string]bool),
 		prevCPU:         make(map[int]cpuSample),
 		lastProcessPoll: time.Now(),
+		health:          healthMap,
 	}
+	broadcaster.SetHealthHook(m.sourceHealthSnapshot)
+	return m
 }
 
 // SetStatsEvents configures a channel for session lifecycle events.
@@ -130,11 +147,14 @@ func (m *Monitor) poll() {
 	var updates []*session.SessionState
 
 	for _, src := range m.sources {
+		sh := m.health[src.Name()]
 		handles, err := src.Discover()
 		if err != nil {
 			log.Printf("[%s] discovery error: %v", src.Name(), err)
+			sh.recordDiscoverFailure(err)
 			continue
 		}
+		sh.recordDiscoverSuccess()
 
 		for _, h := range handles {
 			key := trackingKey(h.Source, h.SessionID)
@@ -164,8 +184,10 @@ func (m *Monitor) poll() {
 			update, newOffset, err := src.Parse(ts.handle, ts.fileOffset)
 			if err != nil {
 				log.Printf("[%s] parse error for %s: %v", src.Name(), h.SessionID, err)
+				sh.recordParseFailure(key, err)
 				continue
 			}
+			sh.recordParseSuccess(key)
 			ts.fileOffset = newOffset
 			hasNewData := newOffset > oldOffset || update.HasData()
 			if hasNewData && newOffset > oldOffset {
@@ -303,6 +325,9 @@ func (m *Monitor) poll() {
 		}
 	}
 
+	// Emit health events for sources that crossed a status threshold.
+	m.maybeEmitHealthEvents()
+
 	// Poll process activity for churning detection.
 	elapsed := now.Sub(m.lastProcessPoll)
 	activities, newCPU := DiscoverProcessActivity(m.prevCPU, elapsed)
@@ -411,6 +436,10 @@ func (m *Monitor) poll() {
 	}
 	for _, key := range toRemove {
 		delete(m.tracked, key)
+		// Clean up parse failure tracking for removed sessions.
+		if sh, ok := m.health[sourceFromKey(key)]; ok {
+			sh.removeSession(key)
+		}
 	}
 
 	// Purge removedKeys entries for sessions whose files have fallen
@@ -732,6 +761,70 @@ func (m *Monitor) calculateBurnRate(ts *trackedSession, currentTokens int, now t
 		return float64(tokenDelta) / minutes
 	}
 	return 0
+}
+
+// healthThreshold returns the configured health warning threshold,
+// falling back to 3 if unconfigured or zero.
+func (m *Monitor) healthThreshold() int {
+	if t := m.cfg.Monitor.HealthWarningThreshold; t > 0 {
+		return t
+	}
+	return 3
+}
+
+// maybeEmitHealthEvents checks each source's health status and emits a
+// source_health WS event when the status transitions (e.g. healthy -> failed).
+func (m *Monitor) maybeEmitHealthEvents() {
+	threshold := m.healthThreshold()
+	now := time.Now()
+	for _, src := range m.sources {
+		sh := m.health[src.Name()]
+		status := sh.status(threshold)
+		if status == sh.lastEmittedStatus {
+			continue
+		}
+		sh.lastEmittedStatus = status
+		sh.lastEmittedAt = now
+
+		payload := ws.SourceHealthPayload{
+			Source:           src.Name(),
+			Status:           status,
+			DiscoverFailures: sh.discoverFailures,
+			ParseFailures:    sh.degradedSessionCount(threshold),
+			LastError:        sh.lastError(),
+			Timestamp:        now,
+		}
+		m.broadcaster.BroadcastMessage(ws.WSMessage{
+			Type:    ws.MsgSourceHealth,
+			Payload: payload,
+		})
+		log.Printf("[%s] health status: %s (discover=%d, parseDegraded=%d)",
+			src.Name(), status, sh.discoverFailures, payload.ParseFailures)
+	}
+}
+
+// sourceHealthSnapshot builds SourceHealthPayload entries for all non-healthy
+// sources. Used by the broadcaster's health hook for snapshot broadcasts.
+func (m *Monitor) sourceHealthSnapshot() []ws.SourceHealthPayload {
+	threshold := m.healthThreshold()
+	var result []ws.SourceHealthPayload
+	now := time.Now()
+	for _, src := range m.sources {
+		sh := m.health[src.Name()]
+		status := sh.status(threshold)
+		if status == ws.StatusHealthy {
+			continue
+		}
+		result = append(result, ws.SourceHealthPayload{
+			Source:           src.Name(),
+			Status:           status,
+			DiscoverFailures: sh.discoverFailures,
+			ParseFailures:    sh.degradedSessionCount(threshold),
+			LastError:        sh.lastError(),
+			Timestamp:        now,
+		})
+	}
+	return result
 }
 
 // mergeSubagents converts SubagentParseResults into SubagentState entries

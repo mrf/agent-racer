@@ -1,10 +1,11 @@
 export class RaceConnection {
-  constructor({ onSnapshot, onDelta, onCompletion, onStatus, authToken }) {
+  constructor({ onSnapshot, onDelta, onCompletion, onStatus, authToken, onSourceHealth }) {
     this.onSnapshot = onSnapshot;
     this.onDelta = onDelta;
     this.onCompletion = onCompletion;
     this.onStatus = onStatus;
     this.authToken = authToken || '';
+    this.onSourceHealth = onSourceHealth || (() => {});
     this.ws = null;
     this.reconnectDelay = 1000;
     this.maxReconnectDelay = 30000;
@@ -40,6 +41,9 @@ export class RaceConnection {
             break;
           case 'completion':
             this.onCompletion(msg.payload);
+            break;
+          case 'source_health':
+            this.onSourceHealth(msg.payload);
             break;
         }
       } catch (err) {

@@ -15,17 +15,29 @@ import (
 // testSource wraps real JSONL parsing with controllable discovery.
 // Discover returns whatever handles are set; Parse delegates to
 // ParseSessionJSONL -- the same code path ClaudeSource uses.
+// Set discoverErr to simulate Discover failures, and parseErrs
+// to simulate Parse failures for specific session IDs.
 type testSource struct {
-	handles []SessionHandle
+	handles     []SessionHandle
+	discoverErr error
+	parseErrs   map[string]error // sessionID -> error
 }
 
 func (s *testSource) Name() string { return "claude" }
 
 func (s *testSource) Discover() ([]SessionHandle, error) {
+	if s.discoverErr != nil {
+		return nil, s.discoverErr
+	}
 	return s.handles, nil
 }
 
 func (s *testSource) Parse(handle SessionHandle, offset int64) (SourceUpdate, int64, error) {
+	if s.parseErrs != nil {
+		if err, ok := s.parseErrs[handle.SessionID]; ok {
+			return SourceUpdate{}, offset, err
+		}
+	}
 	result, newOffset, err := ParseSessionJSONL(handle.LogPath, offset, handle.KnownSlug, handle.KnownSubagentParents)
 	if err != nil {
 		return SourceUpdate{}, offset, err
@@ -763,5 +775,170 @@ func TestPollStaleSessionDoesNotLoop(t *testing.T) {
 	state, exists = store.Get(key)
 	if exists && !state.IsTerminal() {
 		t.Fatalf("session should remain terminal after multiple polls, got activity=%s", state.Activity)
+	}
+}
+
+func TestPollHealthDiscoverFailureTracking(t *testing.T) {
+	src := &testSource{}
+
+	cfg := defaultTestConfig()
+	cfg.Monitor.HealthWarningThreshold = 3
+	m, _, _ := newPollTestMonitor(src, cfg)
+
+	// Verify health starts healthy.
+	sh := m.health["claude"]
+	if sh.status(3) != ws.StatusHealthy {
+		t.Fatal("source should start healthy")
+	}
+
+	// Simulate discover failures.
+	src.discoverErr = fmt.Errorf("connection refused")
+	for i := 0; i < 3; i++ {
+		m.poll()
+	}
+
+	if sh.discoverFailures != 3 {
+		t.Errorf("discoverFailures = %d, want 3", sh.discoverFailures)
+	}
+	if sh.status(3) != ws.StatusFailed {
+		t.Errorf("status = %s, want failed", sh.status(3))
+	}
+}
+
+func TestPollHealthDiscoverRecovery(t *testing.T) {
+	dir := t.TempDir()
+	jsonlPath := filepath.Join(dir, "session-health.jsonl")
+	now := time.Now().UTC()
+	ts := now.Format(time.RFC3339Nano)
+	writeJSONL(t, jsonlPath,
+		jsonlLine("user", "session-health", ts, "", "", "/tmp/h")+
+			jsonlLine("assistant", "session-health", ts, "claude-opus-4-5-20251101", "", "/tmp/h"))
+
+	src := &testSource{
+		handles: []SessionHandle{newTestHandle("session-health", jsonlPath, "/tmp/h", now)},
+	}
+
+	cfg := defaultTestConfig()
+	cfg.Monitor.HealthWarningThreshold = 2
+	m, _, _ := newPollTestMonitor(src, cfg)
+
+	// Fail discover
+	src.discoverErr = fmt.Errorf("fail")
+	m.poll()
+	m.poll()
+
+	sh := m.health["claude"]
+	if sh.status(2) != ws.StatusFailed {
+		t.Fatal("should be failed")
+	}
+
+	// Recover
+	src.discoverErr = nil
+	m.poll()
+
+	if sh.status(2) != ws.StatusHealthy {
+		t.Errorf("status = %s, want healthy after recovery", sh.status(2))
+	}
+}
+
+func TestPollHealthParseFailureTracking(t *testing.T) {
+	dir := t.TempDir()
+	jsonlPath := filepath.Join(dir, "session-parse.jsonl")
+	now := time.Now().UTC()
+	ts := now.Format(time.RFC3339Nano)
+	writeJSONL(t, jsonlPath,
+		jsonlLine("user", "session-parse", ts, "", "", "/tmp/p")+
+			jsonlLine("assistant", "session-parse", ts, "claude-opus-4-5-20251101", "", "/tmp/p"))
+
+	src := &testSource{
+		handles: []SessionHandle{newTestHandle("session-parse", jsonlPath, "/tmp/p", now)},
+	}
+
+	cfg := defaultTestConfig()
+	cfg.Monitor.HealthWarningThreshold = 2
+	m, _, _ := newPollTestMonitor(src, cfg)
+
+	// First poll: normal (creates the session).
+	m.poll()
+
+	sh := m.health["claude"]
+	if sh.status(2) != ws.StatusHealthy {
+		t.Fatal("should start healthy")
+	}
+
+	// Simulate parse errors.
+	src.parseErrs = map[string]error{
+		"session-parse": fmt.Errorf("corrupt jsonl"),
+	}
+	m.poll()
+	m.poll()
+
+	if sh.status(2) != ws.StatusDegraded {
+		t.Errorf("status = %s, want degraded", sh.status(2))
+	}
+
+	// Recover.
+	src.parseErrs = nil
+	m.poll()
+
+	if sh.status(2) != ws.StatusHealthy {
+		t.Errorf("status = %s, want healthy after parse recovery", sh.status(2))
+	}
+}
+
+func TestPollHealthNotEmittedBelowThreshold(t *testing.T) {
+	src := &testSource{
+		discoverErr: fmt.Errorf("fail"),
+	}
+
+	cfg := defaultTestConfig()
+	cfg.Monitor.HealthWarningThreshold = 5
+	m, _, _ := newPollTestMonitor(src, cfg)
+
+	sh := m.health["claude"]
+
+	// Poll fewer times than threshold.
+	m.poll()
+	m.poll()
+
+	if sh.status(5) != ws.StatusHealthy {
+		t.Error("should still be healthy below threshold")
+	}
+	// lastEmittedStatus should still be the initial value (healthy).
+	if sh.lastEmittedStatus != ws.StatusHealthy {
+		t.Errorf("lastEmittedStatus = %s, want healthy (no transition)", sh.lastEmittedStatus)
+	}
+}
+
+func TestPollHealthSnapshotIncludesFailingSources(t *testing.T) {
+	src := &testSource{
+		discoverErr: fmt.Errorf("fail"),
+	}
+
+	cfg := defaultTestConfig()
+	cfg.Monitor.HealthWarningThreshold = 2
+	m, _, _ := newPollTestMonitor(src, cfg)
+
+	// Below threshold: snapshot should be empty.
+	m.poll()
+	snap := m.sourceHealthSnapshot()
+	if len(snap) != 0 {
+		t.Errorf("snapshot should be empty below threshold, got %d entries", len(snap))
+	}
+
+	// At threshold: snapshot should include the failing source.
+	m.poll()
+	snap = m.sourceHealthSnapshot()
+	if len(snap) != 1 {
+		t.Fatalf("snapshot should have 1 entry, got %d", len(snap))
+	}
+	if snap[0].Source != "claude" {
+		t.Errorf("Source = %q, want %q", snap[0].Source, "claude")
+	}
+	if snap[0].Status != ws.StatusFailed {
+		t.Errorf("Status = %s, want failed", snap[0].Status)
+	}
+	if snap[0].DiscoverFailures != 2 {
+		t.Errorf("DiscoverFailures = %d, want 2", snap[0].DiscoverFailures)
 	}
 }

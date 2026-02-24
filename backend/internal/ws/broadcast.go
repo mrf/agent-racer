@@ -54,6 +54,7 @@ type Broadcaster struct {
 	pendingRemoved []string
 	flushTimer     *time.Timer
 	flushMu        sync.Mutex
+	healthHook     func() []SourceHealthPayload
 }
 
 func NewBroadcaster(store *session.Store, throttle, snapshotInterval time.Duration, maxConns int) *Broadcaster {
@@ -77,6 +78,12 @@ func (b *Broadcaster) SetPrivacyFilter(f *session.PrivacyFilter) {
 	b.privacy = f
 }
 
+// SetHealthHook registers a function that returns the current source health
+// status for inclusion in snapshot broadcasts.
+func (b *Broadcaster) SetHealthHook(hook func() []SourceHealthPayload) {
+	b.healthHook = hook
+}
+
 // FilterSessions applies the privacy filter to the given sessions, removing
 // blocked sessions and masking sensitive fields.
 func (b *Broadcaster) FilterSessions(sessions []*session.SessionState) []*session.SessionState {
@@ -97,13 +104,7 @@ func (b *Broadcaster) AddClient(conn *websocket.Conn) (*client, error) {
 	b.clients[c] = true
 	b.mu.Unlock()
 
-	snapshot := WSMessage{
-		Type: MsgSnapshot,
-		Payload: SnapshotPayload{
-			Sessions: b.privacy.FilterSlice(b.store.GetAll()),
-		},
-	}
-	data, _ := json.Marshal(snapshot)
+	data, _ := json.Marshal(b.snapshotMessage())
 
 	select {
 	case c.send <- data:
@@ -194,13 +195,22 @@ func (b *Broadcaster) flush() {
 
 func (b *Broadcaster) snapshotLoop() {
 	for range b.snapshotTicker.C {
-		msg := WSMessage{
-			Type: MsgSnapshot,
-			Payload: SnapshotPayload{
-				Sessions: b.privacy.FilterSlice(b.store.GetAll()),
-			},
-		}
-		b.broadcast(msg)
+		b.broadcast(b.snapshotMessage())
+	}
+}
+
+// snapshotMessage builds a full snapshot WSMessage including sessions and
+// source health status (when a health hook is registered).
+func (b *Broadcaster) snapshotMessage() WSMessage {
+	payload := SnapshotPayload{
+		Sessions: b.privacy.FilterSlice(b.store.GetAll()),
+	}
+	if b.healthHook != nil {
+		payload.SourceHealth = b.healthHook()
+	}
+	return WSMessage{
+		Type:    MsgSnapshot,
+		Payload: payload,
 	}
 }
 

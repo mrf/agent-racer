@@ -102,6 +102,7 @@ type MonitorConfig struct {
 	SessionEndDir           string        `yaml:"session_end_dir"`
 	ChurningCPUThreshold    float64       `yaml:"churning_cpu_threshold"`
 	ChurningRequiresNetwork bool          `yaml:"churning_requires_network"`
+	HealthWarningThreshold  int           `yaml:"health_warning_threshold"`
 }
 
 type SoundConfig struct {
@@ -156,6 +157,7 @@ func defaultConfig() *Config {
 			SessionEndDir:           filepath.Join(defaultStateDir(), "agent-racer", "session-end"),
 			ChurningCPUThreshold:    15.0,
 			ChurningRequiresNetwork: false,
+			HealthWarningThreshold:  3,
 		},
 		Sources: SourcesConfig{
 			Claude: true,
