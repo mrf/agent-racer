@@ -25,6 +25,7 @@ const PAINTS = {
 
 // ── Trail definitions ──────────────────────────────────────────────────
 // Fields override the base particle config in Particles.js createParticle.
+// If `preset` is set, the particle system uses that preset instead of overriding.
 const TRAILS = {
   home_trail: {
     color: { r: 168, g: 85, b: 247 },
@@ -78,6 +79,16 @@ const TRAILS = {
     decay: 0.02,
     sizeMultiplier: 'bloom',
   },
+  blue_flame_trail: { preset: 'blueFlame' },
+  red_sparks_trail: { preset: 'redSparks' },
+  rainbow_trail: { preset: 'rainbow' },
+  afterburn_trail: { preset: 'afterburn' },
+  prismatic_trail: { preset: 'prismatic' },
+  confetti_burst_trail: { preset: 'confettiBurst' },
+  tire_smoke_trail: { preset: 'tireSmoke' },
+  snowfall_trail: { preset: 'snowfall' },
+  sakura_trail: { preset: 'sakura' },
+  autumn_trail: { preset: 'autumn' },
 };
 
 // ── Body definitions ───────────────────────────────────────────────────

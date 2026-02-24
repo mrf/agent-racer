@@ -127,6 +127,144 @@ export class ParticleSystem {
           decay: 0.002,
           gravity: 0,
         };
+
+      // ── Trail presets (selected by equipped trail ID) ────────────────
+      case 'blueFlame':
+        return {
+          ...base,
+          vx: -1.8 - Math.random() * 2.0,
+          vy: -0.3 - Math.random() * 0.8, // upward drift
+          size: 5 + Math.random() * 5,
+          color: { r: 80, g: 160, b: 255 },   // bright blue
+          colorEnd: { r: 20, g: 60, b: 200 }, // deep blue
+          decay: 0.018 + Math.random() * 0.012,
+          sizeMultiplier: 'bloom',
+        };
+      case 'redSparks':
+        return {
+          ...base,
+          vx: -2 + Math.random() * 5,
+          vy: -1.5 + Math.random() * 3,
+          size: 1.5 + Math.random() * 2,
+          color: { r: 255, g: 80, b: 40 },
+          colorEnd: { r: 200, g: 20, b: 10 },
+          decay: 0.05 + Math.random() * 0.03, // short life
+          gravity: 0.06,
+          layer: 'front',
+        };
+      case 'rainbow': {
+        const hue = (performance.now() / 10 + Math.random() * 60) % 360;
+        const rgb = this._hslToRgb(hue, 90, 60);
+        return {
+          ...base,
+          vx: -1.5 - Math.random() * 1.5,
+          vy: (Math.random() - 0.5) * 1.5,
+          size: 4 + Math.random() * 4,
+          color: { r: rgb[0], g: rgb[1], b: rgb[2] },
+          decay: 0.02 + Math.random() * 0.01,
+          sizeMultiplier: 'bloom',
+        };
+      }
+      case 'afterburn':
+        return {
+          ...base,
+          vx: -2.5 - Math.random() * 2.0,
+          vy: (Math.random() - 0.5) * 3.0, // wide spread
+          size: 5 + Math.random() * 6,
+          color: { r: 255, g: 180, b: 40 },   // orange
+          colorEnd: { r: 220, g: 40, b: 10 }, // red
+          decay: 0.015 + Math.random() * 0.01,
+          sizeMultiplier: 'bloom',
+        };
+      case 'prismatic': {
+        // Refractive color split — each particle picks one channel band
+        const band = Math.floor(Math.random() * 3);
+        const colors = [
+          { r: 255, g: 60, b: 60 },   // red band
+          { r: 60, g: 255, b: 60 },   // green band
+          { r: 80, g: 100, b: 255 },  // blue band
+        ];
+        return {
+          ...base,
+          vx: -1.5 - Math.random() * 1.5,
+          vy: (band - 1) * 0.8 + (Math.random() - 0.5) * 0.6, // bands spread vertically
+          size: 3 + Math.random() * 3,
+          color: colors[band],
+          decay: 0.02 + Math.random() * 0.01,
+          sizeMultiplier: 'bloom',
+          baseAlpha: 0.7,
+        };
+      }
+      case 'confettiBurst':
+        return {
+          ...base,
+          vx: -3 + Math.random() * 6,
+          vy: -3 - Math.random() * 3,
+          size: 4 + Math.random() * 4,
+          color: this._saturatedColor(),
+          decay: 0.006 + Math.random() * 0.004,
+          gravity: 0.07,
+          rotation: Math.random() * Math.PI * 2,
+          rotSpeed: (Math.random() - 0.5) * 0.2,
+          flutter: 1.2 + Math.random(),
+          flutterSpeed: 3 + Math.random() * 2,
+          layer: 'front',
+          drawMode: 'rect',
+          width: 4 + Math.random() * 3,
+          height: 4 + Math.random() * 3,
+        };
+      case 'tireSmoke':
+        return {
+          ...base,
+          vx: -0.8 - Math.random() * 1.2,
+          vy: Math.random() * 0.3, // ground-level, minimal rise
+          size: 6 + Math.random() * 6,
+          color: { r: 140, g: 140, b: 150 },
+          colorEnd: { r: 90, g: 90, b: 100 },
+          decay: 0.01 + Math.random() * 0.005,
+          sizeMultiplier: 'bloom',
+        };
+      case 'snowfall':
+        return {
+          ...base,
+          vx: (Math.random() - 0.5) * 1.5,
+          vy: 0.3 + Math.random() * 0.5,
+          size: 2 + Math.random() * 3,
+          color: { r: 220, g: 230, b: 255 },
+          decay: 0.008 + Math.random() * 0.004,
+          flutter: 1.0 + Math.random(),
+          flutterSpeed: 2 + Math.random() * 2,
+          gravity: 0.01,
+        };
+      case 'sakura':
+        return {
+          ...base,
+          vx: -0.5 - Math.random() * 1.0,
+          vy: 0.2 + Math.random() * 0.4,
+          size: 3 + Math.random() * 3,
+          color: { r: 255, g: 183, b: 197 },
+          colorEnd: { r: 255, g: 220, b: 230 },
+          decay: 0.006 + Math.random() * 0.004,
+          flutter: 2.0 + Math.random(),
+          flutterSpeed: 2 + Math.random() * 1.5,
+          rotation: Math.random() * Math.PI * 2,
+          rotSpeed: (Math.random() - 0.5) * 0.08,
+          gravity: 0.015,
+        };
+      case 'autumn':
+        return {
+          ...base,
+          vx: -0.8 - Math.random() * 1.0,
+          vy: 0.2 + Math.random() * 0.4,
+          size: 4 + Math.random() * 3,
+          color: this._autumnColor(),
+          decay: 0.005 + Math.random() * 0.004,
+          flutter: 1.8 + Math.random(),
+          flutterSpeed: 1.5 + Math.random() * 1.5,
+          rotation: Math.random() * Math.PI * 2,
+          rotSpeed: (Math.random() - 0.5) * 0.1,
+          gravity: 0.02,
+        };
       default:
         return base;
     }
@@ -135,6 +273,14 @@ export class ParticleSystem {
   _saturatedColor() {
     const hue = Math.random() * 360;
     const c = this._hslToRgb(hue, 90, 60);
+    return { r: c[0], g: c[1], b: c[2] };
+  }
+
+  _autumnColor() {
+    // Random warm autumn hue: reds, oranges, yellows, occasional brown
+    const hues = [0, 15, 25, 35, 45]; // red → gold
+    const hue = hues[Math.floor(Math.random() * hues.length)] + Math.random() * 10;
+    const c = this._hslToRgb(hue, 70 + Math.random() * 20, 40 + Math.random() * 20);
     return { r: c[0], g: c[1], b: c[2] };
   }
 
