@@ -73,7 +73,22 @@ func main() {
 		}
 	}
 
-	server := ws.NewServer(cfg, store, broadcaster, frontendDir, *devMode, embeddedHandler, cfg.Server.AllowedOrigins, cfg.Server.AuthToken)
+	authToken := cfg.Server.AuthToken
+	if authToken == "" {
+		var err error
+		authToken, err = config.GenerateToken()
+		if err != nil {
+			log.Fatalf("Failed to generate auth token: %v", err)
+		}
+		log.Println("========================================")
+		log.Println("  WARNING: No auth_token configured.")
+		log.Printf("  Generated token: %s", authToken)
+		log.Printf("  Open: http://%s:%d/?token=%s", cfg.Server.Host, cfg.Server.Port, authToken)
+		log.Println("  Set server.auth_token in config to persist.")
+		log.Println("========================================")
+	}
+
+	server := ws.NewServer(cfg, store, broadcaster, frontendDir, *devMode, embeddedHandler, cfg.Server.AllowedOrigins, authToken)
 
 	// Stats tracker for gamification system.
 	gamStore := gamification.NewStore("")

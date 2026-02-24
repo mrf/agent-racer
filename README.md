@@ -179,7 +179,7 @@ server:
   # allowed_origins:  # Optional: restrict browser origins for WS
   #   - "http://localhost:8080"
   #   - "http://127.0.0.1:8080"
-  # auth_token: ""    # Optional: require token for API/WS
+  # auth_token: ""    # Auto-generated each startup if empty; set to persist
 
 sources:
   claude: true        # Claude Code session monitoring (default: true)

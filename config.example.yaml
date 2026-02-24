@@ -6,7 +6,8 @@ server:
   host: "127.0.0.1"
   # Optional: CORS allowed origins (empty = same-origin only)
   allowed_origins: []
-  # Optional: Authentication token (empty = no auth required)
+  # Authentication token. If empty, a random token is generated each startup.
+  # Set this to a fixed value to persist across restarts.
   auth_token: ""
 
 # Session source configuration

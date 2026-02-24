@@ -311,6 +311,22 @@ func TestMaxContextTokens(t *testing.T) {
 	}
 }
 
+func TestGenerateToken(t *testing.T) {
+	tok, err := GenerateToken()
+	if err != nil {
+		t.Fatalf("GenerateToken() error: %v", err)
+	}
+	if len(tok) != 32 { // 16 bytes = 32 hex chars
+		t.Errorf("token length = %d, want 32", len(tok))
+	}
+
+	// Tokens should be unique.
+	tok2, _ := GenerateToken()
+	if tok == tok2 {
+		t.Error("two generated tokens should not be identical")
+	}
+}
+
 func TestDefaultConfigTokenNorm(t *testing.T) {
 	cfg := defaultConfig()
 

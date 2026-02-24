@@ -34,7 +34,7 @@ server:
   port: 8080
   host: "127.0.0.1"
   allowed_origins: []
-  auth_token: ""
+  auth_token: ""  # auto-generated each startup if empty; set to persist
 ```
 
 ### Monitor Settings

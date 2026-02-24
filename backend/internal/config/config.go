@@ -1,6 +1,8 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
@@ -259,4 +261,13 @@ func defaultConfigDir() string {
 // DefaultConfigPath returns the default XDG-compliant config file path
 func DefaultConfigPath() string {
 	return filepath.Join(defaultConfigDir(), "agent-racer", "config.yaml")
+}
+
+// GenerateToken returns a cryptographically random 16-byte hex token.
+func GenerateToken() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
 }
