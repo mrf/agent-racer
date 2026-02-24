@@ -406,8 +406,19 @@ func (s *Server) checkOrigin(r *http.Request) bool {
 	return false
 }
 
+// securityHeaders wraps a handler to set standard HTTP security headers on all responses.
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("X-XSS-Protection", "1; mode=block")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'")
+		next.ServeHTTP(w, r)
+	})
+}
+
 func ListenAndServe(host string, port int, mux *http.ServeMux) error {
 	addr := fmt.Sprintf("%s:%d", host, port)
 	log.Printf("Server listening on %s", addr)
-	return http.ListenAndServe(addr, mux)
+	return http.ListenAndServe(addr, securityHeaders(mux))
 }
