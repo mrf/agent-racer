@@ -754,6 +754,27 @@ func TestCalculateBurnRate(t *testing.T) {
 		}
 	})
 
+	t.Run("hard_cap_limits_snapshot_count", func(t *testing.T) {
+		ts := &trackedSession{}
+		now := time.Now()
+
+		total := maxTokenSnapshots + 50
+		// Use 100ms intervals so all snapshots fit within the 60s time
+		// window and the hard cap (not the time-based trim) is what limits growth.
+		for i := 0; i < total; i++ {
+			m.calculateBurnRate(ts, 1000*(i+1), now.Add(time.Duration(i)*100*time.Millisecond))
+		}
+
+		if len(ts.tokenSnapshots) != maxTokenSnapshots {
+			t.Errorf("tokenSnapshots len = %d, want %d (hard cap)", len(ts.tokenSnapshots), maxTokenSnapshots)
+		}
+		last := ts.tokenSnapshots[len(ts.tokenSnapshots)-1]
+		expectedTokens := 1000 * total
+		if last.tokens != expectedTokens {
+			t.Errorf("last snapshot tokens = %d, want %d", last.tokens, expectedTokens)
+		}
+	})
+
 	t.Run("no_token_increase_returns_zero", func(t *testing.T) {
 		ts := &trackedSession{}
 		now := time.Now()
