@@ -53,6 +53,12 @@ func NewRewardRegistry() *RewardRegistry {
 	return r
 }
 
+// Lookup returns the reward with the given ID, or ok=false if not found.
+func (r *RewardRegistry) Lookup(id string) (Reward, bool) {
+	rw, ok := r.rewards[id]
+	return rw, ok
+}
+
 // Registry returns a copy of all rewards in an unspecified order.
 func (r *RewardRegistry) Registry() []Reward {
 	out := make([]Reward, 0, len(r.rewards))
@@ -117,7 +123,7 @@ func (r *RewardRegistry) Equip(rewardID string, stats *Stats) error {
 // slot is already empty. It returns ErrSlotMismatch for unrecognised slot names.
 // The caller is responsible for persisting stats after a successful call.
 func (r *RewardRegistry) Unequip(slot RewardType, stats *Stats) error {
-	if !validSlot(slot) {
+	if !ValidSlot(slot) {
 		return fmt.Errorf("%w: %s", ErrSlotMismatch, slot)
 	}
 	setEquippedSlot(&stats.Equipped, slot, "")
@@ -149,8 +155,8 @@ func setEquippedSlot(eq *Equipped, slot RewardType, id string) {
 	}
 }
 
-// validSlot reports whether slot is one of the defined RewardType constants.
-func validSlot(slot RewardType) bool {
+// ValidSlot reports whether slot is one of the defined RewardType constants.
+func ValidSlot(slot RewardType) bool {
 	switch slot {
 	case RewardTypePaint, RewardTypeTrail, RewardTypeBody, RewardTypeBadge,
 		RewardTypeSound, RewardTypeTheme, RewardTypeTitle:
