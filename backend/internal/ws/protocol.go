@@ -21,6 +21,7 @@ const (
 
 type WSMessage struct {
 	Type    MessageType `json:"type"`
+	Seq     uint64      `json:"seq"`
 	Payload interface{} `json:"payload"`
 }
 

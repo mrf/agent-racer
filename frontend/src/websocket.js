@@ -11,6 +11,7 @@ export class RaceConnection {
     this.maxReconnectDelay = 30000;
     this.reconnectAttempts = 0;
     this.reconnectTimeoutId = null;
+    this.lastSeq = 0;
   }
 
   connect() {
@@ -26,12 +27,25 @@ export class RaceConnection {
       }
       this.reconnectAttempts = 0;
       this.reconnectDelay = 1000;
+      this.lastSeq = 0;
       this.onStatus('connected');
     };
 
     this.ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
+        const seq = msg.seq || 0;
+
+        // Snapshots always reset the sequence baseline.
+        if (msg.type === 'snapshot') {
+          this.lastSeq = seq;
+        } else if (seq && this.lastSeq && seq !== this.lastSeq + 1) {
+          this.requestResync();
+          return;
+        } else {
+          this.lastSeq = seq;
+        }
+
         switch (msg.type) {
           case 'snapshot':
             this.onSnapshot(msg.payload);
@@ -59,6 +73,12 @@ export class RaceConnection {
     this.ws.onerror = () => {
       this.onStatus('disconnected');
     };
+  }
+
+  requestResync() {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'resync' }));
+    }
   }
 
   scheduleReconnect() {
