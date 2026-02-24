@@ -92,6 +92,11 @@ func (t *StatsTracker) processEvent(ev session.Event) {
 
 	s := ev.State
 
+	// Ensure weekly challenges are rotated before processing.
+	RotateChallengesIfNeeded(&t.stats.WeeklyChallenges, time.Now())
+
+	wc := &t.stats.WeeklyChallenges
+
 	switch ev.Type {
 	case session.EventNew:
 		if t.counted[s.ID] {
@@ -110,6 +115,10 @@ func (t *StatsTracker) processEvent(ev session.Event) {
 			awardXP(&t.stats.BattlePass, XPNewSource)
 		}
 
+		// Weekly challenge: count new session and source.
+		wc.Snapshot.TotalSessions++
+		wc.Snapshot.SessionsPerSource[s.Source]++
+
 	case session.EventUpdate:
 		if s.ContextUtilization > t.stats.MaxContextUtilization {
 			t.stats.MaxContextUtilization = s.ContextUtilization
@@ -124,9 +133,15 @@ func (t *StatsTracker) processEvent(ev session.Event) {
 		if s.ContextUtilization >= 0.9 && mask&0x02 == 0 {
 			awardXP(&t.stats.BattlePass, XPContext90Pct)
 			t.contextMilestones[s.ID] = mask | 0x02
+			wc.Snapshot.Context90PctCount++
 		} else if s.ContextUtilization >= 0.5 && mask&0x01 == 0 {
 			awardXP(&t.stats.BattlePass, XPContext50Pct)
 			t.contextMilestones[s.ID] = mask | 0x01
+		}
+
+		// Weekly challenge: accumulate tokens.
+		if s.TokensUsed > 0 {
+			wc.Snapshot.TokensBurned += s.TokensUsed
 		}
 
 	case session.EventTerminal:
@@ -135,9 +150,11 @@ func (t *StatsTracker) processEvent(ev session.Event) {
 			t.stats.TotalCompletions++
 			t.stats.ConsecutiveCompletions++
 			awardXP(&t.stats.BattlePass, XPSessionCompletes)
+			wc.Snapshot.TotalCompletions++
 		case session.Errored:
 			t.stats.TotalErrors++
 			t.stats.ConsecutiveCompletions = 0
+			wc.Snapshot.TotalErrors++
 		case session.Lost:
 			t.stats.ConsecutiveCompletions = 0
 		}
@@ -148,6 +165,8 @@ func (t *StatsTracker) processEvent(ev session.Event) {
 			if t.stats.SessionsPerModel[s.Model] == 1 {
 				awardXP(&t.stats.BattlePass, XPNewModel)
 			}
+			wc.Snapshot.SessionsPerModel[s.Model]++
+			wc.Snapshot.DistinctModels = len(wc.Snapshot.SessionsPerModel)
 		}
 		if s.ToolCallCount > t.stats.MaxToolCalls {
 			t.stats.MaxToolCalls = s.ToolCallCount
@@ -164,6 +183,14 @@ func (t *StatsTracker) processEvent(ev session.Event) {
 
 		delete(t.counted, s.ID)
 		delete(t.contextMilestones, s.ID)
+	}
+
+	// Award XP for newly completed weekly challenges.
+	for _, cp := range EvaluateChallenges(wc) {
+		if cp.Complete && !wc.XPAwarded[cp.ID] {
+			wc.XPAwarded[cp.ID] = true
+			awardXP(&t.stats.BattlePass, XPWeeklyChallenge)
+		}
 	}
 
 	t.dirty = true
@@ -183,6 +210,14 @@ func (t *StatsTracker) processEvent(ev session.Event) {
 		}
 		t.onAchievement(a, rw)
 	}
+}
+
+// Challenges returns the current weekly challenge progress.
+func (t *StatsTracker) Challenges() []ChallengeProgress {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	RotateChallengesIfNeeded(&t.stats.WeeklyChallenges, time.Now())
+	return EvaluateChallenges(&t.stats.WeeklyChallenges)
 }
 
 // Equip validates and equips rewardID using the given registry, persists

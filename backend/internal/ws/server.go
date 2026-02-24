@@ -90,6 +90,7 @@ func (s *Server) SetupRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/stats", s.handleStats)
 	mux.HandleFunc("/api/achievements", s.handleAchievements)
 	mux.HandleFunc("/api/equip", s.handleEquip)
+	mux.HandleFunc("/api/challenges", s.handleChallenges)
 
 	if s.dev {
 		log.Printf("Serving frontend from filesystem: %s", s.frontendDir)
@@ -239,6 +240,20 @@ func (s *Server) handleAchievements(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(out)
+}
+
+func (s *Server) handleChallenges(w http.ResponseWriter, r *http.Request) {
+	if !s.authorize(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if s.tracker == nil {
+		http.Error(w, "stats not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.tracker.Challenges())
 }
 
 type equipRequest struct {
