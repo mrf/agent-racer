@@ -75,9 +75,11 @@ func NewBroadcaster(store *session.Store, throttle, snapshotInterval time.Durati
 }
 
 // SetPrivacyFilter configures the privacy filter applied to all outgoing
-// session data. Must be called before any clients connect.
+// session data. Safe for concurrent use.
 func (b *Broadcaster) SetPrivacyFilter(f *session.PrivacyFilter) {
+	b.mu.Lock()
 	b.privacy = f
+	b.mu.Unlock()
 }
 
 // SetHealthHook registers a function that returns the current source health
@@ -86,10 +88,18 @@ func (b *Broadcaster) SetHealthHook(hook func() []SourceHealthPayload) {
 	b.healthHook = hook
 }
 
+// privacyFilter returns the current privacy filter under lock.
+func (b *Broadcaster) privacyFilter() *session.PrivacyFilter {
+	b.mu.RLock()
+	f := b.privacy
+	b.mu.RUnlock()
+	return f
+}
+
 // FilterSessions applies the privacy filter to the given sessions, removing
 // blocked sessions and masking sensitive fields.
 func (b *Broadcaster) FilterSessions(sessions []*session.SessionState) []*session.SessionState {
-	return b.privacy.FilterSlice(sessions)
+	return b.privacyFilter().FilterSlice(sessions)
 }
 
 func (b *Broadcaster) AddClient(conn *websocket.Conn) (*client, error) {
@@ -174,7 +184,7 @@ func (b *Broadcaster) flush() {
 		return
 	}
 
-	filtered := b.privacy.FilterSlice(updates)
+	filtered := b.privacyFilter().FilterSlice(updates)
 	if len(filtered) == 0 && len(removed) == 0 {
 		return
 	}
@@ -199,7 +209,7 @@ func (b *Broadcaster) snapshotLoop() {
 // source health status (when a health hook is registered).
 func (b *Broadcaster) snapshotMessage() WSMessage {
 	payload := SnapshotPayload{
-		Sessions: b.privacy.FilterSlice(b.store.GetAll()),
+		Sessions: b.privacyFilter().FilterSlice(b.store.GetAll()),
 	}
 	if b.healthHook != nil {
 		payload.SourceHealth = b.healthHook()

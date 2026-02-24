@@ -21,6 +21,20 @@ import (
 	"github.com/agent-racer/backend/internal/ws"
 )
 
+func buildSources(cfg *config.Config) []monitor.Source {
+	var sources []monitor.Source
+	if cfg.Sources.Claude {
+		sources = append(sources, monitor.NewClaudeSource(10*time.Minute))
+	}
+	if cfg.Sources.Codex {
+		sources = append(sources, monitor.NewCodexSource(10*time.Minute))
+	}
+	if cfg.Sources.Gemini {
+		sources = append(sources, monitor.NewGeminiSource(10*time.Minute))
+	}
+	return sources
+}
+
 func main() {
 	mockMode := flag.Bool("mock", false, "Use mock session data")
 	devMode := flag.Bool("dev", false, "Development mode (serve frontend from filesystem)")
@@ -111,29 +125,60 @@ func main() {
 		tracker.Run(ctx)
 	}()
 
+	var mon *monitor.Monitor
 	if *mockMode {
 		log.Println("Starting in mock mode")
 		gen := mock.NewGenerator(store, broadcaster)
 		gen.Start(ctx)
 	} else {
 		log.Println("Starting in real mode (process monitoring)")
-		var sources []monitor.Source
-		if cfg.Sources.Claude {
-			sources = append(sources, monitor.NewClaudeSource(10*time.Minute))
-		}
-		if cfg.Sources.Codex {
-			sources = append(sources, monitor.NewCodexSource(10*time.Minute))
-		}
-		if cfg.Sources.Gemini {
-			sources = append(sources, monitor.NewGeminiSource(10*time.Minute))
-		}
-		mon := monitor.NewMonitor(cfg, store, broadcaster, sources)
+		sources := buildSources(cfg)
+		mon = monitor.NewMonitor(cfg, store, broadcaster, sources)
 		mon.SetStatsEvents(statsCh)
 		go mon.Start(ctx)
 	}
 
 	mux := http.NewServeMux()
 	server.SetupRoutes(mux)
+
+	// SIGHUP: reload config.yaml and apply changes at runtime.
+	sighupCh := make(chan os.Signal, 1)
+	signal.Notify(sighupCh, syscall.SIGHUP)
+	go func() {
+		for range sighupCh {
+			newCfg, err := config.LoadOrDefault(cfgPath)
+			if err != nil {
+				log.Printf("Config reload failed: %v", err)
+				continue
+			}
+
+			changes := config.Diff(cfg, newCfg)
+			if len(changes) == 0 {
+				log.Println("Config reloaded: no changes detected")
+				continue
+			}
+
+			for _, c := range changes {
+				log.Printf("Config changed: %s", c)
+			}
+
+			// Apply privacy filter (always safe to update).
+			broadcaster.SetPrivacyFilter(newCfg.Privacy.NewPrivacyFilter())
+
+			// Apply monitor-level config (models, token norm, timings).
+			if mon != nil {
+				mon.SetConfig(newCfg)
+
+				// Rebuild sources if source configuration changed.
+				if cfg.Sources != newCfg.Sources {
+					mon.SetSources(buildSources(newCfg))
+				}
+			}
+
+			cfg = newCfg
+			log.Printf("Config reload complete (%d change(s) applied)", len(changes))
+		}
+	}()
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
