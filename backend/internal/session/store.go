@@ -41,6 +41,36 @@ func (s *Store) GetAll() []*SessionState {
 func (s *Store) Update(state *SessionState) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.updateLocked(state)
+}
+
+// UpdateAndNotify atomically updates a session and calls notify before
+// releasing the write lock. This ensures that GetAll (which takes a read
+// lock) cannot observe the updated state until the notification — typically
+// a broadcaster queue — has been issued.
+func (s *Store) UpdateAndNotify(state *SessionState, notify func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.updateLocked(state)
+	if notify != nil {
+		notify()
+	}
+}
+
+// BatchUpdateAndNotify atomically updates multiple sessions and calls notify
+// before releasing the write lock.
+func (s *Store) BatchUpdateAndNotify(states []*SessionState, notify func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, state := range states {
+		s.updateLocked(state)
+	}
+	if notify != nil {
+		notify()
+	}
+}
+
+func (s *Store) updateLocked(state *SessionState) {
 	if existing, ok := s.sessions[state.ID]; ok {
 		state.Lane = existing.Lane
 	} else {
@@ -55,6 +85,19 @@ func (s *Store) Remove(id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.sessions, id)
+}
+
+// BatchRemoveAndNotify atomically removes multiple sessions and calls notify
+// before releasing the write lock.
+func (s *Store) BatchRemoveAndNotify(ids []string, notify func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, id := range ids {
+		delete(s.sessions, id)
+	}
+	if notify != nil {
+		notify()
+	}
 }
 
 func (s *Store) ActiveCount() int {
