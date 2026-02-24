@@ -32,6 +32,15 @@ const CATEGORY_ICONS = {
   'Streaks':                '\u{1F525}', // fire
 };
 
+function escapeHTML(s) {
+  if (!s) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 function buildPanelDOM() {
   const overlay = document.createElement('div');
   overlay.id = 'achievement-panel';
@@ -286,7 +295,7 @@ export class AchievementPanel {
       this._achievements = await resp.json();
       this._render();
     } catch (err) {
-      this._body.innerHTML = `<p style="color:#e94560;font-size:12px">Failed to load achievements: ${err.message}</p>`;
+      this._body.innerHTML = `<p style="color:#e94560;font-size:12px">Failed to load achievements: ${escapeHTML(err.message)}</p>`;
     }
   }
 
@@ -404,17 +413,19 @@ export class AchievementPanel {
 
   _showTooltip(achievement, x, y) {
     const tierIcon = TIER_ICONS[achievement.tier] ?? '';
+    const name = escapeHTML(achievement.name);
+    const desc = escapeHTML(achievement.description);
     let statusLine;
     if (achievement.unlocked && achievement.unlockedAt) {
       const date = new Date(achievement.unlockedAt).toLocaleDateString();
       statusLine = `<div class="ap-tooltip-unlocked">\u2713 Unlocked ${date}</div>`;
     } else {
-      statusLine = `<div class="ap-tooltip-locked">\u{1F512} ${achievement.description}</div>`;
+      statusLine = `<div class="ap-tooltip-locked">\u{1F512} ${desc}</div>`;
     }
 
     this._tooltip.innerHTML = `
-      <div class="ap-tooltip-name">${tierIcon} ${achievement.name}</div>
-      <div class="ap-tooltip-desc">${achievement.description}</div>
+      <div class="ap-tooltip-name">${tierIcon} ${name}</div>
+      <div class="ap-tooltip-desc">${desc}</div>
       ${statusLine}
     `;
     this._tooltip.classList.remove('hidden');
