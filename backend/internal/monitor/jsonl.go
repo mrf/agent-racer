@@ -26,6 +26,7 @@ func (t TokenUsage) TotalContext() int {
 
 type jsonlEntry struct {
 	Type      string          `json:"type"`
+	Subtype   string          `json:"subtype,omitempty"`
 	UUID      string          `json:"uuid"`
 	SessionID string          `json:"sessionId"`
 	Slug      string          `json:"slug"`
@@ -88,17 +89,18 @@ type SubagentParseResult struct {
 }
 
 type ParseResult struct {
-	SessionID    string
-	Slug         string // Internal session name (e.g. "mighty-cuddling-castle")
-	Model        string
-	LatestUsage  *TokenUsage
-	MessageCount int
-	ToolCalls    int
-	LastTool     string
-	LastActivity string
-	LastTime     time.Time
-	WorkingDir   string
-	Subagents    map[string]*SubagentParseResult // keyed by toolUseID
+	SessionID       string
+	Slug            string // Internal session name (e.g. "mighty-cuddling-castle")
+	Model           string
+	LatestUsage     *TokenUsage
+	MessageCount    int
+	ToolCalls       int
+	LastTool        string
+	LastActivity    string
+	LastTime        time.Time
+	WorkingDir      string
+	Subagents       map[string]*SubagentParseResult // keyed by toolUseID
+	CompactionCount int                             // number of compact_boundary events in this chunk
 }
 
 func FindSessionFile(workingDir string) (string, error) {
@@ -237,6 +239,11 @@ func ParseSessionJSONL(path string, offset int64, knownSlug string, knownParents
 
 		case "progress":
 			parseProgressEntry(lineData, result)
+
+		case "system":
+			if entry.Subtype == "compact_boundary" {
+				result.CompactionCount++
+			}
 		}
 
 		if err == io.EOF {

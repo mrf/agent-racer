@@ -146,6 +146,11 @@ type SourceUpdate struct {
 	// Only populated by sources that support subagent tracking
 	// (currently Claude only).
 	Subagents map[string]*SubagentParseResult
+
+	// CompactionCount is the number of context compaction events
+	// found in this chunk. This is a delta to be added to the
+	// cumulative count.
+	CompactionCount int
 }
 
 // HasData reports whether this update contains any meaningful data
@@ -163,5 +168,6 @@ func (u SourceUpdate) HasData() bool {
 		u.WorkingDir != "" ||
 		u.Branch != "" ||
 		u.MaxContextTokens > 0 ||
-		len(u.Subagents) > 0
+		len(u.Subagents) > 0 ||
+		u.CompactionCount > 0
 }

@@ -87,6 +87,7 @@ type SessionState struct {
 	TmuxTarget         string          `json:"tmuxTarget,omitempty"`
 	Lane               int             `json:"lane"`
 	BurnRatePerMinute  float64         `json:"burnRatePerMinute,omitempty"`
+	CompactionCount    int             `json:"compactionCount,omitempty"`
 	Subagents          []SubagentState `json:"subagents,omitempty"`
 }
 
