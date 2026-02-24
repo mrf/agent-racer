@@ -46,11 +46,19 @@ type StatsTracker struct {
 	onBattlePass   BattlePassCallback
 }
 
+// SeasonConfig controls which battle pass season is active.
+type SeasonConfig struct {
+	Enabled bool
+	Season  string // e.g. "2025-07"
+}
+
 // NewStatsTracker creates a StatsTracker backed by the given persistence store.
 // It loads existing stats from disk and returns a send-only channel for the
 // monitor to deliver events on. bufferSize controls the channel capacity;
-// values <= 0 use defaultEventBufferSize. The caller must run Run in a goroutine.
-func NewStatsTracker(persist *Store, bufferSize int) (*StatsTracker, chan<- session.Event, error) {
+// values <= 0 use defaultEventBufferSize. If sc is non-nil and the configured
+// season differs from the persisted season, a season rotation is performed.
+// The caller must run Run in a goroutine.
+func NewStatsTracker(persist *Store, bufferSize int, sc *SeasonConfig) (*StatsTracker, chan<- session.Event, error) {
 	if bufferSize <= 0 {
 		bufferSize = defaultEventBufferSize
 	}
@@ -58,6 +66,15 @@ func NewStatsTracker(persist *Store, bufferSize int) (*StatsTracker, chan<- sess
 	if err != nil {
 		return nil, nil, err
 	}
+
+	if sc != nil && sc.Enabled {
+		if rotateSeason(stats, sc.Season) {
+			if err := persist.Save(stats); err != nil {
+				return nil, nil, err
+			}
+		}
+	}
+
 	ch := make(chan session.Event, bufferSize)
 	t := &StatsTracker{
 		persist:           persist,
@@ -69,6 +86,27 @@ func NewStatsTracker(persist *Store, bufferSize int) (*StatsTracker, chan<- sess
 		rewardRegistry:    NewRewardRegistry(),
 	}
 	return t, ch, nil
+}
+
+// rotateSeason checks if the configured season differs from the persisted one.
+// When it does, it archives the old season's XP/tier, resets the battle pass
+// to tier 0/XP 0 with the new season label, and returns true.
+// Achievements and equipped cosmetics are left intact (permanent).
+func rotateSeason(stats *Stats, season string) bool {
+	if stats.BattlePass.Season == season {
+		return false
+	}
+	// Only archive if there was a previous season with progress.
+	if stats.BattlePass.Season != "" && (stats.BattlePass.Tier > 0 || stats.BattlePass.XP > 0) {
+		stats.ArchivedSeasons = append(stats.ArchivedSeasons, ArchivedSeason{
+			Season:   stats.BattlePass.Season,
+			Tier:     stats.BattlePass.Tier,
+			XP:       stats.BattlePass.XP,
+			Archived: time.Now().UTC().Format(time.RFC3339),
+		})
+	}
+	stats.BattlePass = BattlePass{Season: season}
+	return true
 }
 
 // OnAchievement registers a callback invoked whenever an achievement unlocks.

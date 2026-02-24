@@ -76,7 +76,7 @@ func TestStore_SaveAndLoad(t *testing.T) {
 	st.MaxMessages = 150
 	st.MaxSessionDurationSec = 3600.0
 	st.AchievementsUnlocked["first_blood"] = time.Date(2026, 1, 15, 10, 0, 0, 0, time.UTC)
-	st.BattlePass = BattlePass{Season: 1, Tier: 5, XP: 2500}
+	st.BattlePass = BattlePass{Season: "2025-01", Tier: 5, XP: 2500}
 	st.Equipped = Equipped{Trail: "flame", Badge: "gold"}
 
 	if err := s.Save(st); err != nil {
@@ -130,8 +130,8 @@ func TestStore_SaveAndLoad(t *testing.T) {
 	if loaded.MaxSessionDurationSec != 3600.0 {
 		t.Errorf("MaxSessionDurationSec = %f, want 3600", loaded.MaxSessionDurationSec)
 	}
-	if loaded.BattlePass.Season != 1 || loaded.BattlePass.Tier != 5 || loaded.BattlePass.XP != 2500 {
-		t.Errorf("BattlePass = %+v, want {1 5 2500}", loaded.BattlePass)
+	if loaded.BattlePass.Season != "2025-01" || loaded.BattlePass.Tier != 5 || loaded.BattlePass.XP != 2500 {
+		t.Errorf("BattlePass = %+v, want {2025-01 5 2500}", loaded.BattlePass)
 	}
 	if loaded.Equipped.Trail != "flame" || loaded.Equipped.Badge != "gold" {
 		t.Errorf("Equipped = %+v, want {flame gold ''}", loaded.Equipped)
@@ -401,7 +401,7 @@ func TestStore_RoundTripWithAllFields(t *testing.T) {
 	st.MaxSessionDurationSec = 3600.0
 	st.AchievementsUnlocked["first_blood"] = time.Date(2026, 1, 15, 10, 0, 0, 0, time.UTC)
 	st.AchievementsUnlocked["speed_demon"] = time.Date(2026, 2, 1, 12, 30, 0, 0, time.UTC)
-	st.BattlePass = BattlePass{Season: 2, Tier: 10, XP: 5000}
+	st.BattlePass = BattlePass{Season: "2025-02", Tier: 10, XP: 5000}
 	st.Equipped = Equipped{Trail: "flame", Badge: "gold", Theme: "dark"}
 
 	if err := s.Save(st); err != nil {
@@ -465,8 +465,8 @@ func TestStore_RoundTripWithAllFields(t *testing.T) {
 	if loaded.MaxSessionDurationSec != 3600.0 {
 		t.Errorf("MaxSessionDurationSec = %f, want 3600", loaded.MaxSessionDurationSec)
 	}
-	if loaded.BattlePass.Season != 2 {
-		t.Errorf("BattlePass.Season = %d, want 2", loaded.BattlePass.Season)
+	if loaded.BattlePass.Season != "2025-02" {
+		t.Errorf("BattlePass.Season = %s, want 2025-02", loaded.BattlePass.Season)
 	}
 	if loaded.BattlePass.Tier != 10 {
 		t.Errorf("BattlePass.Tier = %d, want 10", loaded.BattlePass.Tier)

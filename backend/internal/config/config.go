@@ -19,13 +19,28 @@ import (
 const DefaultContextWindow = 200000
 
 type Config struct {
-	Server    ServerConfig    `yaml:"server"`
-	Monitor   MonitorConfig   `yaml:"monitor"`
-	Sources   SourcesConfig   `yaml:"sources"`
-	Models    map[string]int  `yaml:"models"`
-	Sound     SoundConfig     `yaml:"sound"`
-	TokenNorm TokenNormConfig `yaml:"token_normalization"`
-	Privacy   PrivacyConfig   `yaml:"privacy"`
+	Server       ServerConfig       `yaml:"server"`
+	Monitor      MonitorConfig      `yaml:"monitor"`
+	Sources      SourcesConfig      `yaml:"sources"`
+	Models       map[string]int     `yaml:"models"`
+	Sound        SoundConfig        `yaml:"sound"`
+	TokenNorm    TokenNormConfig    `yaml:"token_normalization"`
+	Privacy      PrivacyConfig      `yaml:"privacy"`
+	Gamification GamificationConfig `yaml:"gamification"`
+}
+
+// GamificationConfig holds settings for the gamification subsystem.
+type GamificationConfig struct {
+	BattlePass BattlePassConfig `yaml:"battle_pass"`
+}
+
+// BattlePassConfig controls seasonal battle pass behavior.
+type BattlePassConfig struct {
+	// Enabled activates the battle pass system. Defaults to false.
+	Enabled bool `yaml:"enabled"`
+	// Season identifies the current season (e.g. "2025-07").
+	// Changing this value triggers a season rotation on next startup.
+	Season string `yaml:"season"`
 }
 
 // PrivacyConfig controls what session metadata is exposed to connected clients.
