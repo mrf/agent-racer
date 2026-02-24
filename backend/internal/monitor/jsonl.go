@@ -13,6 +13,16 @@ import (
 	"time"
 )
 
+const (
+	// maxFileSize is the maximum JSONL file size we'll parse (500 MB).
+	// Files exceeding this are skipped to prevent OOM from runaway logs.
+	maxFileSize = 500 * 1024 * 1024
+
+	// maxLineLength is the maximum length of a single JSONL line (1 MB).
+	// Lines exceeding this are skipped to prevent excessive memory use.
+	maxLineLength = 1024 * 1024
+)
+
 type TokenUsage struct {
 	InputTokens              int `json:"input_tokens"`
 	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
@@ -154,6 +164,16 @@ func ParseSessionJSONL(path string, offset int64, knownSlug string, knownParents
 	}
 	defer f.Close()
 
+	// Check file size before parsing to avoid OOM on huge files.
+	info, err := f.Stat()
+	if err != nil {
+		return nil, offset, err
+	}
+	if info.Size() > maxFileSize {
+		log.Printf("[jsonl] Skipping %s: file size %d exceeds limit %d", path, info.Size(), maxFileSize)
+		return nil, offset, fmt.Errorf("file size %d exceeds max %d", info.Size(), maxFileSize)
+	}
+
 	if offset > 0 {
 		if _, err := f.Seek(offset, io.SeekStart); err != nil {
 			return nil, offset, err
@@ -184,6 +204,17 @@ func ParseSessionJSONL(path string, offset int64, knownSlug string, knownParents
 		// Incomplete lines (no trailing newline) are preserved for next read.
 		if line[len(line)-1] != '\n' {
 			// Line is incomplete - don't parse or advance offset
+			if err == io.EOF {
+				break
+			}
+			continue
+		}
+
+		// Skip oversized lines to prevent excessive memory use during JSON parsing.
+		if len(line) > maxLineLength {
+			log.Printf("[jsonl] Skipping oversized line (%d bytes) in %s at offset %d",
+				len(line), path, parsedOffset)
+			parsedOffset += int64(len(line))
 			if err == io.EOF {
 				break
 			}
