@@ -3,6 +3,7 @@ import { RaceCanvas } from './canvas/RaceCanvas.js';
 import { SoundEngine } from './audio/SoundEngine.js';
 import { requestPermission, notifyCompletion } from './notifications.js';
 import { AchievementPanel } from './gamification/AchievementPanel.js';
+import { UnlockToast } from './gamification/UnlockToast.js';
 import { authFetch, getAuthToken } from './auth.js';
 
 const debugPanel = document.getElementById('debug-panel');
@@ -39,6 +40,7 @@ raceCanvas.setEngine(engine);
 window.raceCanvas = raceCanvas;
 
 const achievementPanel = new AchievementPanel();
+const unlockToast = new UnlockToast(engine);
 
 // Load sound configuration from backend
 async function loadSoundConfig() {
@@ -512,6 +514,11 @@ function handleCompletion(payload) {
   }
 }
 
+function handleAchievementUnlocked(payload) {
+  log(`Achievement unlocked: ${payload.name} (${payload.tier})`, 'info');
+  unlockToast.show(payload);
+}
+
 function handleStatus(status) {
   statusDot.className = `status-dot ${status}`;
   raceCanvas.setConnected(status === 'connected');
@@ -538,8 +545,12 @@ raceCanvas.onHamsterClick = ({ hamsterState, parentState }) => {
   }
 };
 
-// Keep flyout attached to car/hamster as it moves
+// Keep flyout attached to car/hamster as it moves, and draw toast overlays
 raceCanvas.onAfterDraw = () => {
+  // Update and draw unlock toasts on top of everything
+  unlockToast.update(raceCanvas.dt);
+  unlockToast.draw(raceCanvas.ctx, raceCanvas.width);
+
   if (detailFlyout.classList.contains('hidden')) return;
 
   if (selectedHamsterId && selectedSessionId) {
@@ -632,6 +643,7 @@ const conn = new RaceConnection({
   onStatus: handleStatus,
   authToken: getAuthToken(),
   onSourceHealth: handleSourceHealth,
+  onAchievementUnlocked: handleAchievementUnlocked,
 });
 
 conn.connect();

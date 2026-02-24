@@ -472,6 +472,44 @@ export class SoundEngine {
     }
   }
 
+  playUnlockChime(tier = 'bronze') {
+    if (this.muted) return;
+    try { this._ensureCtx(); } catch { return; }
+    this._duck();
+    const now = this.ctx.currentTime;
+    const reverb = this._makeReverb();
+    reverb.connect(this.sfxBus);
+
+    // Pitch multiplier per tier — higher tier = higher pitch
+    const pitchMult = { bronze: 0.8, silver: 1.0, gold: 1.2, platinum: 1.5 }[tier] ?? 1.0;
+
+    // Shortened two-chord chime (lighter than full victory fanfare)
+    const chords = [
+      { freqs: [261.63, 329.63, 392.00], start: 0, dur: 0.2 },
+      { freqs: [523.25, 659.25, 783.99], start: 0.2, dur: 0.4 },
+    ];
+
+    for (const chord of chords) {
+      for (const freq of chord.freqs) {
+        const osc = this.ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.value = freq * pitchMult;
+
+        const gain = this.ctx.createGain();
+        const t = now + chord.start;
+        gain.gain.setValueAtTime(0, t);
+        gain.gain.linearRampToValueAtTime(0.25, t + 0.02);
+        gain.gain.setValueAtTime(0.25, t + chord.dur - 0.05);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + chord.dur + 0.3);
+
+        osc.connect(gain);
+        gain.connect(reverb);
+        osc.start(t);
+        osc.stop(t + chord.dur + 0.3);
+      }
+    }
+  }
+
   playCrash() {
     if (this.muted) return;
     try { this._ensureCtx(); } catch { return; }
