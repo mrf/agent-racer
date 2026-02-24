@@ -1,8 +1,9 @@
-.PHONY: dev run build test deps clean embed dist
+.PHONY: dev run build test test-frontend test-e2e lint ci deps clean embed dist
 
 BINARY := agent-racer
 BACKEND := backend
 FRONTEND := frontend
+E2E := e2e
 
 deps:
 	cd $(BACKEND) && go mod download
@@ -22,6 +23,17 @@ embed:
 
 test:
 	cd $(BACKEND) && go test ./...
+
+test-frontend:
+	cd $(FRONTEND) && npm test
+
+test-e2e:
+	cd $(E2E) && npm test
+
+lint:
+	cd $(BACKEND) && go vet ./...
+
+ci: test lint test-frontend test-e2e
 
 clean:
 	rm -f $(BINARY)
