@@ -177,18 +177,20 @@ func (t *StatsTracker) processEvent(ev session.Event) {
 
 	// Evaluate achievements while still holding the lock so stats are consistent.
 	unlocked := t.achieveEngine.Evaluate(t.stats)
+	for _, a := range unlocked {
+		awardXP(&t.stats.BattlePass, AchievementXP(a.Tier))
+	}
 	t.mu.Unlock()
 
 	// Dispatch callbacks outside the lock to avoid holding it during broadcast.
-	for _, a := range unlocked {
-		if t.onAchievement == nil {
-			break
+	if t.onAchievement != nil {
+		for _, a := range unlocked {
+			var rw *Reward
+			if found, ok := t.rewardRegistry.RewardForAchievement(a.ID); ok {
+				rw = &found
+			}
+			t.onAchievement(a, rw)
 		}
-		var rw *Reward
-		if found, ok := t.rewardRegistry.RewardForAchievement(a.ID); ok {
-			rw = &found
-		}
-		t.onAchievement(a, rw)
 	}
 }
 
