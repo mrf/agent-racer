@@ -244,11 +244,11 @@ func (s *Server) handleEquip(w http.ResponseWriter, r *http.Request) {
 	loadout, err := s.tracker.Equip(s.rewardRegistry, req.RewardID)
 	if err != nil {
 		if errors.Is(err, gamification.ErrUnknownReward) {
-			http.Error(w, err.Error(), http.StatusNotFound)
+			http.Error(w, "unknown reward", http.StatusNotFound)
 			return
 		}
 		if errors.Is(err, gamification.ErrNotUnlocked) {
-			http.Error(w, err.Error(), http.StatusForbidden)
+			http.Error(w, "reward not unlocked", http.StatusForbidden)
 			return
 		}
 		http.Error(w, "equip failed", http.StatusInternalServerError)
@@ -304,7 +304,8 @@ func (s *Server) handleFocus(w http.ResponseWriter, r *http.Request, sessionID s
 	}
 
 	if err := tmuxFocusSession(state.TmuxTarget); err != nil {
-		http.Error(w, fmt.Sprintf("tmux focus failed: %v", err), http.StatusInternalServerError)
+		log.Printf("tmux focus failed for session %s (target %s): %v", sessionID, state.TmuxTarget, err)
+		http.Error(w, "tmux focus failed", http.StatusInternalServerError)
 		return
 	}
 
