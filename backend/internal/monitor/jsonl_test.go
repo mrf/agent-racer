@@ -1,6 +1,7 @@
 package monitor
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -256,36 +257,61 @@ func TestParseSessionJSONLNoFinalNewline(t *testing.T) {
 	}
 }
 
-// TestParseSessionJSONLLargeLine verifies that lines larger than 1MB are handled correctly
+// TestParseSessionJSONLLargeLine verifies that lines larger than maxLineLength are
+// skipped gracefully and subsequent lines are still parsed.
 func TestParseSessionJSONLLargeLine(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test-session.jsonl")
 
-	// Create a line with content larger than 1MB
-	largeContent := make([]byte, 2*1024*1024)
-	for i := range largeContent {
-		largeContent[i] = 'x'
-	}
+	// Create a line with content larger than maxLineLength (1 MB)
+	largeContent := bytes.Repeat([]byte("x"), 2*1024*1024)
 
-	// Create a valid JSONL line with the large content field
 	line1 := `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"hello"}]},"sessionId":"test-123","timestamp":"2026-01-30T10:00:00.000Z"}` + "\n"
-	line2Prefix := `{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":"` + string(largeContent) + `","usage":{"input_tokens":100,"output_tokens":50}},"sessionId":"test-123","timestamp":"2026-01-30T10:00:01.000Z"}` + "\n"
+	oversizedLine := `{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":"` + string(largeContent) + `","usage":{"input_tokens":100,"output_tokens":50}},"sessionId":"test-123","timestamp":"2026-01-30T10:00:01.000Z"}` + "\n"
+	line3 := `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"after big line"}]},"sessionId":"test-123","timestamp":"2026-01-30T10:00:02.000Z"}` + "\n"
 
-	content := line1 + line2Prefix
+	content := line1 + oversizedLine + line3
 
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	// This should not panic or fail with buffer overflow
-	result, _, err := ParseSessionJSONL(path, 0, "", nil)
+	result, newOffset, err := ParseSessionJSONL(path, 0, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// Should have parsed at least the first line
-	if result.MessageCount < 1 {
-		t.Errorf("expected at least 1 message, got %d", result.MessageCount)
+	// Should parse line1 and line3, skipping the oversized line
+	if result.MessageCount != 2 {
+		t.Errorf("expected 2 messages (skipping oversized line), got %d", result.MessageCount)
+	}
+
+	// Offset should cover all three lines (including skipped)
+	expectedOffset := int64(len(line1) + len(oversizedLine) + len(line3))
+	if newOffset != expectedOffset {
+		t.Errorf("offset = %d, want %d", newOffset, expectedOffset)
+	}
+}
+
+// TestParseSessionJSONLFileSizeLimit verifies that normal-sized files are accepted.
+// Creating a real 500 MB+ file to test the rejection path is impractical in unit
+// tests; the guard is validated by inspection and integration testing.
+func TestParseSessionJSONLFileSizeLimit(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test-session.jsonl")
+
+	content := `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"hello"}]},"sessionId":"test-123","timestamp":"2026-01-30T10:00:00.000Z"}` + "\n"
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Normal-sized file should parse fine
+	result, _, err := ParseSessionJSONL(path, 0, "", nil)
+	if err != nil {
+		t.Fatalf("expected no error for normal file, got: %v", err)
+	}
+	if result.MessageCount != 1 {
+		t.Errorf("expected 1 message, got %d", result.MessageCount)
 	}
 }
 
