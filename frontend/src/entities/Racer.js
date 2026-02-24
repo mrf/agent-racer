@@ -1,5 +1,5 @@
 import { Hamster } from './Hamster.js';
-import { getEquippedPaint, getEquippedBody } from '../gamification/CosmeticRegistry.js';
+import { getEquippedPaint, getEquippedBody, getEquippedBadge } from '../gamification/CosmeticRegistry.js';
 
 const MODEL_COLORS = {
   'claude-opus-4-5-20251101': { main: '#a855f7', dark: '#7c3aed', light: '#c084fc', name: 'Opus' },
@@ -1225,8 +1225,10 @@ export class Racer {
     if (dirName) {
       ctx.font = 'bold 9px Courier New';
       const textW = ctx.measureText(dirName).width;
+      const badge = getEquippedBadge();
+      const badgeW = badge ? ctx.measureText(badge.emoji).width + 3 : 0; // +3 px gap
       const flagH = 13;
-      const flagW = textW + 16;
+      const flagW = textW + badgeW + 16; // text + badge + horizontal padding
       const notchDepth = 5;
 
       // Pole anchors at rear spoiler
@@ -1278,13 +1280,19 @@ export class Racer {
       ctx.lineTo(flagLeft + waveX, flagTop + waveY);
       ctx.stroke();
 
-      // Flag text (offset right by half notch to center within swallowtail shape)
+      // Flag text: center within swallowtail, shift left when badge is present
+      const contentCenterX = flagRight - flagW / 2 + notchDepth / 2 + waveX * 0.3;
+      const textCenterY = flagTop + flagH / 2 + waveY * 0.3;
+      const textX = contentCenterX - badgeW / 2;
+
       ctx.fillStyle = FLAG_COLORS.text;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      const textCenterX = flagRight - flagW / 2 + notchDepth / 2 + waveX * 0.3;
-      const textCenterY = flagTop + flagH / 2 + waveY * 0.3;
-      ctx.fillText(dirName, textCenterX, textCenterY);
+      ctx.fillText(dirName, textX, textCenterY);
+
+      if (badge) {
+        ctx.fillText(badge.emoji, textX + textW / 2 + badgeW / 2 + 1, textCenterY);
+      }
     }
 
     // --- Model decal on limo body (centered on stretched side panel) ---
