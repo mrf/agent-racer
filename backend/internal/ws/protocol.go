@@ -17,6 +17,7 @@ const (
 	MsgError               MessageType = "error"
 	MsgAchievementUnlocked MessageType = "achievement_unlocked"
 	MsgSourceHealth        MessageType = "source_health"
+	MsgBattlePassProgress  MessageType = "battlepass_progress"
 )
 
 type WSMessage struct {
@@ -60,6 +61,14 @@ type CompletionPayload struct {
 
 type EquippedPayload struct {
 	Loadout gamification.Equipped `json:"loadout"`
+}
+
+type BattlePassProgressPayload struct {
+	XP           int                    `json:"xp"`
+	Tier         int                    `json:"tier"`
+	TierProgress float64                `json:"tierProgress"`
+	RecentXP     []gamification.XPEntry `json:"recentXP"`
+	Rewards      []string               `json:"rewards,omitempty"`
 }
 
 type AchievementRewardPayload struct {

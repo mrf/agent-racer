@@ -82,6 +82,16 @@ func main() {
 		log.Fatalf("Failed to initialize stats tracker: %v", err)
 	}
 
+	tracker.OnBattlePassProgress(func(progress gamification.BattlePassProgress, recentXP []gamification.XPEntry) {
+		broadcaster.BroadcastBattlePassProgress(ws.BattlePassProgressPayload{
+			XP:           progress.XP,
+			Tier:         progress.Tier,
+			TierProgress: progress.Pct,
+			RecentXP:     recentXP,
+			Rewards:      progress.Rewards,
+		})
+	})
+
 	tracker.OnAchievement(func(a gamification.Achievement, rw *gamification.Reward) {
 		payload := ws.AchievementUnlockedPayload{
 			ID:          a.ID,
