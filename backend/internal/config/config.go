@@ -90,6 +90,7 @@ type ServerConfig struct {
 	Host           string   `yaml:"host"`
 	AllowedOrigins []string `yaml:"allowed_origins"`
 	AuthToken      string   `yaml:"auth_token"`
+	MaxConnections int      `yaml:"max_connections"`
 }
 
 type MonitorConfig struct {
@@ -142,8 +143,9 @@ func LoadOrDefault(path string) (*Config, error) {
 func defaultConfig() *Config {
 	return &Config{
 		Server: ServerConfig{
-			Port: 8080,
-			Host: "127.0.0.1",
+			Port:           8080,
+			Host:           "127.0.0.1",
+			MaxConnections: 1000,
 		},
 		Monitor: MonitorConfig{
 			PollInterval:            time.Second,

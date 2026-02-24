@@ -244,7 +244,7 @@ func TestFilterSessions_WithStoreData(t *testing.T) {
 }
 
 func TestNewBroadcaster_DefaultPrivacyFilter(t *testing.T) {
-	b := NewBroadcaster(session.NewStore(), 100*time.Millisecond, time.Hour)
+	b := NewBroadcaster(session.NewStore(), 100*time.Millisecond, time.Hour, 0)
 	defer b.snapshotTicker.Stop()
 
 	if b.privacy == nil {

@@ -27,7 +27,7 @@ func newTestMonitor(tokenNorm config.TokenNormConfig) *Monitor {
 // with the session store and WebSocket broadcaster.
 func newTestMonitorWithStore(monitorCfg config.MonitorConfig) *Monitor {
 	store := session.NewStore()
-	broadcaster := ws.NewBroadcaster(store, 100*time.Millisecond, 5*time.Second)
+	broadcaster := ws.NewBroadcaster(store, 100*time.Millisecond, 5*time.Second, 0)
 	return &Monitor{
 		cfg: &config.Config{
 			Monitor: monitorCfg,
@@ -415,7 +415,7 @@ func TestStaleTerminalSessionAddedToRemovedKeys(t *testing.T) {
 
 func TestHandleSessionEndFallsBackToTranscriptPath(t *testing.T) {
 	store := session.NewStore()
-	broadcaster := ws.NewBroadcaster(store, 100*time.Millisecond, 5*time.Second)
+	broadcaster := ws.NewBroadcaster(store, 100*time.Millisecond, 5*time.Second, 0)
 
 	// Store has a session keyed by filename-based ID.
 	filenameKey := trackingKey("claude", "abc-123-def")

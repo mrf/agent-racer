@@ -134,8 +134,12 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	c, err := s.broadcaster.AddClient(conn)
+	if err != nil {
+		log.Printf("WebSocket rejected %s: %v", r.RemoteAddr, err)
+		return
+	}
 	log.Printf("WebSocket client connected: %s", r.RemoteAddr)
-	c := s.broadcaster.AddClient(conn)
 
 	go func() {
 		defer func() {
