@@ -1,5 +1,5 @@
 import { test, expect, Page } from '@playwright/test';
-import { waitForConnection } from './helpers.js';
+import { waitForConnection, gotoApp } from './helpers.js';
 
 const TIMEOUT_SESSIONS = 15_000;
 const MIN_MOCK_SESSIONS = 5;
@@ -32,7 +32,7 @@ test.describe('Dashboard leaderboard', () => {
   test.setTimeout(45_000);
 
   test.beforeEach(async ({ page }) => {
-    await page.goto('/');
+    await gotoApp(page);
     await waitForConnection(page);
     await waitForSessions(page, MIN_MOCK_SESSIONS);
   });

@@ -1,10 +1,10 @@
 import { test, expect } from '@playwright/test';
 
-import { waitForConnection, waitForRacers, clickFirstRacer } from './helpers.js';
+import { waitForConnection, waitForRacers, clickFirstRacer, gotoApp } from './helpers.js';
 
 test.describe('Keyboard shortcuts', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/');
+    await gotoApp(page);
     await waitForConnection(page);
   });
 

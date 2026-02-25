@@ -1,5 +1,13 @@
 import type { Page } from '@playwright/test';
 
+/** Auth token matching e2e/config.yaml — used to authenticate with the backend. */
+export const AUTH_TOKEN = 'e2e-test-token';
+
+/** Navigate to the app root with the auth token in the query string. */
+export async function gotoApp(page: Page): Promise<void> {
+  await page.goto(`/?token=${AUTH_TOKEN}`);
+}
+
 export interface RacerInfo {
   id: string;
   x: number;

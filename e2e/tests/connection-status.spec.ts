@@ -1,9 +1,11 @@
 import { test, expect } from '@playwright/test';
 import { execSync, spawn } from 'node:child_process';
 import { resolve } from 'node:path';
+import { gotoApp } from './helpers.js';
 
 const SERVER_PORT = 8077;
 const BACKEND_DIR = resolve(__dirname, '../../backend');
+const E2E_CONFIG = resolve(__dirname, '../e2e-config.yaml');
 const TIMEOUT_WS = 10_000;
 const TIMEOUT_RECONNECT = 30_000;
 const TIMEOUT_SERVER_STARTUP = 20_000;
@@ -38,7 +40,7 @@ async function waitForServer(
 
 test.describe('Connection status indicator', () => {
   test('shows connected when WebSocket is open', async ({ page }) => {
-    await page.goto('/');
+    await gotoApp(page);
     const statusDot = page.locator('#connection-status');
     await expect(statusDot).toHaveClass(/connected/, { timeout: TIMEOUT_WS });
   });
@@ -48,7 +50,7 @@ test.describe('Connection status indicator', () => {
   }) => {
     test.setTimeout(60_000);
 
-    await page.goto('/');
+    await gotoApp(page);
     const statusDot = page.locator('#connection-status');
 
     // 1. Verify initially connected
@@ -62,7 +64,7 @@ test.describe('Connection status indicator', () => {
       timeout: TIMEOUT_WS,
     });
 
-    // 4. Restart the backend
+    // 4. Restart the backend (using e2e config with the same fixed auth token)
     const server = spawn(
       'go',
       [
@@ -72,6 +74,8 @@ test.describe('Connection status indicator', () => {
         '--dev',
         '--port',
         String(SERVER_PORT),
+        '--config',
+        E2E_CONFIG,
       ],
       { cwd: BACKEND_DIR, stdio: 'ignore', detached: true },
     );

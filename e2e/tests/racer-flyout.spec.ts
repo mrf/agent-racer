@@ -1,12 +1,12 @@
 import { test, expect } from '@playwright/test';
 
-import { waitForConnection, waitForRacers, clickFirstRacer } from './helpers.js';
+import { waitForConnection, waitForRacers, clickFirstRacer, gotoApp } from './helpers.js';
 
 test.describe('Racer detail flyout', () => {
   test.setTimeout(60_000);
 
   test.beforeEach(async ({ page }) => {
-    await page.goto('/');
+    await gotoApp(page);
     // Wait for WebSocket to connect and racers to render
     await waitForConnection(page);
     await waitForRacers(page, 1);

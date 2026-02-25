@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { gotoApp } from './helpers.js';
 
 const TIMEOUT_WS_CONNECTION = 10_000;
 const TIMEOUT_RACERS_APPEAR = 10_000;
@@ -6,7 +7,7 @@ const PIXEL_BRIGHTNESS_THRESHOLD = 10;
 
 test.describe('Canvas racer rendering', () => {
   test('renders racers from WebSocket snapshot', async ({ page }) => {
-    await page.goto('/');
+    await gotoApp(page);
 
     const statusDot = page.locator('#connection-status');
     await expect(statusDot).toHaveClass(/connected/, { timeout: TIMEOUT_WS_CONNECTION });
