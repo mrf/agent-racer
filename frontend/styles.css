@@ -70,7 +70,7 @@ header {
 
 #race-container {
   width: 100vw;
-  height: calc(100vh - 48px);
+  height: calc(100vh - 48px - 32px); /* header + battle pass bar */
   position: relative;
   overflow-y: auto;
   overflow-x: hidden;

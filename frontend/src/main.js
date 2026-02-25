@@ -5,6 +5,7 @@ import { requestPermission, notifyCompletion } from './notifications.js';
 import { AchievementPanel } from './gamification/AchievementPanel.js';
 import { UnlockToast } from './gamification/UnlockToast.js';
 import { RewardSelector } from './gamification/RewardSelector.js';
+import { BattlePassBar } from './gamification/BattlePassBar.js';
 import { setEquipped } from './gamification/CosmeticRegistry.js';
 import { authFetch, getAuthToken } from './auth.js';
 import { createFlyout } from './ui/detailFlyout.js';
@@ -33,6 +34,7 @@ window.raceCanvas = raceCanvas;
 const achievementPanel = new AchievementPanel();
 const unlockToast = new UnlockToast(engine);
 const rewardSelector = new RewardSelector();
+const battlePassBar = new BattlePassBar(document.getElementById('battlepass-bar'));
 
 const flyout = createFlyout({ detailFlyout, flyoutContent, canvas });
 const tracker = createSessionTracker(engine);
@@ -148,6 +150,12 @@ function handleEquipped(payload) {
     setEquipped(payload.loadout);
     log('Cosmetic loadout updated via WebSocket', 'info');
   }
+}
+
+function handleBattlePassProgress(payload) {
+  const xpGained = (payload.recentXP || []).reduce((sum, e) => sum + e.amount, 0);
+  log(`Battle Pass: Tier ${payload.tier}, +${xpGained} XP`, 'info');
+  battlePassBar.onProgress(payload);
 }
 
 function handleStatus(status) {
@@ -267,6 +275,7 @@ const conn = new RaceConnection({
   onSourceHealth: handleSourceHealth,
   onAchievementUnlocked: handleAchievementUnlocked,
   onEquipped: handleEquipped,
+  onBattlePassProgress: handleBattlePassProgress,
 });
 
 conn.connect();

@@ -1,5 +1,5 @@
 export class RaceConnection {
-  constructor({ onSnapshot, onDelta, onCompletion, onStatus, authToken, onSourceHealth, onAchievementUnlocked, onEquipped }) {
+  constructor({ onSnapshot, onDelta, onCompletion, onStatus, authToken, onSourceHealth, onAchievementUnlocked, onEquipped, onBattlePassProgress }) {
     this.onSnapshot = onSnapshot;
     this.onDelta = onDelta;
     this.onCompletion = onCompletion;
@@ -8,6 +8,7 @@ export class RaceConnection {
     this.onSourceHealth = onSourceHealth || (() => {});
     this.onAchievementUnlocked = onAchievementUnlocked || (() => {});
     this.onEquipped = onEquipped || (() => {});
+    this.onBattlePassProgress = onBattlePassProgress || (() => {});
     this.ws = null;
     this.reconnectDelay = 1000;
     this.maxReconnectDelay = 30000;
@@ -66,6 +67,9 @@ export class RaceConnection {
             break;
           case 'equipped':
             this.onEquipped(msg.payload);
+            break;
+          case 'battlepass_progress':
+            this.onBattlePassProgress(msg.payload);
             break;
         }
       } catch (err) {
