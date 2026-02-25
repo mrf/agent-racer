@@ -71,13 +71,13 @@ export class BattlePassBar {
     this.xpBarWrap.appendChild(this.xpBarFill);
     this.xpBarWrap.appendChild(this.xpBarLabel);
 
-    this.xpToast = document.createElement('span');
-    this.xpToast.className = 'bp-xp-toast';
+    this.toastContainer = document.createElement('div');
+    this.toastContainer.className = 'bp-toast-container';
 
     this.collapsedRow.appendChild(this.seasonLabel);
     this.collapsedRow.appendChild(this.tierBadge);
     this.collapsedRow.appendChild(this.xpBarWrap);
-    this.collapsedRow.appendChild(this.xpToast);
+    this.collapsedRow.appendChild(this.toastContainer);
 
     // Expanded panel
     this.expandedPanel = document.createElement('div');
@@ -180,8 +180,9 @@ export class BattlePassBar {
     if (!entries.length) return;
 
     const total = entries.reduce((sum, e) => sum + e.amount, 0);
-    this.xpToast.textContent = `+${total} XP`;
-    this.xpToast.classList.add('visible');
+    const toast = document.createElement('span');
+    toast.className = 'bp-xp-toast';
+    toast.textContent = `+${total} XP`;
 
     restartAnimation(this.xpBarWrap, 'bp-xp-flash');
 
@@ -189,6 +190,9 @@ export class BattlePassBar {
     this.toastTimer = setTimeout(() => {
       this.xpToast.classList.remove('visible');
     }, 3000);
+
+    this.toastContainer.appendChild(toast);
+    toast.addEventListener('animationend', () => toast.remove());
   }
 
   playTierUpCelebration() {

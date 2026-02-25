@@ -483,16 +483,44 @@ header {
   text-shadow: 0 0 3px #000;
 }
 
+.bp-toast-container {
+  position: relative;
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: flex-start;
+  pointer-events: none;
+  min-width: 60px;
+}
+
 .bp-xp-toast {
   font-size: 11px;
   font-weight: bold;
   color: #4ade80;
-  opacity: 0;
-  transition: opacity 0.3s ease;
   white-space: nowrap;
+  animation: toast-bounce-float 2s ease-out forwards;
 }
-.bp-xp-toast.visible {
-  opacity: 1;
+
+@keyframes toast-bounce-float {
+  0% {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+  15% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+  30% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  70% {
+    opacity: 1;
+    transform: translateY(-8px);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-16px);
+  }
 }
 
 .bp-expanded {
