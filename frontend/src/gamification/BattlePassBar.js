@@ -16,6 +16,7 @@ const TIER_REWARDS = {
 const MAX_TIERS = 10;
 const XP_PER_TIER = 1000;
 const MAX_XP_LOG_ENTRIES = 20;
+const NEAR_TIER_UP_THRESHOLD = 0.9;
 
 function computeTierProgress(tier, xp) {
   if (tier >= MAX_TIERS) return 1;
@@ -170,6 +171,8 @@ export class BattlePassBar {
     this.xpToast.textContent = `+${total} XP`;
     this.xpToast.classList.add('visible');
 
+    restartAnimation(this.xpBarWrap, 'bp-xp-flash');
+
     clearTimeout(this.toastTimer);
     this.toastTimer = setTimeout(() => {
       this.xpToast.classList.remove('visible');
@@ -196,6 +199,9 @@ export class BattlePassBar {
     const pct = isMaxTier ? 100 : Math.round(tierProgress * 100);
     this.xpBarFill.style.width = `${pct}%`;
     this.xpBarFill.classList.toggle('tier-max', isMaxTier);
+
+    const nearTierUp = !isMaxTier && tierProgress > NEAR_TIER_UP_THRESHOLD;
+    this.xpBarWrap.classList.toggle('bp-near-tier-up', nearTierUp);
 
     if (isMaxTier) {
       this.xpBarLabel.textContent = `${xp} XP — MAX`;
@@ -327,4 +333,11 @@ export class BattlePassBar {
 
 function formatReason(reason) {
   return reason.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+/** Remove and re-add a CSS class, forcing a reflow to restart the animation. */
+function restartAnimation(el, className) {
+  el.classList.remove(className);
+  void el.offsetWidth;
+  el.classList.add(className);
 }
