@@ -33,7 +33,6 @@ export class BattlePassBar {
     this.toastTimer = null;
 
     this.buildDOM();
-    this.injectStyles();
     this.loadInitialData();
   }
 
@@ -91,255 +90,6 @@ export class BattlePassBar {
 
     this.container.appendChild(this.collapsedRow);
     this.container.appendChild(this.expandedPanel);
-  }
-
-  injectStyles() {
-    if (document.getElementById('bp-bar-styles')) return;
-    const style = document.createElement('style');
-    style.id = 'bp-bar-styles';
-    style.textContent = `
-      .bp-bar {
-        background: #16213e;
-        border-bottom: 1px solid #0f3460;
-        font-family: 'Courier New', monospace;
-        font-size: 12px;
-        color: #e0e0e0;
-        user-select: none;
-      }
-
-      .bp-collapsed {
-        display: flex;
-        align-items: center;
-        padding: 6px 20px;
-        gap: 12px;
-        cursor: pointer;
-        height: 32px;
-      }
-      .bp-collapsed:hover {
-        background: rgba(255,255,255,0.03);
-      }
-
-      .bp-season {
-        color: #888;
-        font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        white-space: nowrap;
-      }
-
-      .bp-tier-badge {
-        background: #e94560;
-        color: #fff;
-        font-size: 11px;
-        font-weight: bold;
-        padding: 1px 8px;
-        border-radius: 3px;
-        white-space: nowrap;
-      }
-      .bp-tier-badge.tier-max {
-        background: #f59e0b;
-        color: #1a1a2e;
-      }
-
-      .bp-xp-bar-wrap {
-        flex: 1;
-        max-width: 300px;
-        height: 14px;
-        background: #222;
-        border-radius: 3px;
-        position: relative;
-        overflow: hidden;
-      }
-
-      .bp-xp-bar-fill {
-        height: 100%;
-        background: linear-gradient(90deg, #e94560, #f06292);
-        border-radius: 3px;
-        transition: width 0.4s ease;
-        width: 0%;
-      }
-      .bp-xp-bar-fill.tier-max {
-        background: linear-gradient(90deg, #f59e0b, #fbbf24);
-      }
-
-      .bp-xp-bar-label {
-        position: absolute;
-        top: 0;
-        left: 6px;
-        line-height: 14px;
-        font-size: 10px;
-        color: #fff;
-        text-shadow: 0 0 3px #000;
-      }
-
-      .bp-xp-toast {
-        font-size: 11px;
-        font-weight: bold;
-        color: #4ade80;
-        opacity: 0;
-        transition: opacity 0.3s ease;
-        white-space: nowrap;
-      }
-      .bp-xp-toast.visible {
-        opacity: 1;
-      }
-
-      .bp-expanded {
-        padding: 10px 20px 14px;
-        border-top: 1px solid #0f3460;
-      }
-      .bp-expanded.hidden {
-        display: none;
-      }
-
-      /* Tier track */
-      .bp-tier-track {
-        display: flex;
-        align-items: flex-start;
-        gap: 0;
-        margin-bottom: 12px;
-        overflow-x: auto;
-      }
-
-      .bp-tier-node {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        min-width: 64px;
-        position: relative;
-      }
-
-      .bp-tier-connector {
-        width: 100%;
-        height: 2px;
-        position: absolute;
-        top: 13px;
-        left: -50%;
-        z-index: 0;
-      }
-
-      .bp-tier-dot {
-        width: 28px;
-        height: 28px;
-        border-radius: 50%;
-        border: 2px solid #444;
-        background: #1a1a2e;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 10px;
-        font-weight: bold;
-        color: #666;
-        z-index: 1;
-        position: relative;
-      }
-      .bp-tier-dot.completed {
-        background: #e94560;
-        border-color: #e94560;
-        color: #fff;
-      }
-      .bp-tier-dot.current {
-        border-color: #e94560;
-        color: #e94560;
-        animation: bp-pulse 1.5s ease-in-out infinite;
-      }
-      .bp-tier-dot.tier-max-dot {
-        background: #f59e0b;
-        border-color: #f59e0b;
-        color: #1a1a2e;
-      }
-
-      @keyframes bp-pulse {
-        0%, 100% { box-shadow: 0 0 0 0 rgba(233,69,96,0.4); }
-        50% { box-shadow: 0 0 0 6px rgba(233,69,96,0); }
-      }
-
-      .bp-tier-reward {
-        font-size: 9px;
-        color: #666;
-        text-align: center;
-        margin-top: 4px;
-        max-width: 64px;
-        line-height: 1.2;
-      }
-      .bp-tier-reward.unlocked {
-        color: #fbbf24;
-      }
-
-      /* Challenges */
-      .bp-challenges {
-        margin-bottom: 10px;
-      }
-      .bp-challenges-title {
-        font-size: 11px;
-        color: #888;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        margin-bottom: 6px;
-      }
-      .bp-challenge-row {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        padding: 4px 0;
-      }
-      .bp-challenge-desc {
-        flex: 1;
-        font-size: 11px;
-        color: #ccc;
-      }
-      .bp-challenge-desc.complete {
-        color: #4ade80;
-        text-decoration: line-through;
-      }
-      .bp-challenge-progress {
-        font-size: 10px;
-        color: #888;
-        white-space: nowrap;
-      }
-      .bp-challenge-bar-wrap {
-        width: 60px;
-        height: 6px;
-        background: #222;
-        border-radius: 3px;
-        overflow: hidden;
-      }
-      .bp-challenge-bar-fill {
-        height: 100%;
-        background: #4ade80;
-        border-radius: 3px;
-        transition: width 0.3s ease;
-      }
-
-      /* XP log */
-      .bp-xp-log {
-        max-height: 80px;
-        overflow-y: auto;
-      }
-      .bp-xp-log-title {
-        font-size: 11px;
-        color: #888;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        margin-bottom: 4px;
-      }
-      .bp-xp-log-entry {
-        font-size: 10px;
-        color: #aaa;
-        padding: 2px 0;
-        display: flex;
-        justify-content: space-between;
-      }
-      .bp-xp-log-entry .xp-amount {
-        color: #4ade80;
-        font-weight: bold;
-      }
-
-      .bp-xp-log::-webkit-scrollbar { width: 4px; }
-      .bp-xp-log::-webkit-scrollbar-track { background: transparent; }
-      .bp-xp-log::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
-    `;
-    document.head.appendChild(style);
   }
 
   async loadInitialData() {
@@ -506,7 +256,7 @@ export class BattlePassBar {
 
     if (!this.challenges.length) {
       const empty = document.createElement('div');
-      empty.style.cssText = 'font-size: 11px; color: #666; padding: 4px 0;';
+      empty.className = 'bp-empty-message';
       empty.textContent = 'No active challenges';
       this.challengeSection.appendChild(empty);
       return;
@@ -551,7 +301,7 @@ export class BattlePassBar {
 
     if (!this.xpLog.length) {
       const empty = document.createElement('div');
-      empty.style.cssText = 'font-size: 10px; color: #666; padding: 2px 0;';
+      empty.className = 'bp-empty-message bp-empty-message--small';
       empty.textContent = 'No XP awarded yet';
       this.xpLogSection.appendChild(empty);
       return;
