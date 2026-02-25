@@ -71,6 +71,7 @@ function setupDOM() {
     <div id="connection-status"></div>
     <div id="session-count"></div>
     <canvas id="race-canvas"></canvas>
+    <div id="battlepass-bar"></div>
   `;
   document.getElementById('race-canvas').getBoundingClientRect = () => ({
     top: 0, left: 0, width: 800, height: 600, right: 800, bottom: 600, x: 0, y: 0,

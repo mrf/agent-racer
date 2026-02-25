@@ -1,7 +1,6 @@
 import { defineConfig } from '@playwright/test';
 
 const SERVER_PORT = 8077;
-
 export default defineConfig({
   testDir: './tests',
   timeout: 30_000,
@@ -12,7 +11,7 @@ export default defineConfig({
     screenshot: 'only-on-failure',
   },
   webServer: {
-    command: `cd ../backend && go run ./cmd/server --mock --dev --port ${SERVER_PORT} --config ../config.yaml`,
+    command: `cd ../backend && go run ./cmd/server --mock --dev --port ${SERVER_PORT} --config ../e2e/e2e-config.yaml`,
     port: SERVER_PORT,
     reuseExistingServer: !process.env.CI,
     timeout: 30_000,

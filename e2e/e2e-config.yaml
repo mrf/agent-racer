@@ -1,0 +1,31 @@
+server:
+  port: 8077
+  host: "127.0.0.1"
+  auth_token: "e2e-test-token"
+
+sources:
+  claude: true
+  codex: true
+  gemini: true
+
+monitor:
+  poll_interval: 1s
+  snapshot_interval: 5s
+  broadcast_throttle: 100ms
+  session_stale_after: 2m
+  completion_remove_after: 90s
+  churning_cpu_threshold: 15.0
+
+models:
+  claude-*: 200000
+  gpt-*-codex: 272000
+  codex-*: 200000
+  o4-*: 200000
+  o3: 200000
+  gpt-4.1: 1047576
+  gemini-2.5-*: 1048576
+  gemini-2.0-*: 1048576
+  gemini-3-*: 1000000
+  gemini-1.5-pro*: 2097152
+  gemini-1.5-flash*: 1048576
+  default: 200000
