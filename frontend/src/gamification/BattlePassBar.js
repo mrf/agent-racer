@@ -18,6 +18,12 @@ const XP_PER_TIER = 1000;
 const MAX_XP_LOG_ENTRIES = 20;
 const NEAR_TIER_UP_THRESHOLD = 0.9;
 
+const CONFETTI_COUNT = 30;
+const CONFETTI_CANVAS_HEIGHT = 120;
+const CONFETTI_GRAVITY = 0.08;
+const CONFETTI_COLORS = ['#f59e0b', '#fbbf24', '#e94560', '#f06292', '#4ade80', '#fff'];
+const TIER_UP_DURATION_MS = 2000;
+
 function computeTierProgress(tier, xp) {
   if (tier >= MAX_TIERS) return 1;
   const tierXP = xp - (tier - 1) * XP_PER_TIER;
@@ -32,6 +38,7 @@ export class BattlePassBar {
     this.xpLog = [];
     this.expanded = false;
     this.toastTimer = null;
+    this.tierUpTimer = null;
 
     this.buildDOM();
     this.loadInitialData();
@@ -128,6 +135,7 @@ export class BattlePassBar {
 
   onProgress(payload) {
     const recentXP = payload.recentXP || [];
+    const prevTier = this.state.tier;
 
     this.state = {
       ...this.state,
@@ -148,6 +156,10 @@ export class BattlePassBar {
     this.render();
     this.showXPToast(recentXP);
     this.refreshChallenges();
+
+    if (payload.tier > prevTier) {
+      this.playTierUpCelebration();
+    }
   }
 
   async refreshChallenges() {
@@ -177,6 +189,96 @@ export class BattlePassBar {
     this.toastTimer = setTimeout(() => {
       this.xpToast.classList.remove('visible');
     }, 3000);
+  }
+
+  playTierUpCelebration() {
+    clearTimeout(this.tierUpTimer);
+
+    // Gold flash on collapsed bar
+    this.collapsedRow.classList.add('bp-tier-up-flash');
+
+    // Briefly expand to show new tier
+    const wasExpanded = this.expanded;
+    if (!wasExpanded) {
+      this.expanded = true;
+      this.expandedPanel.classList.remove('hidden');
+      this.renderExpanded();
+    }
+
+    // Confetti burst from tier badge
+    this.spawnConfetti();
+
+    this.tierUpTimer = setTimeout(() => {
+      this.collapsedRow.classList.remove('bp-tier-up-flash');
+      if (!wasExpanded) {
+        this.expanded = false;
+        this.expandedPanel.classList.add('hidden');
+      }
+    }, TIER_UP_DURATION_MS);
+  }
+
+  spawnConfetti() {
+    const badgeRect = this.tierBadge.getBoundingClientRect();
+    const containerRect = this.container.getBoundingClientRect();
+
+    const canvas = document.createElement('canvas');
+    canvas.className = 'bp-confetti-canvas';
+    canvas.width = containerRect.width;
+    canvas.height = CONFETTI_CANVAS_HEIGHT;
+    canvas.style.left = '0';
+    canvas.style.top = `${badgeRect.bottom - containerRect.top}px`;
+    this.container.appendChild(canvas);
+
+    const ctx = canvas.getContext('2d');
+    const originX = badgeRect.left - containerRect.left + badgeRect.width / 2;
+    const particles = Array.from({ length: CONFETTI_COUNT }, () => {
+      const angle = Math.random() * Math.PI * 0.8 + Math.PI * 0.1;
+      const speed = 1.5 + Math.random() * 3;
+      const direction = Math.random() > 0.5 ? 1 : -1;
+      return {
+        x: originX,
+        y: 0,
+        vx: Math.cos(angle) * speed * direction,
+        vy: Math.sin(angle) * speed,
+        size: 2 + Math.random() * 3,
+        color: CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)],
+        life: 1,
+        decay: 0.015 + Math.random() * 0.01,
+        rotation: Math.random() * Math.PI * 2,
+        rotSpeed: (Math.random() - 0.5) * 0.2,
+      };
+    });
+
+    const animate = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      let alive = false;
+
+      for (const p of particles) {
+        if (p.life <= 0) continue;
+        alive = true;
+
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += CONFETTI_GRAVITY;
+        p.life -= p.decay;
+        p.rotation += p.rotSpeed;
+
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rotation);
+        ctx.globalAlpha = Math.max(0, p.life);
+        ctx.fillStyle = p.color;
+        ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.6);
+        ctx.restore();
+      }
+
+      if (alive) {
+        requestAnimationFrame(animate);
+      } else {
+        canvas.remove();
+      }
+    };
+    requestAnimationFrame(animate);
   }
 
   toggleExpanded() {
