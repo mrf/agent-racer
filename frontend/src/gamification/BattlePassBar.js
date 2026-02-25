@@ -329,7 +329,7 @@ export class BattlePassBar {
 
   renderTierTrack() {
     this.tierTrack.innerHTML = '';
-    const { tier } = this.state;
+    const { tier, tierProgress } = this.state;
 
     for (let t = 1; t <= MAX_TIERS; t++) {
       const node = document.createElement('div');
@@ -355,6 +355,26 @@ export class BattlePassBar {
       node.appendChild(dot);
       node.appendChild(reward);
       this.tierTrack.appendChild(node);
+
+      if (t < MAX_TIERS) {
+        const connector = document.createElement('div');
+        connector.className = 'bp-tier-connector';
+
+        const fill = document.createElement('div');
+        fill.className = 'bp-tier-connector-fill';
+
+        if (t < tier) {
+          connector.classList.add('completed');
+        } else if (t === tier) {
+          connector.classList.add('current');
+          fill.style.width = `${Math.round(tierProgress * 100)}%`;
+        } else {
+          connector.classList.add('future');
+        }
+
+        connector.appendChild(fill);
+        this.tierTrack.appendChild(connector);
+      }
     }
   }
 

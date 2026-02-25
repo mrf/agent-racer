@@ -583,6 +583,38 @@ header {
   50% { box-shadow: 0 0 0 6px rgba(233,69,96,0); }
 }
 
+/* Tier connector lines */
+.bp-tier-connector {
+  flex: 1;
+  height: 3px;
+  background: #333;
+  margin-top: 14px;
+  position: relative;
+  min-width: 16px;
+  border-radius: 2px;
+  overflow: hidden;
+}
+.bp-tier-connector.future {
+  background: repeating-linear-gradient(
+    90deg,
+    #333 0px,
+    #333 4px,
+    transparent 4px,
+    transparent 8px
+  );
+}
+.bp-tier-connector-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, #e94560, #ff6b8a);
+}
+.bp-tier-connector.completed .bp-tier-connector-fill {
+  width: 100%;
+}
+.bp-tier-connector.future .bp-tier-connector-fill {
+  display: none;
+}
+
 .bp-tier-reward {
   font-size: 9px;
   color: #666;
