@@ -173,7 +173,7 @@ func defaultConfig() *Config {
 			SnapshotInterval:        5 * time.Second,
 			BroadcastThrottle:       100 * time.Millisecond,
 			SessionStaleAfter:       2 * time.Minute,
-			CompletionRemoveAfter:   90 * time.Second,
+			CompletionRemoveAfter:   5 * time.Minute,
 			SessionEndDir:           filepath.Join(defaultStateDir(), "agent-racer", "session-end"),
 			ChurningCPUThreshold:    15.0,
 			ChurningRequiresNetwork: false,

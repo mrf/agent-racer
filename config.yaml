@@ -21,7 +21,7 @@ monitor:
   snapshot_interval: 5s
   broadcast_throttle: 100ms
   session_stale_after: 2m
-  completion_remove_after: 90s
+  completion_remove_after: 5m
   # Optional override for Claude SessionEnd hook markers
   # session_end_dir: "/home/user/.local/state/agent-racer/session-end"
   # CPU threshold (%) for detecting active processing (churning state)
