@@ -140,6 +140,21 @@ func TestTierRewards_Tier1_Empty(t *testing.T) {
 	}
 }
 
+func TestTierRewards_AllTiersHaveDefinedCase(t *testing.T) {
+	// Verify every tier from 1 to maxTiers has an explicit case in tierRewards.
+	// This test uses a traditional for loop as required.
+	for tier := 1; tier <= maxTiers; tier++ {
+		r := tierRewards(tier)
+		// Tier 1 should return empty, tiers 2+ should return non-nil slice.
+		if r == nil {
+			t.Errorf("tierRewards(%d) returned nil, want []string (may be empty)", tier)
+		}
+		if tier == 1 && len(r) != 0 {
+			t.Errorf("tierRewards(1) = %v, want empty slice", r)
+		}
+	}
+}
+
 func TestTierRewards_Tier10_HasTwoRewards(t *testing.T) {
 	r := tierRewards(10)
 	if len(r) != 2 {

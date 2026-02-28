@@ -15,8 +15,20 @@ func TestWeekStart(t *testing.T) {
 		{"wednesday", time.Date(2026, 2, 25, 15, 0, 0, 0, time.UTC), "2026-02-23"},
 		{"sunday", time.Date(2026, 3, 1, 23, 59, 0, 0, time.UTC), "2026-02-23"},
 		{"next_monday", time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC), "2026-03-02"},
+		// Year-boundary edge cases: Dec 31 2025 falls in ISO week 1 of 2026
+		{"dec_28_2025_week_52", time.Date(2025, 12, 28, 0, 0, 0, 0, time.UTC), "2025-12-22"},
+		{"dec_29_2025_week_1_next_year", time.Date(2025, 12, 29, 0, 0, 0, 0, time.UTC), "2025-12-29"},
+		{"dec_30_2025_week_1_next_year", time.Date(2025, 12, 30, 0, 0, 0, 0, time.UTC), "2025-12-29"},
+		{"dec_31_2025_week_1_next_year", time.Date(2025, 12, 31, 0, 0, 0, 0, time.UTC), "2025-12-29"},
+		// Year-boundary edge cases: Jan 1 2026 falls in ISO week 1 of 2026 (which started in 2025)
+		{"jan_1_2026_week_1", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), "2025-12-29"},
+		{"jan_2_2026_week_1", time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC), "2025-12-29"},
+		{"jan_3_2026_week_1", time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC), "2025-12-29"},
+		// 2026 year-end boundary: Dec 28 2026 is Monday of ISO week 53
+		{"dec_28_2026_week_53", time.Date(2026, 12, 28, 0, 0, 0, 0, time.UTC), "2026-12-28"},
 	}
-	for _, tt := range tests {
+	for i := 0; i < len(tests); i++ {
+		tt := tests[i]
 		t.Run(tt.name, func(t *testing.T) {
 			got := weekStart(tt.in).Format("2006-01-02")
 			if got != tt.want {

@@ -81,8 +81,11 @@ func getProgress(bp *BattlePass) BattlePassProgress {
 }
 
 // tierRewards returns the cosmetic reward names unlocked at the given tier.
+// Tier 1 is the entry tier with no rewards. Tiers 2-10 each unlock cosmetic rewards.
 func tierRewards(tier int) []string {
 	switch tier {
+	case 1:
+		return []string{}
 	case 2:
 		return []string{"bronze_badge"}
 	case 3:
@@ -110,9 +113,17 @@ func tierRewards(tier int) []string {
 // outside the event-processing loop (e.g. the achievement engine).
 func (t *StatsTracker) AwardXP(amount int, reason string) {
 	t.mu.Lock()
-	defer t.mu.Unlock()
 	awardXP(&t.stats.BattlePass, amount)
 	t.dirty = true
+	// Capture progress while still holding the lock.
+	progress := getProgress(&t.stats.BattlePass)
+	xpEntries := []XPEntry{{Reason: reason, Amount: amount}}
+	t.mu.Unlock()
+
+	// Fire the callback outside the lock to avoid holding it during broadcast.
+	if t.onBattlePass != nil {
+		t.onBattlePass(progress, xpEntries)
+	}
 }
 
 // GetProgress returns a snapshot of the current battle pass progress.

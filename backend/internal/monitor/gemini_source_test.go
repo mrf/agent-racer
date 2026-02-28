@@ -19,15 +19,55 @@ func TestGeminiSessionIDFromFilename(t *testing.T) {
 		filename string
 		wantID   string
 	}{
+		// Standard format: session-{date}T{time}-{short_hex}.json
 		{"session-2025-09-18T02-45-3b44bc68.json", "3b44bc68"},
 		{"session-2025-12-21T13-43-c27248ed.json", "c27248ed"},
+
+		// Edge cases: filenames without .json suffix
+		{"session-2025-09-18T02-45-abc123", "abc123"},
+
+		// Edge cases: filename with no dashes (single part)
+		{"session.json", "session"},
+		{"somefile", "somefile"},
+
+		// Edge cases: filename with only dashes, no content after last dash
+		{"session-", ""},
+		{"---", ""},
+
+		// Edge cases: filename with extra dots in the name
+		{"session-2025.09.18T02-45-xyz789.json", "xyz789"},
+		{"session.test-2025-01-01T00-00-abc.json", "abc"},
+
+		// Edge cases: filename with path separators (should still work)
+		// The function gets just the filename, not the full path
+		{"def456", "def456"},
+
+		// Edge cases: very short filenames
+		{"a", "a"},
+		{"", ""},
+
+		// Edge cases: filename with multiple consecutive dashes
+		{"session--2025-01-01T00-00--id.json", "id"},
+		{"----id----", ""},
+
+		// Edge cases: filename with only one dash
+		{"session-id", "id"},
+		{"x-y", "y"},
+
+		// Realistic malformed filenames that might appear in the directory
+		{"readme.txt", "readme.txt"},
+		{".hidden", ".hidden"},
+		{"session-corrupted-partial", "partial"},
+		{"2025-01-01T00-00-00.json", "00"},
 	}
 
 	for _, tt := range tests {
-		got := geminiSessionIDFromFilename(tt.filename)
-		if got != tt.wantID {
-			t.Errorf("geminiSessionIDFromFilename(%q) = %q, want %q", tt.filename, got, tt.wantID)
-		}
+		t.Run(tt.filename, func(t *testing.T) {
+			got := geminiSessionIDFromFilename(tt.filename)
+			if got != tt.wantID {
+				t.Errorf("geminiSessionIDFromFilename(%q) = %q, want %q", tt.filename, got, tt.wantID)
+			}
+		})
 	}
 }
 

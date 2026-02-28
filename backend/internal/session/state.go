@@ -2,6 +2,7 @@ package session
 
 import (
 	"encoding/json"
+	"reflect"
 	"time"
 )
 
@@ -56,9 +57,14 @@ func (a *Activity) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &s); err != nil {
 		return err
 	}
-	if v, ok := activityFromName[s]; ok {
-		*a = v
+	v, ok := activityFromName[s]
+	if !ok {
+		return &json.UnmarshalTypeError{
+			Value: "string " + s,
+			Type:  reflect.TypeOf(*a),
+		}
 	}
+	*a = v
 	return nil
 }
 

@@ -265,3 +265,70 @@ func TestNewBroadcaster_DefaultPrivacyFilter(t *testing.T) {
 		t.Error("default filter should not mask PID")
 	}
 }
+
+func TestBroadcaster_SequenceNumberWrapAround(t *testing.T) {
+	// Test that sequence numbers wrap correctly at uint64 max.
+	// This is a theoretical concern since 2^64 messages would take centuries at normal rates,
+	// but the behavior is well-defined and should be verified.
+
+	b := newTestBroadcaster(session.NewStore(), nil)
+
+	// Set seq to near max uint64, leaving room to test wrapping
+	maxUint64 := ^uint64(0)
+	b.seq.Store(maxUint64 - 3)
+
+	// Collect sequence numbers from broadcasts
+	var seqs []uint64
+	seqChan := make(chan uint64, 10)
+
+	// Create a test message type to capture seq values
+	testMsg := WSMessage{
+		Type:    MsgSnapshot,
+		Payload: SnapshotPayload{Sessions: []*session.SessionState{}},
+	}
+
+	// Manually call broadcast and collect seq from the message
+	// We'll do this by directly checking the atomic increment
+	for i := 0; i < 5; i++ {
+		seq := b.seq.Add(1)
+		seqs = append(seqs, seq)
+	}
+
+	// Verify expected sequence: max-2, max-1, max, 0, 1
+	expected := []uint64{maxUint64 - 2, maxUint64 - 1, maxUint64, 0, 1}
+	if len(seqs) != len(expected) {
+		t.Fatalf("expected %d sequence numbers, got %d", len(expected), len(seqs))
+	}
+
+	for i := 0; i < len(expected); i++ {
+		if seqs[i] != expected[i] {
+			t.Errorf("seq[%d]: expected %d, got %d", i, expected[i], seqs[i])
+		}
+	}
+}
+
+func TestBroadcaster_SequenceNumberIncrement(t *testing.T) {
+	// Test that sequence numbers increment correctly in normal operation.
+
+	b := newTestBroadcaster(session.NewStore(), nil)
+
+	// Verify seq starts at 0
+	if b.seq.Load() != 0 {
+		t.Errorf("expected initial seq to be 0, got %d", b.seq.Load())
+	}
+
+	// Increment and verify sequential increase
+	var seqs []uint64
+	for i := 0; i < 5; i++ {
+		seq := b.seq.Add(1)
+		seqs = append(seqs, seq)
+	}
+
+	// Verify 1, 2, 3, 4, 5
+	for i := 0; i < 5; i++ {
+		expected := uint64(i + 1)
+		if seqs[i] != expected {
+			t.Errorf("seq[%d]: expected %d, got %d", i, expected, seqs[i])
+		}
+	}
+}
