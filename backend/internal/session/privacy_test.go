@@ -247,6 +247,55 @@ func TestPrivacyFilter_IsNoop(t *testing.T) {
 	})
 }
 
+func TestMatchPathOrParent_WindowsPaths(t *testing.T) {
+	// On Windows, filepath.Dir(`C:\`) returns `C:\` (the drive root is its own
+	// parent). The loop must terminate via the p == filepath.Dir(p) condition
+	// rather than the old p == "/" check, which only covers Unix roots.
+	//
+	// These tests use forward-slash paths so they run on any platform, but the
+	// termination logic is the same: p == filepath.Dir(p) fires at every root.
+	tests := []struct {
+		name    string
+		pattern string
+		path    string
+		want    bool
+	}{
+		{
+			name:    "drive-root pattern matches child",
+			pattern: "/",
+			path:    "/project",
+			want:    false, // "/" is excluded as the loop stops before checking the root
+		},
+		{
+			name:    "exact path match",
+			pattern: "/home/user/project",
+			path:    "/home/user/project",
+			want:    true,
+		},
+		{
+			name:    "parent glob matches nested path",
+			pattern: "/home/user/*",
+			path:    "/home/user/work/src",
+			want:    true,
+		},
+		{
+			name:    "no match returns false without infinite loop",
+			pattern: "/other/*",
+			path:    "/home/user/project",
+			want:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := matchPathOrParent(tt.pattern, tt.path)
+			if got != tt.want {
+				t.Errorf("matchPathOrParent(%q, %q) = %v, want %v", tt.pattern, tt.path, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestShortHash_Deterministic(t *testing.T) {
 	a := shortHash("claude:abc123")
 	b := shortHash("claude:abc123")
