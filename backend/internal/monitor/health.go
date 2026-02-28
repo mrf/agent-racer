@@ -1,6 +1,7 @@
 package monitor
 
 import (
+	"sync"
 	"time"
 
 	"github.com/agent-racer/backend/internal/ws"
@@ -8,7 +9,10 @@ import (
 
 // sourceHealth tracks consecutive failure counts for a single source.
 // Used by the monitor to detect degraded/failed sources and emit WS alerts.
+// Fields are protected by mu because poll() writes them from the monitor
+// goroutine while sourceHealthSnapshot() reads them from the broadcaster.
 type sourceHealth struct {
+	mu                sync.Mutex
 	discoverFailures  int
 	lastDiscoverErr   string
 	lastDiscoverFail  time.Time
@@ -27,21 +31,29 @@ func newSourceHealth() *sourceHealth {
 }
 
 func (h *sourceHealth) recordDiscoverSuccess() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	h.discoverFailures = 0
 	h.lastDiscoverErr = ""
 }
 
 func (h *sourceHealth) recordDiscoverFailure(err error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	h.discoverFailures++
 	h.lastDiscoverErr = err.Error()
 	h.lastDiscoverFail = time.Now()
 }
 
 func (h *sourceHealth) recordParseSuccess(sessionKey string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	delete(h.parseFailures, sessionKey)
 }
 
 func (h *sourceHealth) recordParseFailure(sessionKey string, err error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	h.parseFailures[sessionKey]++
 	h.lastParseErr = err.Error()
 	h.lastParseFail = time.Now()
@@ -49,25 +61,70 @@ func (h *sourceHealth) recordParseFailure(sessionKey string, err error) {
 
 // removeSession cleans up parse failure tracking for a removed session.
 func (h *sourceHealth) removeSession(sessionKey string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	delete(h.parseFailures, sessionKey)
 }
 
-// status computes the current health status for this source.
-// A source is failed if discover failures >= threshold, degraded if
-// any session has parse failures >= threshold, healthy otherwise.
-func (h *sourceHealth) status(threshold int) ws.SourceHealthStatus {
+// snapshot returns a consistent copy of all health fields under the lock.
+// Use this when reading from a different goroutine (e.g. broadcaster).
+func (h *sourceHealth) snapshot(threshold int) (status ws.SourceHealthStatus, discoverFailures int, parseFailures int, lastErr string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	status = h.statusLocked(threshold)
+	discoverFailures = h.discoverFailures
+	parseFailures = h.degradedSessionCountLocked(threshold)
+	lastErr = h.lastErrorLocked()
+	return
+}
+
+// snapshotAndEmit returns a consistent copy of all health fields and whether
+// the status changed since the last emission. If the status changed, it
+// updates lastEmittedStatus. This combines snapshot + emission check in a
+// single lock acquisition.
+func (h *sourceHealth) snapshotAndEmit(threshold int) (status ws.SourceHealthStatus, discoverFailures int, parseFailures int, lastErr string, changed bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	status = h.statusLocked(threshold)
+	changed = status != h.lastEmittedStatus
+	if changed {
+		h.lastEmittedStatus = status
+		h.lastEmittedAt = time.Now()
+	}
+	discoverFailures = h.discoverFailures
+	parseFailures = h.degradedSessionCountLocked(threshold)
+	lastErr = h.lastErrorLocked()
+	return
+}
+
+// statusLocked computes health status. Caller must hold h.mu.
+func (h *sourceHealth) statusLocked(threshold int) ws.SourceHealthStatus {
 	if h.discoverFailures >= threshold {
 		return ws.StatusFailed
 	}
-	if h.degradedSessionCount(threshold) > 0 {
+	if h.degradedSessionCountLocked(threshold) > 0 {
 		return ws.StatusDegraded
 	}
 	return ws.StatusHealthy
 }
 
+// status computes the current health status for this source.
+func (h *sourceHealth) status(threshold int) ws.SourceHealthStatus {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.statusLocked(threshold)
+}
+
 // degradedSessionCount returns the number of sessions that have hit
 // the parse failure threshold.
 func (h *sourceHealth) degradedSessionCount(threshold int) int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.degradedSessionCountLocked(threshold)
+}
+
+// degradedSessionCountLocked is the lock-free version. Caller must hold h.mu.
+func (h *sourceHealth) degradedSessionCountLocked(threshold int) int {
 	count := 0
 	for _, failures := range h.parseFailures {
 		if failures >= threshold {
@@ -77,18 +134,18 @@ func (h *sourceHealth) degradedSessionCount(threshold int) int {
 	return count
 }
 
-// lastError returns the most recent error string (discover or parse),
-// preferring whichever occurred more recently.
+// lastError returns the most recent error string (discover or parse).
 func (h *sourceHealth) lastError() string {
-	hasDiscover := h.lastDiscoverErr != ""
-	hasParse := h.lastParseErr != ""
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.lastErrorLocked()
+}
 
-	switch {
-	case hasDiscover && !hasParse:
+// lastErrorLocked returns the most recent error, preferring whichever
+// (discover or parse) occurred more recently. Caller must hold h.mu.
+func (h *sourceHealth) lastErrorLocked() string {
+	if h.lastDiscoverErr != "" && (h.lastParseErr == "" || h.lastDiscoverFail.After(h.lastParseFail)) {
 		return h.lastDiscoverErr
-	case hasDiscover && h.lastDiscoverFail.After(h.lastParseFail):
-		return h.lastDiscoverErr
-	default:
-		return h.lastParseErr
 	}
+	return h.lastParseErr
 }
