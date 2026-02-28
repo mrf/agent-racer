@@ -41,12 +41,56 @@ func TestSourceHealthDiscoverRecovery(t *testing.T) {
 		t.Fatal("should be failed")
 	}
 
+	// Single success must NOT immediately recover — hysteresis requires threshold consecutive successes.
+	h.recordDiscoverSuccess()
+	if h.status(3) != ws.StatusFailed {
+		t.Error("single success should not recover from failed status")
+	}
+
+	// threshold consecutive successes should recover.
+	h.recordDiscoverSuccess()
 	h.recordDiscoverSuccess()
 	if h.status(3) != ws.StatusHealthy {
-		t.Error("should recover to healthy after success")
+		t.Error("should recover to healthy after threshold consecutive successes")
 	}
 	if h.discoverFailures != 0 {
-		t.Errorf("discoverFailures = %d, want 0", h.discoverFailures)
+		t.Errorf("discoverFailures = %d, want 0 after recovery", h.discoverFailures)
+	}
+}
+
+// TestSourceHealthDiscoverFlapping demonstrates the hysteresis fix:
+// a source that alternates success/failure after crossing the failure
+// threshold must remain in Failed state, not oscillate back to Healthy.
+func TestSourceHealthDiscoverFlapping(t *testing.T) {
+	h := newSourceHealth()
+	threshold := 3
+
+	// Cross the failure threshold.
+	for i := 0; i < threshold; i++ {
+		h.recordDiscoverFailure(fmt.Errorf("fail %d", i))
+	}
+	if h.status(threshold) != ws.StatusFailed {
+		t.Fatal("should be failed after threshold failures")
+	}
+
+	// Flapping: alternating success/failure must not recover to Healthy.
+	for i := 0; i < 5; i++ {
+		h.recordDiscoverSuccess()
+		if s := h.status(threshold); s != ws.StatusFailed {
+			t.Errorf("flap iteration %d: got %s after success, want StatusFailed", i, s)
+		}
+		h.recordDiscoverFailure(fmt.Errorf("flap %d", i))
+		if s := h.status(threshold); s != ws.StatusFailed {
+			t.Errorf("flap iteration %d: got %s after failure, want StatusFailed", i, s)
+		}
+	}
+
+	// Full recovery: threshold consecutive successes.
+	for i := 0; i < threshold; i++ {
+		h.recordDiscoverSuccess()
+	}
+	if s := h.status(threshold); s != ws.StatusHealthy {
+		t.Errorf("got %s after consecutive successes, want StatusHealthy", s)
 	}
 }
 
@@ -83,9 +127,53 @@ func TestSourceHealthParseRecovery(t *testing.T) {
 		t.Fatal("should be degraded")
 	}
 
+	// Single success must NOT immediately recover — hysteresis requires threshold consecutive successes.
+	h.recordParseSuccess("claude:sess1")
+	if h.status(3) != ws.StatusDegraded {
+		t.Error("single success should not recover from degraded status")
+	}
+
+	// threshold consecutive successes should recover.
+	h.recordParseSuccess("claude:sess1")
 	h.recordParseSuccess("claude:sess1")
 	if h.status(3) != ws.StatusHealthy {
-		t.Error("should recover to healthy after parse success")
+		t.Error("should recover to healthy after threshold consecutive successes")
+	}
+}
+
+// TestSourceHealthParseFlapping demonstrates the hysteresis fix for parse errors:
+// a session that alternates parse success/failure after crossing the threshold
+// must remain in Degraded state, not oscillate back to Healthy.
+func TestSourceHealthParseFlapping(t *testing.T) {
+	h := newSourceHealth()
+	threshold := 3
+
+	// Cross the parse failure threshold.
+	for i := 0; i < threshold; i++ {
+		h.recordParseFailure("claude:sess1", fmt.Errorf("fail %d", i))
+	}
+	if h.status(threshold) != ws.StatusDegraded {
+		t.Fatal("should be degraded after threshold parse failures")
+	}
+
+	// Flapping: alternating success/failure must not recover to Healthy.
+	for i := 0; i < 5; i++ {
+		h.recordParseSuccess("claude:sess1")
+		if s := h.status(threshold); s != ws.StatusDegraded {
+			t.Errorf("flap iteration %d: got %s after success, want StatusDegraded", i, s)
+		}
+		h.recordParseFailure("claude:sess1", fmt.Errorf("flap %d", i))
+		if s := h.status(threshold); s != ws.StatusDegraded {
+			t.Errorf("flap iteration %d: got %s after failure, want StatusDegraded", i, s)
+		}
+	}
+
+	// Full recovery: threshold consecutive successes.
+	for i := 0; i < threshold; i++ {
+		h.recordParseSuccess("claude:sess1")
+	}
+	if s := h.status(threshold); s != ws.StatusHealthy {
+		t.Errorf("got %s after consecutive successes, want StatusHealthy", s)
 	}
 }
 
@@ -101,8 +189,10 @@ func TestSourceHealthMultipleSessionsParseFail(t *testing.T) {
 		t.Errorf("degradedSessionCount = %d, want 2", h.degradedSessionCount(3))
 	}
 
-	// Fix one
-	h.recordParseSuccess("claude:sess1")
+	// Fix one session: requires threshold consecutive successes due to hysteresis.
+	for i := 0; i < 3; i++ {
+		h.recordParseSuccess("claude:sess1")
+	}
 	if h.degradedSessionCount(3) != 1 {
 		t.Errorf("degradedSessionCount after fix = %d, want 1", h.degradedSessionCount(3))
 	}
