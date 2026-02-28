@@ -70,6 +70,7 @@ type Monitor struct {
 	statsDropped     int64                      // events dropped since last log
 	statsLastDropLog time.Time                  // last time a drop was logged
 	health           map[string]*sourceHealth   // keyed by source name
+	reconfigureCh    chan struct{}               // signals Start() to recreate its poll ticker
 }
 
 func NewMonitor(cfg *config.Config, store *session.Store, broadcaster *ws.Broadcaster, sources []Source) *Monitor {
@@ -88,6 +89,7 @@ func NewMonitor(cfg *config.Config, store *session.Store, broadcaster *ws.Broadc
 		prevCPU:         make(map[int]cpuSample),
 		lastProcessPoll: time.Now(),
 		health:          healthMap,
+		reconfigureCh:   make(chan struct{}, 1),
 	}
 	broadcaster.SetHealthHook(m.sourceHealthSnapshot)
 	return m
@@ -98,10 +100,21 @@ func NewMonitor(cfg *config.Config, store *session.Store, broadcaster *ws.Broadc
 // (models, token normalization, monitor timings, churning thresholds).
 // Server-level settings (port, host, auth) are NOT applied — those require
 // a full restart.
+//
+// If PollInterval changed, SetConfig signals the Start() goroutine to
+// recreate its ticker so the new interval takes effect immediately.
 func (m *Monitor) SetConfig(cfg *config.Config) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	m.cfg = cfg
+	m.mu.Unlock()
+
+	// Signal Start() to recreate its ticker with the updated poll interval.
+	// Non-blocking: if a signal is already pending, the new config will be
+	// picked up when that pending signal is processed.
+	select {
+	case m.reconfigureCh <- struct{}{}:
+	default:
+	}
 }
 
 // SetSources replaces the monitor's source list with newSources. Sources that
@@ -179,6 +192,14 @@ func (m *Monitor) Start(ctx context.Context) {
 		case <-ctx.Done():
 			log.Println("Monitor stopped")
 			return
+		case <-m.reconfigureCh:
+			// PollInterval may have changed — recreate the ticker.
+			ticker.Stop()
+			m.mu.RLock()
+			newInterval := m.cfg.Monitor.PollInterval
+			m.mu.RUnlock()
+			ticker = time.NewTicker(newInterval)
+			log.Printf("Monitor poll interval updated to %s", newInterval)
 		case <-ticker.C:
 			m.poll()
 		}

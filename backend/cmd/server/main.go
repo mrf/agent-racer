@@ -194,6 +194,12 @@ func main() {
 			// Apply privacy filter (always safe to update).
 			broadcaster.SetPrivacyFilter(newCfg.Privacy.NewPrivacyFilter())
 
+			// Apply broadcaster timing changes.
+			if cfg.Monitor.BroadcastThrottle != newCfg.Monitor.BroadcastThrottle ||
+				cfg.Monitor.SnapshotInterval != newCfg.Monitor.SnapshotInterval {
+				broadcaster.SetConfig(newCfg.Monitor.BroadcastThrottle, newCfg.Monitor.SnapshotInterval)
+			}
+
 			// Apply monitor-level config (models, token norm, timings).
 			if mon != nil {
 				mon.SetConfig(newCfg)
