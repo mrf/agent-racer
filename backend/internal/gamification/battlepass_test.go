@@ -377,3 +377,143 @@ func TestStatsTracker_AwardXP_SetsDirtyFlag(t *testing.T) {
 		t.Error("dirty flag should be set after AwardXP")
 	}
 }
+
+// --- BattlePass.UnmarshalJSON migration tests ---
+
+func TestBattlePass_UnmarshalJSON_IntegerSeasonZero(t *testing.T) {
+	// Legacy integer season field with value 0 should migrate to empty string
+	jsonData := []byte(`{"season": 0, "tier": 3, "xp": 1500}`)
+	var bp BattlePass
+	if err := bp.UnmarshalJSON(jsonData); err != nil {
+		t.Fatalf("UnmarshalJSON error: %v", err)
+	}
+	if bp.Season != "" {
+		t.Errorf("Season = %q, want empty string for legacy 0", bp.Season)
+	}
+	if bp.Tier != 3 {
+		t.Errorf("Tier = %d, want 3", bp.Tier)
+	}
+	if bp.XP != 1500 {
+		t.Errorf("XP = %d, want 1500", bp.XP)
+	}
+}
+
+func TestBattlePass_UnmarshalJSON_IntegerSeasonOne(t *testing.T) {
+	// Legacy integer season field with value 1 should migrate to string "1"
+	jsonData := []byte(`{"season": 1, "tier": 2, "xp": 500}`)
+	var bp BattlePass
+	if err := bp.UnmarshalJSON(jsonData); err != nil {
+		t.Fatalf("UnmarshalJSON error: %v", err)
+	}
+	if bp.Season != "1" {
+		t.Errorf("Season = %q, want \"1\"", bp.Season)
+	}
+	if bp.Tier != 2 {
+		t.Errorf("Tier = %d, want 2", bp.Tier)
+	}
+	if bp.XP != 500 {
+		t.Errorf("XP = %d, want 500", bp.XP)
+	}
+}
+
+func TestBattlePass_UnmarshalJSON_IntegerSeasonSeven(t *testing.T) {
+	// Legacy integer season field with value 7 should migrate to string "7"
+	jsonData := []byte(`{"season": 7, "tier": 5, "xp": 3000}`)
+	var bp BattlePass
+	if err := bp.UnmarshalJSON(jsonData); err != nil {
+		t.Fatalf("UnmarshalJSON error: %v", err)
+	}
+	if bp.Season != "7" {
+		t.Errorf("Season = %q, want \"7\"", bp.Season)
+	}
+	if bp.Tier != 5 {
+		t.Errorf("Tier = %d, want 5", bp.Tier)
+	}
+	if bp.XP != 3000 {
+		t.Errorf("XP = %d, want 3000", bp.XP)
+	}
+}
+
+func TestBattlePass_UnmarshalJSON_StringSeasonFormat(t *testing.T) {
+	// Modern string season field should be preserved as-is
+	jsonData := []byte(`{"season": "2025-07", "tier": 8, "xp": 4500}`)
+	var bp BattlePass
+	if err := bp.UnmarshalJSON(jsonData); err != nil {
+		t.Fatalf("UnmarshalJSON error: %v", err)
+	}
+	if bp.Season != "2025-07" {
+		t.Errorf("Season = %q, want \"2025-07\"", bp.Season)
+	}
+	if bp.Tier != 8 {
+		t.Errorf("Tier = %d, want 8", bp.Tier)
+	}
+	if bp.XP != 4500 {
+		t.Errorf("XP = %d, want 4500", bp.XP)
+	}
+}
+
+func TestBattlePass_UnmarshalJSON_MalformedSeasonFieldReturnsError(t *testing.T) {
+	// Malformed season field (not string or number) should return error
+	jsonData := []byte(`{"season": {"invalid": "object"}, "tier": 3, "xp": 1500}`)
+	var bp BattlePass
+	err := bp.UnmarshalJSON(jsonData)
+	if err == nil {
+		t.Fatal("UnmarshalJSON should return error for malformed season field")
+	}
+}
+
+func TestBattlePass_UnmarshalJSON_IntegerSeasonsMultipleValues(t *testing.T) {
+	// Test multiple legacy integer values to ensure conversion is consistent
+	// Using traditional for loop as specified in requirements
+	testCases := []struct {
+		jsonSeason     string
+		expectedSeason string
+	}{
+		{"0", ""},
+		{"1", "1"},
+		{"2", "2"},
+		{"5", "5"},
+		{"7", "7"},
+		{"10", "10"},
+	}
+	for i := 0; i < len(testCases); i++ {
+		tc := testCases[i]
+		t.Run(fmt.Sprintf("season_%s", tc.jsonSeason), func(t *testing.T) {
+			jsonData := []byte(`{"season": ` + tc.jsonSeason + `, "tier": 1, "xp": 0}`)
+			var bp BattlePass
+			if err := bp.UnmarshalJSON(jsonData); err != nil {
+				t.Fatalf("UnmarshalJSON error: %v", err)
+			}
+			if bp.Season != tc.expectedSeason {
+				t.Errorf("Season = %q, want %q", bp.Season, tc.expectedSeason)
+			}
+		})
+	}
+}
+
+func TestBattlePass_UnmarshalJSON_EmptySeasonField(t *testing.T) {
+	// Empty season field should be left unchanged (no migration needed)
+	jsonData := []byte(`{"season": "", "tier": 2, "xp": 1000}`)
+	var bp BattlePass
+	if err := bp.UnmarshalJSON(jsonData); err != nil {
+		t.Fatalf("UnmarshalJSON error: %v", err)
+	}
+	if bp.Season != "" {
+		t.Errorf("Season = %q, want empty string", bp.Season)
+	}
+}
+
+func TestBattlePass_UnmarshalJSON_NoSeasonFieldOmitted(t *testing.T) {
+	// When season field is omitted from JSON, it should remain empty
+	jsonData := []byte(`{"tier": 4, "xp": 2500}`)
+	var bp BattlePass
+	if err := bp.UnmarshalJSON(jsonData); err != nil {
+		t.Fatalf("UnmarshalJSON error: %v", err)
+	}
+	if bp.Season != "" {
+		t.Errorf("Season = %q, want empty string when omitted", bp.Season)
+	}
+	if bp.Tier != 4 {
+		t.Errorf("Tier = %d, want 4", bp.Tier)
+	}
+}
