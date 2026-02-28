@@ -15,3 +15,6 @@ backend/test-results/
 
 # Local config (use config.example.yaml as template)
 config.yaml
+
+#
+.claude
