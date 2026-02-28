@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestNewStore(t *testing.T) {
@@ -140,6 +141,97 @@ func TestGetAllReturnsCopies(t *testing.T) {
 	got, _ := s.Get("a")
 	if got.Name != "original" {
 		t.Error("GetAll did not return copies; mutation leaked into store")
+	}
+}
+
+func TestGetReturnsCopyOfCompletedAt(t *testing.T) {
+	s := NewStore()
+	now := time.Now()
+	s.Update(&SessionState{ID: "a", CompletedAt: &now})
+
+	got, _ := s.Get("a")
+	mutated := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+	got.CompletedAt = &mutated
+
+	got2, _ := s.Get("a")
+	if got2.CompletedAt.Equal(mutated) {
+		t.Error("Get did not deep-copy CompletedAt; pointer mutation leaked into store")
+	}
+}
+
+func TestGetReturnsCopyOfSubagents(t *testing.T) {
+	s := NewStore()
+	s.Update(&SessionState{
+		ID: "a",
+		Subagents: []SubagentState{
+			{ID: "sub1", Activity: Thinking},
+		},
+	})
+
+	got, _ := s.Get("a")
+	got.Subagents[0].Activity = Complete
+	got.Subagents = append(got.Subagents, SubagentState{ID: "sub2"})
+
+	got2, _ := s.Get("a")
+	if len(got2.Subagents) != 1 {
+		t.Errorf("Get did not deep-copy Subagents slice; append leaked (len=%d)", len(got2.Subagents))
+	}
+	if got2.Subagents[0].Activity != Thinking {
+		t.Error("Get did not deep-copy Subagents; element mutation leaked into store")
+	}
+}
+
+func TestGetAllReturnsCopyOfCompletedAt(t *testing.T) {
+	s := NewStore()
+	now := time.Now()
+	s.Update(&SessionState{ID: "a", CompletedAt: &now})
+
+	all := s.GetAll()
+	mutated := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+	all[0].CompletedAt = &mutated
+
+	got, _ := s.Get("a")
+	if got.CompletedAt.Equal(mutated) {
+		t.Error("GetAll did not deep-copy CompletedAt; pointer mutation leaked into store")
+	}
+}
+
+func TestGetAllReturnsCopyOfSubagents(t *testing.T) {
+	s := NewStore()
+	s.Update(&SessionState{
+		ID: "a",
+		Subagents: []SubagentState{
+			{ID: "sub1", Activity: Thinking},
+		},
+	})
+
+	all := s.GetAll()
+	all[0].Subagents[0].Activity = Complete
+
+	got, _ := s.Get("a")
+	if got.Subagents[0].Activity != Thinking {
+		t.Error("GetAll did not deep-copy Subagents; element mutation leaked into store")
+	}
+}
+
+func TestUpdateDeepCopiesSubagentCompletedAt(t *testing.T) {
+	s := NewStore()
+	now := time.Now()
+	state := &SessionState{
+		ID: "a",
+		Subagents: []SubagentState{
+			{ID: "sub1", CompletedAt: &now},
+		},
+	}
+	s.Update(state)
+
+	// Mutate the original's subagent CompletedAt after storing.
+	mutated := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+	state.Subagents[0].CompletedAt = &mutated
+
+	got, _ := s.Get("a")
+	if got.Subagents[0].CompletedAt.Equal(mutated) {
+		t.Error("Update did not deep-copy subagent CompletedAt; external mutation leaked into store")
 	}
 }
 
