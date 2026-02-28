@@ -64,11 +64,7 @@ func challengePool() []Challenge {
 			ID:          "complete_3_no_errors",
 			Description: "Complete 3 sessions without errors",
 			Progress: func(snap *WeekSnapshot) (int, int) {
-				errorFree := snap.TotalCompletions - snap.TotalErrors
-				if errorFree < 0 {
-					errorFree = 0
-				}
-				return errorFree, 3
+				return snap.TotalCompletions, 3
 			},
 		},
 		{
