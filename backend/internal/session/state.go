@@ -110,6 +110,33 @@ type SubagentState struct {
 	CompletedAt     *time.Time `json:"completedAt,omitempty"`
 }
 
+// clone returns a deep copy of the SubagentState, duplicating pointer fields
+// so the copy can be mutated independently of the original.
+func (sa SubagentState) clone() SubagentState {
+	if sa.CompletedAt != nil {
+		t := *sa.CompletedAt
+		sa.CompletedAt = &t
+	}
+	return sa
+}
+
+// Clone returns a deep copy of the SessionState, duplicating pointer and
+// slice fields so the copy can be mutated independently of the original.
+func (s *SessionState) Clone() *SessionState {
+	c := *s
+	if s.CompletedAt != nil {
+		t := *s.CompletedAt
+		c.CompletedAt = &t
+	}
+	if len(s.Subagents) > 0 {
+		c.Subagents = make([]SubagentState, len(s.Subagents))
+		for i, sa := range s.Subagents {
+			c.Subagents[i] = sa.clone()
+		}
+	}
+	return &c
+}
+
 func (s *SessionState) UpdateUtilization() {
 	if s.MaxContextTokens > 0 {
 		s.ContextUtilization = float64(s.TokensUsed) / float64(s.MaxContextTokens)
