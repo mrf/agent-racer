@@ -55,6 +55,7 @@ type Broadcaster struct {
 	throttle       time.Duration
 	snapshotTicker *time.Ticker
 	stop           chan struct{}
+	snapshotReset  chan time.Duration // signals snapshotLoop to recreate its ticker
 	pendingUpdates []*session.SessionState
 	pendingRemoved []string
 	flushTimer     *time.Timer
@@ -72,6 +73,7 @@ func NewBroadcaster(store *session.Store, throttle, snapshotInterval time.Durati
 		throttle:       throttle,
 		snapshotTicker: time.NewTicker(snapshotInterval),
 		stop:           make(chan struct{}),
+		snapshotReset:  make(chan time.Duration, 1),
 	}
 	go b.snapshotLoop()
 	return b
@@ -211,12 +213,32 @@ func (b *Broadcaster) flush() {
 	b.broadcast(msg)
 }
 
+// SetConfig applies timing changes from a new config. Takes effect on the
+// next queue flush (throttle) and next snapshotLoop iteration (snapshot interval).
+func (b *Broadcaster) SetConfig(throttle, snapshotInterval time.Duration) {
+	b.flushMu.Lock()
+	b.throttle = throttle
+	b.flushMu.Unlock()
+
+	// Drain any pending reset so the latest interval wins, then send.
+	select {
+	case <-b.snapshotReset:
+	default:
+	}
+	b.snapshotReset <- snapshotInterval
+}
+
 func (b *Broadcaster) snapshotLoop() {
+	ticker := b.snapshotTicker
 	for {
 		select {
-		case <-b.snapshotTicker.C:
+		case <-ticker.C:
 			b.broadcast(b.snapshotMessage())
+		case d := <-b.snapshotReset:
+			ticker.Stop()
+			ticker = time.NewTicker(d)
 		case <-b.stop:
+			ticker.Stop()
 			return
 		}
 	}
