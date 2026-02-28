@@ -90,6 +90,7 @@ func (s *Server) SetupRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/stats", s.handleStats)
 	mux.HandleFunc("/api/achievements", s.handleAchievements)
 	mux.HandleFunc("/api/equip", s.handleEquip)
+	mux.HandleFunc("/api/unequip", s.handleUnequip)
 	mux.HandleFunc("/api/challenges", s.handleChallenges)
 
 	if s.dev {
@@ -321,6 +322,55 @@ func (s *Server) handleEquip(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Broadcast the change to all WebSocket clients.
+	s.broadcaster.BroadcastMessage(WSMessage{
+		Type:    MsgEquipped,
+		Payload: EquippedPayload{Loadout: loadout},
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(loadout)
+}
+
+type unequipRequest struct {
+	Slot string `json:"slot"`
+}
+
+func (s *Server) handleUnequip(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !s.authorize(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if s.tracker == nil {
+		http.Error(w, "stats not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	var req unequipRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.Slot == "" {
+		http.Error(w, "slot is required", http.StatusBadRequest)
+		return
+	}
+
+	slot := gamification.RewardType(req.Slot)
+	if !gamification.ValidSlot(slot) {
+		http.Error(w, "invalid slot", http.StatusBadRequest)
+		return
+	}
+
+	loadout, err := s.tracker.Unequip(s.rewardRegistry, slot)
+	if err != nil {
+		http.Error(w, "unequip failed", http.StatusInternalServerError)
+		return
+	}
+
 	s.broadcaster.BroadcastMessage(WSMessage{
 		Type:    MsgEquipped,
 		Payload: EquippedPayload{Loadout: loadout},
