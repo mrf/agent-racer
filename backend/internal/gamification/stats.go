@@ -39,6 +39,7 @@ type StatsTracker struct {
 	dirty             bool
 	counted           map[string]bool  // session IDs already counted for TotalSessions
 	contextMilestones map[string]uint8 // session ID -> bitmask: bit0=50%, bit1=90%
+	lastTokens        map[string]int   // session ID -> last seen TokensUsed (for delta tracking)
 
 	achieveEngine  *AchievementEngine
 	rewardRegistry *RewardRegistry
@@ -82,6 +83,7 @@ func NewStatsTracker(persist *Store, bufferSize int, sc *SeasonConfig) (*StatsTr
 		events:            ch,
 		counted:           make(map[string]bool),
 		contextMilestones: make(map[string]uint8),
+		lastTokens:        make(map[string]int),
 		achieveEngine:     NewAchievementEngine(),
 		rewardRegistry:    NewRewardRegistry(),
 	}
@@ -207,9 +209,13 @@ func (t *StatsTracker) processEvent(ev session.Event) {
 			t.contextMilestones[s.ID] = mask | 0x01
 		}
 
-		// Weekly challenge: accumulate tokens.
+		// Weekly challenge: accumulate token delta (TokensUsed is cumulative).
 		if s.TokensUsed > 0 {
-			wc.Snapshot.TokensBurned += s.TokensUsed
+			prev := t.lastTokens[s.ID]
+			if delta := s.TokensUsed - prev; delta > 0 {
+				wc.Snapshot.TokensBurned += delta
+			}
+			t.lastTokens[s.ID] = s.TokensUsed
 		}
 
 	case session.EventTerminal:
@@ -251,6 +257,7 @@ func (t *StatsTracker) processEvent(ev session.Event) {
 
 		delete(t.counted, s.ID)
 		delete(t.contextMilestones, s.ID)
+		delete(t.lastTokens, s.ID)
 	}
 
 	// Award XP for newly completed weekly challenges.
