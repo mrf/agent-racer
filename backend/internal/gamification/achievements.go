@@ -252,13 +252,11 @@ func buildRegistry() []Achievement {
 			Tier:        TierSilver, Category: CategoryPerformanceEndurance,
 			Condition: func(s *Stats) bool { return s.ConsecutiveCompletions >= 10 },
 		},
-		// TODO: photo_finish needs a MaxNearSimultaneousCompletions field in Stats.
-		// Always false until concurrent completion tracking is implemented.
 		{
 			ID: "photo_finish", Name: "Photo Finish",
 			Description: "Two sessions complete within 10 seconds of each other",
 			Tier:        TierGold, Category: CategoryPerformanceEndurance,
-			Condition: func(_ *Stats) bool { return false },
+			Condition: func(s *Stats) bool { return s.PhotoFinishSeen },
 		},
 
 		// ── Spectacle ──────────────────────────────────────────────────────

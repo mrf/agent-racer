@@ -430,17 +430,20 @@ func TestPerformance_CleanSweep(t *testing.T) {
 	}
 }
 
-func TestPerformance_PhotoFinish_AlwaysFalse(t *testing.T) {
+func TestPerformance_PhotoFinish(t *testing.T) {
 	e := NewAchievementEngine()
 
 	s := newStats()
-	s.TotalSessions = 9999
-	s.MaxConcurrentActive = 100
-	s.MaxContextUtilization = 1.0
-	s.MaxBurnRate = 100000
-	e.Evaluate(s)
-	if _, ok := s.AchievementsUnlocked["photo_finish"]; ok {
-		t.Error("photo_finish should never unlock (not yet implemented)")
+	s.PhotoFinishSeen = false
+	if u := e.Evaluate(s); hasID(u, "photo_finish") {
+		t.Error("photo_finish unlocked without near-simultaneous completions")
+	}
+
+	e = NewAchievementEngine()
+	s = newStats()
+	s.PhotoFinishSeen = true
+	if u := e.Evaluate(s); !hasID(u, "photo_finish") {
+		t.Error("photo_finish not unlocked when PhotoFinishSeen is true")
 	}
 }
 
