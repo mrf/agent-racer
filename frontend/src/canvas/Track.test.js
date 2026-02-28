@@ -7,32 +7,35 @@ describe('Track', () => {
   const LANE_COUNT = 3;
 
   let track;
+  let pad; // shorthand for track.trackPadding
 
   beforeEach(() => {
     track = new Track();
+    pad = track.trackPadding;
   });
 
   describe('getTrackBounds', () => {
     it('returns correct bounds for standard dimensions', () => {
       const bounds = track.getTrackBounds(CANVAS_W, CANVAS_H, LANE_COUNT);
+      const expectedWidth = CANVAS_W - pad.left - pad.right;
       expect(bounds).toEqual({
-        x: 200,
-        y: 60,
-        width: 740,
-        height: 240,
-        totalHeight: 340,
-        laneHeight: 80,
+        x: pad.left,
+        y: pad.top,
+        width: expectedWidth,
+        height: LANE_COUNT * track.laneHeight,
+        totalHeight: LANE_COUNT * track.laneHeight + pad.top + pad.bottom,
+        laneHeight: track.laneHeight,
       });
     });
 
     it('clamps laneCount to minimum of 1', () => {
       const bounds = track.getTrackBounds(800, 400, 0);
-      expect(bounds.height).toBe(80);
+      expect(bounds.height).toBe(track.laneHeight);
     });
 
     it('clamps negative laneCount to 1', () => {
       const bounds = track.getTrackBounds(800, 400, -5);
-      expect(bounds.height).toBe(80);
+      expect(bounds.height).toBe(track.laneHeight);
     });
 
     it('scales height linearly with lane count', () => {
@@ -49,30 +52,30 @@ describe('Track', () => {
 
     it('x and y are always padding values regardless of canvas size', () => {
       const b = track.getTrackBounds(2000, 1000, 10);
-      expect(b.x).toBe(200);
-      expect(b.y).toBe(60);
+      expect(b.x).toBe(pad.left);
+      expect(b.y).toBe(pad.top);
     });
 
     it('totalHeight includes top and bottom padding', () => {
       const b = track.getTrackBounds(CANVAS_W, CANVAS_H, 2);
-      expect(b.totalHeight).toBe(b.height + 60 + 40);
+      expect(b.totalHeight).toBe(b.height + pad.top + pad.bottom);
     });
   });
 
   describe('getLaneY', () => {
-    const defaultBounds = { y: 60, laneHeight: 80 };
-
     it('returns center of first lane (lane 0)', () => {
-      expect(track.getLaneY(defaultBounds, 0)).toBe(100); // 60 + 0*80 + 40
+      const bounds = track.getTrackBounds(CANVAS_W, CANVAS_H, LANE_COUNT);
+      expect(track.getLaneY(bounds, 0)).toBe(bounds.y + bounds.laneHeight / 2);
     });
 
     it('returns center of second lane (lane 1)', () => {
-      expect(track.getLaneY(defaultBounds, 1)).toBe(180); // 60 + 80 + 40
+      const bounds = track.getTrackBounds(CANVAS_W, CANVAS_H, LANE_COUNT);
+      expect(track.getLaneY(bounds, 1)).toBe(bounds.y + bounds.laneHeight + bounds.laneHeight / 2);
     });
 
     it('works with non-default laneHeight bounds (pit)', () => {
       const pitBounds = { y: 330, laneHeight: 50 };
-      expect(track.getLaneY(pitBounds, 0)).toBe(355); // 330 + 0 + 25
+      expect(track.getLaneY(pitBounds, 0)).toBe(355); // 330 + 25
       expect(track.getLaneY(pitBounds, 1)).toBe(405); // 330 + 50 + 25
     });
 
@@ -83,18 +86,19 @@ describe('Track', () => {
   });
 
   describe('getPositionX', () => {
-    const defaultBounds = { x: 200, width: 740 };
-
     it('returns left edge at utilization 0', () => {
-      expect(track.getPositionX(defaultBounds, 0)).toBe(200);
+      const bounds = track.getTrackBounds(CANVAS_W, CANVAS_H, LANE_COUNT);
+      expect(track.getPositionX(bounds, 0)).toBe(bounds.x);
     });
 
     it('returns right edge at utilization 1', () => {
-      expect(track.getPositionX(defaultBounds, 1)).toBe(940);
+      const bounds = track.getTrackBounds(CANVAS_W, CANVAS_H, LANE_COUNT);
+      expect(track.getPositionX(bounds, 1)).toBe(bounds.x + bounds.width);
     });
 
     it('returns midpoint at utilization 0.5', () => {
-      expect(track.getPositionX(defaultBounds, 0.5)).toBe(570);
+      const bounds = track.getTrackBounds(CANVAS_W, CANVAS_H, LANE_COUNT);
+      expect(track.getPositionX(bounds, 0.5)).toBe(bounds.x + bounds.width / 2);
     });
 
     it('maps fractional utilization linearly', () => {
@@ -148,7 +152,7 @@ describe('Track', () => {
     it('pit position changes with active lane count', () => {
       const pit2 = track.getPitBounds(CANVAS_W, CANVAS_H, 2, 1);
       const pit4 = track.getPitBounds(CANVAS_W, CANVAS_H, 4, 1);
-      expect(pit4.y).toBe(pit2.y + 160); // 2 extra lanes * 80
+      expect(pit4.y).toBe(pit2.y + 2 * track.laneHeight);
     });
   });
 
@@ -196,19 +200,20 @@ describe('Track', () => {
   describe('getRequiredHeight', () => {
     it('accounts for track + padding with no pit or parking', () => {
       const h = track.getRequiredHeight(LANE_COUNT);
-      expect(h).toBe(3 * 80 + 60 + 40 + 30 + 14 + 8); // track + collapsed pit
+      const trackPart = LANE_COUNT * track.laneHeight + pad.top + pad.bottom;
+      expect(h).toBe(trackPart + 30 + 14 + 8); // + collapsed pit
     });
 
     it('includes pit height based on pit lane count', () => {
       const h = track.getRequiredHeight(2, 3);
-      const trackPart = 2 * 80 + 60 + 40;
+      const trackPart = 2 * track.laneHeight + pad.top + pad.bottom;
       const pitPart = 30 + 3 * 50 + 40;
       expect(h).toBe(trackPart + pitPart);
     });
 
     it('includes parking lot height when provided', () => {
       const h = track.getRequiredHeight(2, 1, 2);
-      const trackPart = 2 * 80 + 60 + 40;
+      const trackPart = 2 * track.laneHeight + pad.top + pad.bottom;
       const pitPart = 30 + 1 * 50 + 40;
       const lotPart = 20 + 2 * 45 + 40;
       expect(h).toBe(trackPart + pitPart + lotPart);
@@ -216,7 +221,7 @@ describe('Track', () => {
 
     it('returns 0 parking lot height for 0 parking lanes', () => {
       const h = track.getRequiredHeight(2, 1, 0);
-      const trackPart = 2 * 80 + 60 + 40;
+      const trackPart = 2 * track.laneHeight + pad.top + pad.bottom;
       const pitPart = 30 + 1 * 50 + 40;
       expect(h).toBe(trackPart + pitPart);
     });
@@ -228,7 +233,7 @@ describe('Track', () => {
     });
 
     it('returns collapsed height for 0 lanes', () => {
-      expect(track.getRequiredPitHeight(0)).toBe(30 + 14 + 8); // PIT_GAP + PIT_COLLAPSED_HEIGHT + PIT_COLLAPSED_PADDING
+      expect(track.getRequiredPitHeight(0)).toBe(30 + 14 + 8);
     });
   });
 
@@ -246,7 +251,7 @@ describe('Track', () => {
   describe('getPitEntryX', () => {
     it('returns track x + PIT_ENTRY_OFFSET', () => {
       const trackBounds = track.getTrackBounds(CANVAS_W, CANVAS_H, LANE_COUNT);
-      expect(track.getPitEntryX(trackBounds)).toBe(200 + 60);
+      expect(track.getPitEntryX(trackBounds)).toBe(trackBounds.x + 60);
     });
   });
 
@@ -284,8 +289,8 @@ describe('Track', () => {
       const bounds = track.getTrackBounds(CANVAS_W, CANVAS_H, 4);
       const x = track.getPositionX(bounds, 0.5);
       const y = track.getLaneY(bounds, 2);
-      expect(x).toBe(200 + 370);
-      expect(y).toBe(60 + 160 + 40);
+      expect(x).toBe(bounds.x + bounds.width / 2);
+      expect(y).toBe(bounds.y + 2 * bounds.laneHeight + bounds.laneHeight / 2);
     });
 
     it('pit getLaneY uses pit bounds correctly', () => {
@@ -337,12 +342,12 @@ describe('Track', () => {
       const layouts = track.getMultiTrackLayout(CANVAS_W, groups);
 
       expect(layouts).toHaveLength(2);
-      expect(layouts[0].y).toBe(60); // trackPadding.top
-      expect(layouts[0].height).toBe(160); // 2 * 80
+      expect(layouts[0].y).toBe(pad.top);
+      expect(layouts[0].height).toBe(2 * track.laneHeight);
 
       // Second group offset by group 0 height + gap (20) + label (16)
-      expect(layouts[1].y).toBe(60 + 160 + 20 + 16);
-      expect(layouts[1].height).toBe(80); // 1 * 80
+      expect(layouts[1].y).toBe(pad.top + 2 * track.laneHeight + 20 + 16);
+      expect(layouts[1].height).toBe(track.laneHeight);
     });
 
     it('preserves maxTokens and laneCount on layout objects', () => {
@@ -365,18 +370,20 @@ describe('Track', () => {
         { maxTokens: 1000000, laneCount: 1 },
       ];
       const layouts = track.getMultiTrackLayout(CANVAS_W, groups);
+      const expectedX = pad.left;
+      const expectedWidth = CANVAS_W - pad.left - pad.right;
 
       for (const layout of layouts) {
-        expect(layout.x).toBe(200);
-        expect(layout.width).toBe(740);
-        expect(layout.laneHeight).toBe(80);
+        expect(layout.x).toBe(expectedX);
+        expect(layout.width).toBe(expectedWidth);
+        expect(layout.laneHeight).toBe(track.laneHeight);
       }
     });
 
     it('clamps laneCount to minimum of 1', () => {
       const groups = [{ maxTokens: 200000, laneCount: 0 }];
       const layouts = track.getMultiTrackLayout(CANVAS_W, groups);
-      expect(layouts[0].height).toBe(80);
+      expect(layouts[0].height).toBe(track.laneHeight);
       expect(layouts[0].laneCount).toBe(1);
     });
 
@@ -407,7 +414,7 @@ describe('Track', () => {
         { maxTokens: 1000000, laneCount: 1 },
       ];
       const h = track.getRequiredHeight(groups, 2, 1);
-      const trackZone = 2 * 80 + 60 + 40 + 36; // 2 lanes + padding + 1 gap
+      const trackZone = 2 * track.laneHeight + pad.top + pad.bottom + 36; // 2 lanes + padding + 1 gap
       const pitZone = 30 + 2 * 50 + 40;
       const lotZone = 20 + 1 * 45 + 40;
       expect(h).toBe(trackZone + pitZone + lotZone);
