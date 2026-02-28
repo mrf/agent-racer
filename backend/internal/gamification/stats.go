@@ -41,6 +41,7 @@ type StatsTracker struct {
 	counted           map[string]bool  // session IDs already counted for TotalSessions
 	contextMilestones map[string]uint8 // session ID -> bitmask: bit0=50%, bit1=90%
 	lastTokens        map[string]int   // session ID -> last seen TokensUsed (for delta tracking)
+	highUtilSessions  map[string]bool  // session IDs currently at or above 50% context utilization
 	lastCompletionAt  time.Time        // tracks last completion time for photo_finish
 
 	achieveEngine  *AchievementEngine
@@ -87,6 +88,7 @@ func NewStatsTracker(persist *Store, bufferSize int, sc *SeasonConfig) (*StatsTr
 		counted:           make(map[string]bool),
 		contextMilestones: make(map[string]uint8),
 		lastTokens:        make(map[string]int),
+		highUtilSessions:  make(map[string]bool),
 		achieveEngine:     NewAchievementEngine(),
 		rewardRegistry:    NewRewardRegistry(),
 	}
@@ -226,6 +228,17 @@ func (t *StatsTracker) processEvent(ev session.Event) {
 		if ev.ActiveCount > t.stats.MaxConcurrentActive {
 			t.stats.MaxConcurrentActive = ev.ActiveCount
 		}
+		// Track sessions simultaneously above 50% context utilization.
+		t.highUtilSessions[s.ID] = s.ContextUtilization >= 0.5
+		highUtilCount := 0
+		for _, above := range t.highUtilSessions {
+			if above {
+				highUtilCount++
+			}
+		}
+		if highUtilCount > t.stats.MaxHighUtilizationSimultaneous {
+			t.stats.MaxHighUtilizationSimultaneous = highUtilCount
+		}
 		mask := t.contextMilestones[s.ID]
 		if s.ContextUtilization >= 0.9 && mask&0x02 == 0 {
 			trackXP("context_90pct", XPContext90Pct)
@@ -291,6 +304,7 @@ func (t *StatsTracker) processEvent(ev session.Event) {
 		delete(t.counted, s.ID)
 		delete(t.contextMilestones, s.ID)
 		delete(t.lastTokens, s.ID)
+		delete(t.highUtilSessions, s.ID)
 	}
 
 	// Award XP for newly completed weekly challenges.

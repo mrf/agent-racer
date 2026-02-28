@@ -287,14 +287,12 @@ func buildRegistry() []Achievement {
 				return s.TotalErrors >= 1 && s.TotalCompletions >= 1
 			},
 		},
-		// burning_rubber approximates per-session utilization by checking that 3+
-		// concurrent sessions were observed and peak utilization exceeded 50%.
 		{
 			ID: "burning_rubber", Name: "Burning Rubber",
 			Description: "3 or more sessions all above 50% context utilization simultaneously",
 			Tier:        TierSilver, Category: CategorySpectacle,
 			Condition: func(s *Stats) bool {
-				return s.MaxConcurrentActive >= 3 && s.MaxContextUtilization >= 0.50
+				return s.MaxHighUtilizationSimultaneous >= 3
 			},
 		},
 

@@ -800,6 +800,87 @@ func TestSeasonRotation_EmptyOldSeasonNotArchived(t *testing.T) {
 	}
 }
 
+func TestStatsTracker_MaxHighUtilizationSimultaneous(t *testing.T) {
+	tracker, eventCh := startTracker(t)
+
+	// Register 3 sessions.
+	for i := 1; i <= 3; i++ {
+		eventCh <- session.Event{
+			Type:        session.EventNew,
+			State:       &session.SessionState{ID: fmt.Sprintf("s%d", i), Source: "test"},
+			ActiveCount: i,
+		}
+	}
+
+	// s1 and s2 above 50%; s3 not yet updated.
+	eventCh <- session.Event{
+		Type:        session.EventUpdate,
+		State:       &session.SessionState{ID: "s1", ContextUtilization: 0.60},
+		ActiveCount: 3,
+	}
+	eventCh <- session.Event{
+		Type:        session.EventUpdate,
+		State:       &session.SessionState{ID: "s2", ContextUtilization: 0.70},
+		ActiveCount: 3,
+	}
+	tracker.Flush()
+
+	stats := tracker.Stats()
+	if stats.MaxHighUtilizationSimultaneous != 2 {
+		t.Errorf("MaxHighUtilizationSimultaneous = %d, want 2 (only s1 and s2 above 50%%)", stats.MaxHighUtilizationSimultaneous)
+	}
+
+	// s3 joins — all 3 above 50%.
+	eventCh <- session.Event{
+		Type:        session.EventUpdate,
+		State:       &session.SessionState{ID: "s3", ContextUtilization: 0.80},
+		ActiveCount: 3,
+	}
+	tracker.Flush()
+
+	stats = tracker.Stats()
+	if stats.MaxHighUtilizationSimultaneous != 3 {
+		t.Errorf("MaxHighUtilizationSimultaneous = %d, want 3 (all three above 50%%)", stats.MaxHighUtilizationSimultaneous)
+	}
+
+	// s1 drops below 50% — peak should remain 3.
+	eventCh <- session.Event{
+		Type:        session.EventUpdate,
+		State:       &session.SessionState{ID: "s1", ContextUtilization: 0.30},
+		ActiveCount: 3,
+	}
+	tracker.Flush()
+
+	stats = tracker.Stats()
+	if stats.MaxHighUtilizationSimultaneous != 3 {
+		t.Errorf("MaxHighUtilizationSimultaneous should not decrease: got %d, want 3", stats.MaxHighUtilizationSimultaneous)
+	}
+
+	// Terminate s2 — session removed from tracking; current count is 1 (s3 only).
+	completedAt := time.Now()
+	eventCh <- session.Event{
+		Type: session.EventTerminal,
+		State: &session.SessionState{
+			ID:          "s2",
+			Activity:    session.Complete,
+			CompletedAt: &completedAt,
+		},
+		ActiveCount: 2,
+	}
+	// s3 update — only s3 is above 50% now, but peak stays 3.
+	eventCh <- session.Event{
+		Type:        session.EventUpdate,
+		State:       &session.SessionState{ID: "s3", ContextUtilization: 0.90},
+		ActiveCount: 2,
+	}
+	tracker.Flush()
+
+	stats = tracker.Stats()
+	if stats.MaxHighUtilizationSimultaneous != 3 {
+		t.Errorf("MaxHighUtilizationSimultaneous after terminal: got %d, want 3 (peak preserved)", stats.MaxHighUtilizationSimultaneous)
+	}
+}
+
 func TestStatsTracker_TokensBurned_UsesDelta(t *testing.T) {
 	tracker, eventCh := startTracker(t)
 
