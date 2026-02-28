@@ -680,18 +680,8 @@ func (m *Monitor) handleSessionEnd(cfg *config.Config, marker sessionEndMarker, 
 	}
 
 	if !ok {
-		workingDir := marker.Cwd
-		if workingDir == "" && marker.TranscriptPath != "" {
-			workingDir = workingDirFromFile(marker.TranscriptPath)
-		}
-		state = &session.SessionState{
-			ID:         storeKey,
-			Name:       nameFromPath(workingDir),
-			Source:     "claude",
-			WorkingDir: workingDir,
-			Branch:     detectBranch(workingDir),
-			StartedAt:  now,
-		}
+		log.Printf("Session end marker for unknown session %s (transcript=%s) — ignoring", marker.SessionID, marker.TranscriptPath)
+		return
 	}
 
 	completedAt := now

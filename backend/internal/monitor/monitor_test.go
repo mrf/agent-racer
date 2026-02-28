@@ -496,6 +496,35 @@ func TestHandleSessionEndFallsBackToTranscriptPath(t *testing.T) {
 	}
 }
 
+func TestHandleSessionEndIgnoresUnknownSession(t *testing.T) {
+	m := newTestMonitorWithStore(config.MonitorConfig{
+		CompletionRemoveAfter: 8 * time.Second,
+	})
+
+	// Session end marker references a session that was never tracked.
+	marker := sessionEndMarker{
+		SessionID:      "ghost-session-id",
+		TranscriptPath: "/home/user/.claude/projects/test/ghost-session.jsonl",
+		Reason:         "success",
+	}
+
+	m.handleSessionEnd(m.cfg, marker, time.Now())
+
+	// The store must remain empty — no ghost session created.
+	all := m.store.GetAll()
+	if len(all) != 0 {
+		t.Errorf("store should be empty after end marker for unknown session, got %d session(s)", len(all))
+	}
+
+	// No side effects: pendingRemoval and removedKeys must stay empty.
+	if len(m.pendingRemoval) != 0 {
+		t.Errorf("pendingRemoval should be empty, got %d entries", len(m.pendingRemoval))
+	}
+	if len(m.removedKeys) != 0 {
+		t.Errorf("removedKeys should be empty, got %d entries", len(m.removedKeys))
+	}
+}
+
 func TestResolveTokensUsageWithRealData(t *testing.T) {
 	m := newTestMonitor(config.TokenNormConfig{
 		Strategies:       map[string]string{"claude": "usage", "default": "estimate"},
