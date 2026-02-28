@@ -51,6 +51,7 @@ type Broadcaster struct {
 	privacy        *session.PrivacyFilter
 	throttle       time.Duration
 	snapshotTicker *time.Ticker
+	stop           chan struct{}
 	pendingUpdates []*session.SessionState
 	pendingRemoved []string
 	flushTimer     *time.Timer
@@ -61,16 +62,15 @@ type Broadcaster struct {
 
 func NewBroadcaster(store *session.Store, throttle, snapshotInterval time.Duration, maxConns int) *Broadcaster {
 	b := &Broadcaster{
-		clients:  make(map[*client]bool),
-		maxConns: maxConns,
-		store:    store,
-		privacy:  &session.PrivacyFilter{},
-		throttle: throttle,
+		clients:        make(map[*client]bool),
+		maxConns:       maxConns,
+		store:          store,
+		privacy:        &session.PrivacyFilter{},
+		throttle:       throttle,
+		snapshotTicker: time.NewTicker(snapshotInterval),
+		stop:           make(chan struct{}),
 	}
-
-	b.snapshotTicker = time.NewTicker(snapshotInterval)
 	go b.snapshotLoop()
-
 	return b
 }
 
@@ -209,8 +209,13 @@ func (b *Broadcaster) flush() {
 }
 
 func (b *Broadcaster) snapshotLoop() {
-	for range b.snapshotTicker.C {
-		b.broadcast(b.snapshotMessage())
+	for {
+		select {
+		case <-b.snapshotTicker.C:
+			b.broadcast(b.snapshotMessage())
+		case <-b.stop:
+			return
+		}
 	}
 }
 
@@ -278,9 +283,10 @@ func (b *Broadcaster) BroadcastMessage(msg WSMessage) {
 	b.broadcast(msg)
 }
 
-// Stop stops the snapshot ticker, preventing further broadcast ticks.
+// Stop stops the snapshot ticker and terminates the snapshotLoop goroutine.
 func (b *Broadcaster) Stop() {
 	b.snapshotTicker.Stop()
+	close(b.stop)
 }
 
 func (b *Broadcaster) ClientCount() int {
