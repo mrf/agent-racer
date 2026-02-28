@@ -517,3 +517,76 @@ func TestBattlePass_UnmarshalJSON_NoSeasonFieldOmitted(t *testing.T) {
 		t.Errorf("Tier = %d, want 4", bp.Tier)
 	}
 }
+
+func TestStatsTracker_AwardXP_FiresCallback(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStore(dir)
+	tracker, _, err := NewStatsTracker(store, 0, nil)
+	if err != nil {
+		t.Fatalf("NewStatsTracker error: %v", err)
+	}
+
+	var callbackFired bool
+	var capturedProgress BattlePassProgress
+	var capturedXPEntries []XPEntry
+
+	tracker.OnBattlePassProgress(func(progress BattlePassProgress, xpEntries []XPEntry) {
+		callbackFired = true
+		capturedProgress = progress
+		capturedXPEntries = xpEntries
+	})
+
+	tracker.AwardXP(500, "test_reason")
+
+	if !callbackFired {
+		t.Fatal("onBattlePass callback did not fire")
+	}
+
+	if capturedProgress.XP != 500 {
+		t.Errorf("callback progress XP = %d, want 500", capturedProgress.XP)
+	}
+
+	if capturedProgress.Tier != 1 {
+		t.Errorf("callback progress Tier = %d, want 1", capturedProgress.Tier)
+	}
+
+	if len(capturedXPEntries) != 1 {
+		t.Errorf("callback received %d XP entries, want 1", len(capturedXPEntries))
+	} else {
+		if capturedXPEntries[0].Amount != 500 {
+			t.Errorf("callback XP entry amount = %d, want 500", capturedXPEntries[0].Amount)
+		}
+		if capturedXPEntries[0].Reason != "test_reason" {
+			t.Errorf("callback XP entry reason = %q, want %q", capturedXPEntries[0].Reason, "test_reason")
+		}
+	}
+}
+
+func TestStatsTracker_AwardXP_CallbackIncludesUpdatedProgress(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStore(dir)
+	tracker, _, err := NewStatsTracker(store, 0, nil)
+	if err != nil {
+		t.Fatalf("NewStatsTracker error: %v", err)
+	}
+
+	// Award XP up to just before tier advancement.
+	tracker.AwardXP(xpPerTier-100, "setup")
+
+	var capturedProgress BattlePassProgress
+
+	tracker.OnBattlePassProgress(func(progress BattlePassProgress, xpEntries []XPEntry) {
+		capturedProgress = progress
+	})
+
+	// Award XP that will cross the tier threshold.
+	tracker.AwardXP(150, "trigger_advance")
+
+	if capturedProgress.Tier != 2 {
+		t.Errorf("callback progress Tier = %d, want 2 (tier should advance)", capturedProgress.Tier)
+	}
+
+	if capturedProgress.XP != xpPerTier+50 {
+		t.Errorf("callback progress XP = %d, want %d", capturedProgress.XP, xpPerTier+50)
+	}
+}
