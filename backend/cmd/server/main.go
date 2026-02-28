@@ -158,6 +158,7 @@ func main() {
 	if *mockMode {
 		log.Println("Starting in mock mode")
 		gen := mock.NewGenerator(store, broadcaster)
+		gen.SetStatsEvents(statsCh)
 		gen.Start(ctx)
 	} else {
 		log.Println("Starting in real mode (process monitoring)")
