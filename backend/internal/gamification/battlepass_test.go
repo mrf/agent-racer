@@ -1,6 +1,7 @@
 package gamification
 
 import (
+	"fmt"
 	"testing"
 )
 
@@ -229,6 +230,93 @@ func TestGetProgress_ZeroTier_ClampsToOne(t *testing.T) {
 	p := getProgress(bp)
 	if p.Tier != 1 {
 		t.Errorf("Tier = %d, want 1 (clamped from 0)", p.Tier)
+	}
+}
+
+// --- awardXP / getProgress: tier advancement boundary values ---
+
+func TestAwardXP_UniformCostModel(t *testing.T) {
+	// Verify each tier costs exactly xpPerTier (uniform, not progressive).
+	// Cumulative threshold to reach tier N is (N-1)*xpPerTier.
+	for tier := 2; tier <= maxTiers; tier++ {
+		threshold := (tier - 1) * xpPerTier
+
+		t.Run(fmt.Sprintf("tier%d/below", tier), func(t *testing.T) {
+			bp := &BattlePass{}
+			awardXP(bp, threshold-1)
+			if bp.Tier != tier-1 {
+				t.Errorf("Tier = %d, want %d", bp.Tier, tier-1)
+			}
+		})
+
+		t.Run(fmt.Sprintf("tier%d/exact", tier), func(t *testing.T) {
+			bp := &BattlePass{}
+			awardXP(bp, threshold)
+			if bp.Tier != tier {
+				t.Errorf("Tier = %d, want %d", bp.Tier, tier)
+			}
+		})
+
+		t.Run(fmt.Sprintf("tier%d/above", tier), func(t *testing.T) {
+			bp := &BattlePass{}
+			awardXP(bp, threshold+1)
+			if bp.Tier != tier {
+				t.Errorf("Tier = %d, want %d", bp.Tier, tier)
+			}
+		})
+	}
+}
+
+func TestGetProgress_BoundaryPct(t *testing.T) {
+	// At tier start: pct should be 0.0.
+	// At tier midpoint: pct should be 0.5.
+	// One XP below next threshold: pct should be just under 1.0.
+	cases := []struct {
+		name string
+		tier int
+		xp   int
+		pct  float64
+	}{
+		{"tier2 start", 2, 1000, 0.0},
+		{"tier2 mid", 2, 1500, 0.5},
+		{"tier2 end", 2, 1999, 0.999},
+		{"tier5 start", 5, 4000, 0.0},
+		{"tier5 mid", 5, 4500, 0.5},
+		{"tier9 end", 9, 8999, 0.999},
+		{"maxTier always 1.0", maxTiers, 9000, 1.0},
+		{"maxTier with excess XP", maxTiers, 50000, 1.0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			bp := &BattlePass{Tier: tc.tier, XP: tc.xp}
+			p := getProgress(bp)
+			if p.Pct != tc.pct {
+				t.Errorf("Pct = %f, want %f", p.Pct, tc.pct)
+			}
+		})
+	}
+}
+
+func TestAwardXP_IncrementalAdvancement(t *testing.T) {
+	// Simulate earning XP in small increments — verify each tier boundary.
+	bp := &BattlePass{}
+	for tier := 1; tier <= maxTiers; tier++ {
+		threshold := tier * xpPerTier
+		// Award XP in 100-XP chunks up to just below the next threshold.
+		for bp.XP < threshold-100 {
+			awardXP(bp, 100)
+		}
+		if bp.Tier != tier {
+			t.Errorf("At %d XP: Tier = %d, want %d", bp.XP, bp.Tier, tier)
+		}
+		// The next 100 XP should cross the threshold (unless at max).
+		if tier < maxTiers {
+			awardXP(bp, 100)
+			if bp.Tier != tier+1 {
+				t.Errorf("After crossing threshold at %d XP: Tier = %d, want %d",
+					bp.XP, bp.Tier, tier+1)
+			}
+		}
 	}
 }
 
