@@ -7,6 +7,7 @@ import (
 
 	"github.com/agent-racer/tui/internal/client"
 	"github.com/agent-racer/tui/internal/theme"
+	"github.com/agent-racer/tui/internal/views/achievements"
 	"github.com/agent-racer/tui/internal/views/status"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -55,7 +56,8 @@ type Model struct {
 	overlay     Overlay
 
 	// Sub-views.
-	statusBar status.Model
+	statusBar    status.Model
+	achievements achievements.Model
 
 	// Connection state.
 	connected bool
@@ -66,13 +68,14 @@ type Model struct {
 func New(ws *client.WSClient, http *client.HTTPClient) Model {
 	ctx, cancel := context.WithCancel(context.Background())
 	return Model{
-		ws:        ws,
-		http:      http,
-		ctx:       ctx,
-		cancel:    cancel,
-		keys:      DefaultKeyMap(),
-		sessions:  make(map[string]*client.SessionState),
-		statusBar: status.New(),
+		ws:           ws,
+		http:         http,
+		ctx:          ctx,
+		cancel:       cancel,
+		keys:         DefaultKeyMap(),
+		sessions:     make(map[string]*client.SessionState),
+		statusBar:    status.New(),
+		achievements: achievements.New(),
 	}
 }
 
@@ -143,7 +146,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case client.WSEquippedMsg:
 		return m, m.ws.ReadLoop(m.ctx)
 
+	case achievements.LoadedMsg:
+		m.achievements.ApplyLoaded(msg)
+		return m, nil
+
 	case client.WSAchievementMsg:
+		m.achievements.ApplyUnlock(msg.Payload.ID)
 		return m, m.ws.ReadLoop(m.ctx)
 
 	case client.WSBattlePassMsg:
@@ -161,6 +169,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if key.Matches(msg, m.keys.Escape) {
 			m.overlay = OverlayNone
 			return m, nil
+		}
+		if m.overlay == OverlayAchievements {
+			m.achievements = m.achievements.Update(msg)
 		}
 		return m, nil
 	}
@@ -204,7 +215,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case key.Matches(msg, m.keys.Achievements):
 		m.overlay = OverlayAchievements
-		return m, nil
+		m.achievements = achievements.New()
+		return m, achievements.FetchCmd(m.http)
 
 	case key.Matches(msg, m.keys.Garage):
 		m.overlay = OverlayGarage
@@ -236,15 +248,17 @@ func (m Model) View() string {
 		return "Initializing..."
 	}
 
-	var sections []string
-
-	sections = append(sections, m.statusBar.View())
-	sections = append(sections, m.renderTrackPlaceholder())
+	if m.overlay == OverlayAchievements {
+		return m.achievements.ViewOverlay(m.width, m.height)
+	}
 
 	help := theme.StyleDimmed.Render("  j/k:navigate  tab:zone  a:achievements  g:garage  b:battlepass  d:debug  q:quit")
-	sections = append(sections, help)
 
-	return lipgloss.JoinVertical(lipgloss.Left, sections...)
+	return lipgloss.JoinVertical(lipgloss.Left,
+		m.statusBar.View(),
+		m.renderTrackPlaceholder(),
+		help,
+	)
 }
 
 func (m Model) renderTrackPlaceholder() string {
@@ -289,6 +303,15 @@ func (m Model) renderTrackPlaceholder() string {
 
 func (m Model) renderSessionLine(prefix string, s *client.SessionState) string {
 	glyph := activityGlyph(string(s.Activity))
+	name := sessionDisplayName(s)
+
+	nameStr := lipgloss.NewStyle().Foreground(theme.ModelColor(s.Model)).Render(name)
+	actStr := lipgloss.NewStyle().Foreground(theme.ActivityColor(string(s.Activity))).Render(string(s.Activity))
+
+	return prefix + glyph + " " + nameStr + "  " + actStr
+}
+
+func sessionDisplayName(s *client.SessionState) string {
 	name := s.Name
 	if name == "" {
 		name = s.Slug
@@ -299,12 +322,7 @@ func (m Model) renderSessionLine(prefix string, s *client.SessionState) string {
 	if len(name) > 24 {
 		name = name[:23] + "..."
 	}
-
-	color := theme.ModelColor(s.Model)
-	nameStr := lipgloss.NewStyle().Foreground(color).Render(name)
-	actStr := lipgloss.NewStyle().Foreground(theme.ActivityColor(string(s.Activity))).Render(string(s.Activity))
-
-	return prefix + glyph + " " + nameStr + "  " + actStr
+	return name
 }
 
 func activityGlyph(activity string) string {
@@ -350,10 +368,8 @@ func classifyZone(s *client.SessionState) Zone {
 	case client.ActivityComplete, client.ActivityErrored, client.ActivityLost:
 		return ZoneParked
 	case client.ActivityIdle, client.ActivityWaiting, client.ActivityStarting:
-		if !s.LastDataReceivedAt.IsZero() {
-			if time.Since(s.LastDataReceivedAt).Seconds() < 30 {
-				return ZoneRacing
-			}
+		if !s.LastDataReceivedAt.IsZero() && time.Since(s.LastDataReceivedAt).Seconds() < 30 {
+			return ZoneRacing
 		}
 		return ZonePit
 	default:
