@@ -191,6 +191,84 @@ func TestInitWeeklyChallengeState(t *testing.T) {
 	}
 }
 
+func TestComplete3NoErrors_UsesCompletionsDirectly(t *testing.T) {
+	c, ok := challengeByID("complete_3_no_errors")
+	if !ok {
+		t.Fatal("complete_3_no_errors challenge not found in pool")
+	}
+
+	tests := []struct {
+		name             string
+		totalCompletions int
+		totalErrors      int
+		wantCurrent      int
+		wantTarget       int
+		wantComplete     bool
+	}{
+		{
+			name:             "zero completions and errors",
+			totalCompletions: 0,
+			totalErrors:      0,
+			wantCurrent:      0,
+			wantTarget:       3,
+			wantComplete:     false,
+		},
+		{
+			name:             "errors do not reduce completion count",
+			totalCompletions: 2,
+			totalErrors:      5,
+			wantCurrent:      2,
+			wantTarget:       3,
+			wantComplete:     false,
+		},
+		{
+			name:             "completions equal to target",
+			totalCompletions: 3,
+			totalErrors:      0,
+			wantCurrent:      3,
+			wantTarget:       3,
+			wantComplete:     true,
+		},
+		{
+			name:             "completions exceed target with errors",
+			totalCompletions: 4,
+			totalErrors:      10,
+			wantCurrent:      4,
+			wantTarget:       3,
+			wantComplete:     true,
+		},
+		{
+			name:             "equal completions and errors still counts",
+			totalCompletions: 3,
+			totalErrors:      3,
+			wantCurrent:      3,
+			wantTarget:       3,
+			wantComplete:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			snap := &WeekSnapshot{
+				SessionsPerModel:  make(map[string]int),
+				SessionsPerSource: make(map[string]int),
+				TotalCompletions:  tt.totalCompletions,
+				TotalErrors:       tt.totalErrors,
+			}
+			cur, tgt := c.Progress(snap)
+			if cur != tt.wantCurrent {
+				t.Errorf("current = %d, want %d", cur, tt.wantCurrent)
+			}
+			if tgt != tt.wantTarget {
+				t.Errorf("target = %d, want %d", tgt, tt.wantTarget)
+			}
+			if complete := cur >= tgt; complete != tt.wantComplete {
+				t.Errorf("complete = %v, want %v", complete, tt.wantComplete)
+			}
+		})
+	}
+}
+
 func TestSnapModelFamilyCount(t *testing.T) {
 	sessions := map[string]int{
 		"claude-haiku-4-5": 3,
