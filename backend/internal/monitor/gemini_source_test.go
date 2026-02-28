@@ -514,6 +514,65 @@ func TestGeminiContentUnmarshalObject(t *testing.T) {
 	}
 }
 
+func TestGeminiSourceDiscoverPrunesStaleEntries(t *testing.T) {
+	// Create a temporary ~/.gemini/tmp structure with one active session.
+	tmpDir := t.TempDir()
+	activeHash := hashProjectPath("/home/user/active-project")
+	chatsDir := filepath.Join(tmpDir, activeHash, "chats")
+	if err := os.MkdirAll(chatsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	sessionFile := filepath.Join(chatsDir, "session-2026-01-30T10-00-aaa111.json")
+	if err := os.WriteFile(sessionFile, []byte(`[]`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	src := NewGeminiSource(10 * time.Minute)
+
+	// Seed all three maps with stale entries that won't be discovered.
+	staleHash := hashProjectPath("/home/user/gone-project")
+	src.hashToPath[staleHash] = "/home/user/gone-project"
+	src.hashToPath[activeHash] = "/home/user/active-project"
+
+	staleLogPath := "/old/path/session-old.json"
+	src.lastParsed[staleLogPath] = time.Now()
+	src.lastParsed[sessionFile] = time.Now()
+
+	src.prevCounts[staleLogPath] = geminiAbsoluteCounts{Messages: 5, ToolCalls: 2}
+	src.prevCounts[sessionFile] = geminiAbsoluteCounts{Messages: 3, ToolCalls: 1}
+
+	// Use discoverFromDir directly to bypass geminiBaseDir and process scanning.
+	handles := src.discoverFromDir(tmpDir)
+
+	if len(handles) != 1 {
+		t.Fatalf("expected 1 handle, got %d", len(handles))
+	}
+
+	// Stale hash should be pruned, active hash should remain.
+	if _, ok := src.hashToPath[staleHash]; ok {
+		t.Error("stale hash entry not pruned from hashToPath")
+	}
+	if _, ok := src.hashToPath[activeHash]; !ok {
+		t.Error("active hash entry was incorrectly pruned from hashToPath")
+	}
+
+	// Stale log path should be pruned, active session file should remain.
+	if _, ok := src.lastParsed[staleLogPath]; ok {
+		t.Error("stale entry not pruned from lastParsed")
+	}
+	if _, ok := src.lastParsed[sessionFile]; !ok {
+		t.Error("active entry was incorrectly pruned from lastParsed")
+	}
+
+	// Same pruning applies to prevCounts.
+	if _, ok := src.prevCounts[staleLogPath]; ok {
+		t.Error("stale entry not pruned from prevCounts")
+	}
+	if _, ok := src.prevCounts[sessionFile]; !ok {
+		t.Error("active entry was incorrectly pruned from prevCounts")
+	}
+}
+
 func TestIsGeminiProcess(t *testing.T) {
 	tests := []struct {
 		name string
