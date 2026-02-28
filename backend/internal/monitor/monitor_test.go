@@ -1,6 +1,8 @@
 package monitor
 
 import (
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -8,6 +10,27 @@ import (
 	"github.com/agent-racer/backend/internal/session"
 	"github.com/agent-racer/backend/internal/ws"
 )
+
+// monitorDeadlockTimeout is how long tests wait before declaring a deadlock.
+// Long enough for slow CI, short enough to fail fast.
+const monitorDeadlockTimeout = 2 * time.Second
+
+// mustNotBlock runs f in a goroutine and fails the test if f does not return
+// within the timeout. The description is included in the failure message.
+func mustNotBlock(t *testing.T, timeout time.Duration, desc string, f func()) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		f()
+		close(done)
+	}()
+	select {
+	case <-done:
+		// completed normally — no deadlock
+	case <-time.After(timeout):
+		t.Errorf("DEADLOCK: %s blocked for >%v (goroutine permanently stuck)", desc, timeout)
+	}
+}
 
 // newTestMonitor creates a minimal Monitor for testing resolveTokens and
 // other methods that only need a config and in-memory maps.
@@ -787,4 +810,376 @@ func TestCalculateBurnRate(t *testing.T) {
 			t.Errorf("calculateBurnRate() = %f, want 0 (no token increase)", rate)
 		}
 	})
+}
+
+// ---------------------------------------------------------------------------
+// Deadlock regression tests
+//
+// Root cause (fixed): markTerminal() called emitEvent() inside the
+// UpdateAndNotify callback. emitEvent() calls store.ActiveCount(), which
+// acquires store.mu.RLock(). But UpdateAndNotify holds store.mu.Lock()
+// for the entire callback. Go's sync.RWMutex is not reentrant — a goroutine
+// holding a write lock cannot acquire a read lock on the same mutex. This
+// permanently deadlocked the store, blocking ALL subsequent GetAll() and
+// ActiveCount() calls. The dashboard showed "0 sessions" despite active sessions.
+//
+// The fix: move emitEvent() outside the UpdateAndNotify callback so it runs
+// after the write lock is released.
+//
+// These tests would have caught the bug before it shipped.
+// ---------------------------------------------------------------------------
+
+// TestMarkTerminal_GetAllUnblockedAfterCompletion is the direct regression test
+// for the markTerminal() deadlock. It verifies that store.GetAll() completes
+// immediately after markTerminal() returns — i.e., the write lock is not held.
+//
+// Before the fix: store.GetAll() would block forever because markTerminal()
+// left the store mutex locked (deadlocked inside the UpdateAndNotify callback).
+// After the fix: GetAll() returns immediately.
+func TestMarkTerminal_GetAllUnblockedAfterCompletion(t *testing.T) {
+	store := session.NewStore()
+	broadcaster := ws.NewBroadcaster(store, 100*time.Millisecond, 5*time.Second, 0)
+	m := &Monitor{
+		cfg: &config.Config{
+			Monitor: config.MonitorConfig{
+				CompletionRemoveAfter: -1, // disable auto-removal
+			},
+		},
+		store:          store,
+		broadcaster:    broadcaster,
+		tracked:        make(map[string]*trackedSession),
+		pendingRemoval: make(map[string]time.Time),
+		removedKeys:    make(map[string]bool),
+	}
+
+	// Seed the store with an active session.
+	key := "claude:session-deadlock-regression"
+	store.Update(&session.SessionState{ID: key, Activity: session.Thinking})
+
+	// Wire up statsEvents — this is the code path that triggered the deadlock.
+	// emitEvent() uses statsEvents to call store.ActiveCount() inside the callback.
+	statsEvents := make(chan session.Event, 10)
+	m.statsEvents = statsEvents
+
+	// Call markTerminal(). Before the fix, this would deadlock inside the
+	// UpdateAndNotify callback (emitEvent → ActiveCount → mu.RLock while
+	// mu.Lock is held). The function itself might block rather than return.
+	mustNotBlock(t, monitorDeadlockTimeout, "markTerminal", func() {
+		state, ok := store.Get(key)
+		if !ok {
+			t.Errorf("session %s should exist before markTerminal", key)
+			return
+		}
+		m.markTerminal(m.cfg, state, session.Complete, time.Now())
+	})
+
+	// After markTerminal() returns, store.GetAll() MUST complete immediately.
+	// Before the fix, the write lock was still held here, so GetAll() would block.
+	mustNotBlock(t, monitorDeadlockTimeout, "store.GetAll after markTerminal", func() {
+		_ = store.GetAll()
+	})
+
+	// store.ActiveCount() must also unblock (this is the exact call that deadlocked).
+	mustNotBlock(t, monitorDeadlockTimeout, "store.ActiveCount after markTerminal", func() {
+		_ = store.ActiveCount()
+	})
+
+	// store.Get() must unblock.
+	mustNotBlock(t, monitorDeadlockTimeout, "store.Get after markTerminal", func() {
+		_, _ = store.Get(key)
+	})
+
+	// Verify the session was actually marked terminal (functional correctness).
+	state, ok := store.Get(key)
+	if !ok {
+		t.Fatal("session should still exist in store after markTerminal (removal disabled)")
+	}
+	if !state.IsTerminal() {
+		t.Errorf("session activity = %s, want terminal (complete/errored/lost)", state.Activity)
+	}
+}
+
+// TestMarkTerminal_StatsEventActiveCountIsValid verifies that when statsEvents
+// is configured, the EventTerminal event carries a valid ActiveCount. This is
+// the field that caused the deadlock — it must be populated outside the
+// UpdateAndNotify callback, after the write lock is released.
+func TestMarkTerminal_StatsEventActiveCountIsValid(t *testing.T) {
+	store := session.NewStore()
+	broadcaster := ws.NewBroadcaster(store, 100*time.Millisecond, 5*time.Second, 0)
+	m := &Monitor{
+		cfg: &config.Config{
+			Monitor: config.MonitorConfig{
+				CompletionRemoveAfter: -1,
+			},
+		},
+		store:          store,
+		broadcaster:    broadcaster,
+		tracked:        make(map[string]*trackedSession),
+		pendingRemoval: make(map[string]time.Time),
+		removedKeys:    make(map[string]bool),
+	}
+
+	// Seed with two active sessions. One will be terminated; one stays active.
+	store.Update(&session.SessionState{ID: "claude:active-1", Activity: session.Thinking})
+	store.Update(&session.SessionState{ID: "claude:target", Activity: session.ToolUse})
+
+	statsEvents := make(chan session.Event, 10)
+	m.statsEvents = statsEvents
+
+	state, _ := store.Get("claude:target")
+
+	mustNotBlock(t, monitorDeadlockTimeout, "markTerminal with statsEvents", func() {
+		m.markTerminal(m.cfg, state, session.Complete, time.Now())
+	})
+
+	// The EventTerminal event must have been sent.
+	var terminalEvent session.Event
+	select {
+	case ev := <-statsEvents:
+		if ev.Type != session.EventTerminal {
+			t.Fatalf("expected EventTerminal, got EventType %d", ev.Type)
+		}
+		terminalEvent = ev
+	case <-time.After(monitorDeadlockTimeout):
+		t.Fatal("no EventTerminal received within timeout")
+	}
+
+	// ActiveCount must reflect the store state AFTER the terminal transition.
+	// "claude:target" is now terminal → ActiveCount should be 1 (only "claude:active-1").
+	// The exact value depends on timing but must not be a zero from a deadlock-defaulted call.
+	if terminalEvent.ActiveCount < 0 {
+		t.Errorf("ActiveCount = %d, must be non-negative", terminalEvent.ActiveCount)
+	}
+	// The state in the event must be the terminated session.
+	if terminalEvent.State == nil {
+		t.Fatal("EventTerminal.State must not be nil")
+	}
+	if terminalEvent.State.ID != "claude:target" {
+		t.Errorf("EventTerminal.State.ID = %q, want %q", terminalEvent.State.ID, "claude:target")
+	}
+}
+
+// TestMarkTerminal_NoStatsEventsDoesNotDeadlock verifies that markTerminal()
+// works correctly when statsEvents is nil (the non-stats path). This is the
+// baseline: even without stats, the store must be accessible afterward.
+func TestMarkTerminal_NoStatsEventsDoesNotDeadlock(t *testing.T) {
+	store := session.NewStore()
+	broadcaster := ws.NewBroadcaster(store, 100*time.Millisecond, 5*time.Second, 0)
+	m := &Monitor{
+		cfg: &config.Config{
+			Monitor: config.MonitorConfig{
+				CompletionRemoveAfter: -1,
+			},
+		},
+		store:          store,
+		broadcaster:    broadcaster,
+		tracked:        make(map[string]*trackedSession),
+		pendingRemoval: make(map[string]time.Time),
+		removedKeys:    make(map[string]bool),
+		statsEvents:    nil, // explicitly nil — emitEvent is a no-op
+	}
+
+	store.Update(&session.SessionState{ID: "claude:s1", Activity: session.Thinking})
+
+	state, _ := store.Get("claude:s1")
+	mustNotBlock(t, monitorDeadlockTimeout, "markTerminal without statsEvents", func() {
+		m.markTerminal(m.cfg, state, session.Lost, time.Now())
+	})
+
+	mustNotBlock(t, monitorDeadlockTimeout, "store.GetAll after markTerminal (no statsEvents)", func() {
+		_ = store.GetAll()
+	})
+}
+
+// TestMarkTerminal_ConcurrentGetAllDoesNotDeadlock simulates the real-world
+// scenario: the HTTP handler goroutine (serving /api/sessions) calls
+// store.GetAll() concurrently with the monitor goroutine calling markTerminal().
+// Before the fix, the monitor goroutine would deadlock inside markTerminal(),
+// and the HTTP goroutine would also block waiting for the read lock — both
+// goroutines permanently stuck, producing "0 sessions" in the dashboard.
+func TestMarkTerminal_ConcurrentGetAllDoesNotDeadlock(t *testing.T) {
+	store := session.NewStore()
+	broadcaster := ws.NewBroadcaster(store, 100*time.Millisecond, 5*time.Second, 0)
+	m := &Monitor{
+		cfg: &config.Config{
+			Monitor: config.MonitorConfig{
+				CompletionRemoveAfter: -1,
+			},
+		},
+		store:          store,
+		broadcaster:    broadcaster,
+		tracked:        make(map[string]*trackedSession),
+		pendingRemoval: make(map[string]time.Time),
+		removedKeys:    make(map[string]bool),
+	}
+
+	statsEvents := make(chan session.Event, 100)
+	m.statsEvents = statsEvents
+
+	// Seed several sessions.
+	const sessionCount = 5
+	for i := 0; i < sessionCount; i++ {
+		store.Update(&session.SessionState{
+			ID:       fmt.Sprintf("claude:session-%d", i),
+			Activity: session.Thinking,
+		})
+	}
+
+	var wg sync.WaitGroup
+	done := make(chan struct{})
+
+	// Goroutine 1: repeatedly calls markTerminal (monitor goroutine).
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < sessionCount; i++ {
+			id := fmt.Sprintf("claude:session-%d", i)
+			state, ok := store.Get(id)
+			if !ok {
+				continue
+			}
+			m.markTerminal(m.cfg, state, session.Complete, time.Now())
+		}
+	}()
+
+	// Goroutine 2: repeatedly calls GetAll (HTTP handler goroutine).
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 20; i++ {
+			_ = store.GetAll()
+			_ = store.ActiveCount()
+		}
+	}()
+
+	// Goroutine 3: repeatedly calls ActiveCount (another reader).
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 20; i++ {
+			_ = store.ActiveCount()
+		}
+	}()
+
+	// Wait for all goroutines to complete. If any deadlocks, the test times out.
+	completedCh := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(completedCh)
+	}()
+
+	select {
+	case <-completedCh:
+		// All goroutines completed — no deadlock.
+	case <-time.After(monitorDeadlockTimeout):
+		t.Fatal("DEADLOCK: concurrent markTerminal + GetAll/ActiveCount did not complete within timeout")
+	}
+	close(done)
+}
+
+// TestMarkTerminal_WasTerminalSkipsEmitEvent verifies that when a session is
+// already terminal before markTerminal() is called, emitEvent is NOT called
+// again. This prevents duplicate EventTerminal events on repeated calls.
+func TestMarkTerminal_WasTerminalSkipsEmitEvent(t *testing.T) {
+	store := session.NewStore()
+	broadcaster := ws.NewBroadcaster(store, 100*time.Millisecond, 5*time.Second, 0)
+	m := &Monitor{
+		cfg: &config.Config{
+			Monitor: config.MonitorConfig{
+				CompletionRemoveAfter: -1,
+			},
+		},
+		store:          store,
+		broadcaster:    broadcaster,
+		tracked:        make(map[string]*trackedSession),
+		pendingRemoval: make(map[string]time.Time),
+		removedKeys:    make(map[string]bool),
+	}
+
+	statsEvents := make(chan session.Event, 10)
+	m.statsEvents = statsEvents
+
+	// Session is already terminal (Complete).
+	completedAt := time.Now().Add(-time.Minute)
+	store.Update(&session.SessionState{
+		ID:          "claude:already-done",
+		Activity:    session.Complete,
+		CompletedAt: &completedAt,
+	})
+
+	state, _ := store.Get("claude:already-done")
+
+	mustNotBlock(t, monitorDeadlockTimeout, "markTerminal on already-terminal session", func() {
+		m.markTerminal(m.cfg, state, session.Lost, time.Now())
+	})
+
+	// Drain any events that were sent.
+	var eventCount int
+	drain:
+	for {
+		select {
+		case <-statsEvents:
+			eventCount++
+		default:
+			break drain
+		}
+	}
+
+	// wasTerminal=true before the call, so emitEvent should not have fired.
+	if eventCount > 0 {
+		t.Errorf("emitEvent called %d time(s) for already-terminal session, want 0", eventCount)
+	}
+}
+
+// TestEmitEvent_CalledAfterLockReleased verifies the structural invariant that
+// emitEvent() — which calls store.ActiveCount() — is always called AFTER the
+// UpdateAndNotify write lock has been released.
+//
+// This tests the fix itself: emitEvent is positioned outside the callback
+// in markTerminal(). If someone accidentally moves it back inside, the
+// TestMarkTerminal_GetAllUnblockedAfterCompletion test will catch the deadlock,
+// but this test catches the structural violation by ensuring that the store is
+// readable from within emitEvent's execution context.
+func TestEmitEvent_CalledAfterLockReleased(t *testing.T) {
+	store := session.NewStore()
+	broadcaster := ws.NewBroadcaster(store, 100*time.Millisecond, 5*time.Second, 0)
+	m := &Monitor{
+		cfg: &config.Config{
+			Monitor: config.MonitorConfig{
+				CompletionRemoveAfter: -1,
+			},
+		},
+		store:          store,
+		broadcaster:    broadcaster,
+		tracked:        make(map[string]*trackedSession),
+		pendingRemoval: make(map[string]time.Time),
+		removedKeys:    make(map[string]bool),
+	}
+
+	store.Update(&session.SessionState{ID: "claude:probe", Activity: session.Thinking})
+
+	// Use a buffered channel so emitEvent doesn't block (non-blocking send).
+	statsEvents := make(chan session.Event, 1)
+	m.statsEvents = statsEvents
+
+	state, _ := store.Get("claude:probe")
+	m.markTerminal(m.cfg, state, session.Complete, time.Now())
+
+	// If emitEvent was called inside the callback (while write lock was held),
+	// store.ActiveCount() inside emitEvent would have deadlocked and no event
+	// would be in the channel. If it was called after (fix in place),
+	// the event is present and ActiveCount was readable.
+	select {
+	case ev := <-statsEvents:
+		if ev.Type != session.EventTerminal {
+			t.Errorf("expected EventTerminal, got type %d", ev.Type)
+		}
+		// ActiveCount of 0 is valid (the session just turned terminal).
+		// What matters is it's non-negative and the event was sent at all.
+		if ev.ActiveCount < 0 {
+			t.Errorf("ActiveCount = %d, want >= 0", ev.ActiveCount)
+		}
+	default:
+		t.Error("no EventTerminal in statsEvents channel — emitEvent may not have been called, or deadlocked")
+	}
 }

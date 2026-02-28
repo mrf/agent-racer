@@ -565,10 +565,14 @@ func (m *Monitor) markTerminal(cfg *config.Config, state *session.SessionState, 
 		if !wasTerminal {
 			log.Printf("Session %s terminal: %s → %s (broadcasting completion)", state.ID, state.Name, activity)
 			m.broadcaster.QueueCompletion(state.ID, activity, state.Name)
-			m.emitEvent(session.EventTerminal, state)
 		}
 		m.broadcaster.QueueUpdate([]*session.SessionState{state})
 	})
+	// emitEvent calls store.ActiveCount() which takes a read lock —
+	// must be outside UpdateAndNotify to avoid deadlock (write lock is held).
+	if !wasTerminal {
+		m.emitEvent(session.EventTerminal, state)
+	}
 	m.scheduleRemoval(cfg, state.ID, completedAt)
 }
 

@@ -1230,3 +1230,315 @@ func TestPollRepeatedPanicsAccumulateFailures(t *testing.T) {
 		t.Errorf("status = %s, want failed", sh.status(3))
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Poll-level deadlock regression tests
+//
+// These test the full poll() path that calls markTerminal(), verifying that
+// the store remains accessible after a terminal transition during polling.
+// ---------------------------------------------------------------------------
+
+// pollDeadlockTimeout is the deadline for poll-level deadlock tests.
+const pollDeadlockTimeout = 3 * time.Second
+
+// TestPollMarkTerminalViaSessionEndMarkerDoesNotDeadlock is the integration-level
+// regression test for the markTerminal() deadlock. It reproduces the exact
+// conditions under which the bug manifested in production:
+//
+//  1. A session is active in the store.
+//  2. A session end marker file is dropped (Claude CLI hook).
+//  3. poll() processes the marker, calling markTerminal().
+//  4. With statsEvents wired up, emitEvent() runs during markTerminal().
+//  5. Before the fix: emitEvent() called store.ActiveCount() inside the
+//     UpdateAndNotify callback, deadlocking store.mu permanently.
+//  6. After the fix: emitEvent() runs after the callback, after lock release.
+//
+// The test verifies that store.GetAll() — the call the HTTP handler makes for
+// /api/sessions — completes promptly after the poll containing a terminal event.
+func TestPollMarkTerminalViaSessionEndMarkerDoesNotDeadlock(t *testing.T) {
+	dir := t.TempDir()
+	sessionEndDir := filepath.Join(dir, "session-end")
+	if err := os.MkdirAll(sessionEndDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	jsonlPath := filepath.Join(dir, "session-deadlock.jsonl")
+	now := time.Now().UTC()
+	ts := now.Format(time.RFC3339Nano)
+	writeJSONL(t, jsonlPath,
+		jsonlLine("user", "session-deadlock", ts, "", "", "/tmp/dl")+
+			jsonlLine("assistant", "session-deadlock", ts, "claude-opus-4-5-20251101", "", "/tmp/dl"))
+
+	src := &testSource{
+		handles: []SessionHandle{newTestHandle("session-deadlock", jsonlPath, "/tmp/dl", now)},
+	}
+
+	cfg := defaultTestConfig()
+	cfg.Monitor.SessionEndDir = sessionEndDir
+	cfg.Monitor.CompletionRemoveAfter = -1 // keep session in store for inspection
+
+	m, store, _ := newPollTestMonitor(src, cfg)
+
+	// Wire up statsEvents — this is the code path that triggered the deadlock.
+	// emitEvent() uses the channel and calls store.ActiveCount() inside.
+	statsEvents := make(chan session.Event, 50)
+	m.statsEvents = statsEvents
+
+	// Poll 1: discover and create the session.
+	m.poll()
+	if _, ok := store.Get("claude:session-deadlock"); !ok {
+		t.Fatal("session should exist after first poll")
+	}
+
+	// Drop a session end marker. The next poll will call markTerminal() on
+	// this session, which — before the fix — would deadlock the store.
+	markerContent := fmt.Sprintf(
+		`{"session_id":"session-deadlock","transcript_path":"%s","cwd":"/tmp/dl","reason":"success","timestamp":"%s"}`,
+		jsonlPath, now.Add(2*time.Second).Format(time.RFC3339Nano),
+	)
+	markerPath := filepath.Join(sessionEndDir, "session-deadlock.json")
+	if err := os.WriteFile(markerPath, []byte(markerContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Poll 2: consume the session end marker → calls markTerminal().
+	// Before the fix: this poll would deadlock inside markTerminal() because
+	// emitEvent() called store.ActiveCount() while UpdateAndNotify held mu.Lock().
+	pollDone := make(chan struct{})
+	go func() {
+		m.poll()
+		close(pollDone)
+	}()
+
+	select {
+	case <-pollDone:
+		// poll() completed — the markTerminal() path did not deadlock.
+	case <-time.After(pollDeadlockTimeout):
+		t.Fatal("DEADLOCK: poll() did not complete after processing session end marker (store.mu permanently locked)")
+	}
+
+	// Verify store.GetAll() is immediately accessible (HTTP handler path).
+	// Before the fix: this would also block forever because mu.Lock() was
+	// never released.
+	getAllDone := make(chan []*session.SessionState, 1)
+	go func() {
+		getAllDone <- store.GetAll()
+	}()
+
+	select {
+	case sessions := <-getAllDone:
+		// GetAll completed — the lock is free.
+		if len(sessions) == 0 {
+			t.Error("store.GetAll() returned empty — session was lost (unexpected)")
+		}
+	case <-time.After(pollDeadlockTimeout):
+		t.Fatal("DEADLOCK: store.GetAll() blocked after poll() with session end marker")
+	}
+
+	// Verify store.ActiveCount() is also accessible.
+	activeCountDone := make(chan int, 1)
+	go func() {
+		activeCountDone <- store.ActiveCount()
+	}()
+
+	select {
+	case count := <-activeCountDone:
+		// Session was marked terminal, so active count should be 0.
+		if count != 0 {
+			t.Errorf("ActiveCount = %d after terminal session, want 0", count)
+		}
+	case <-time.After(pollDeadlockTimeout):
+		t.Fatal("DEADLOCK: store.ActiveCount() blocked after poll() with session end marker")
+	}
+
+	// Verify the session was actually marked terminal.
+	state, ok := store.Get("claude:session-deadlock")
+	if !ok {
+		t.Fatal("session should still be in store (CompletionRemoveAfter=-1)")
+	}
+	if !state.IsTerminal() {
+		t.Errorf("session activity = %s, want terminal", state.Activity)
+	}
+
+	// Verify an EventTerminal was emitted (confirms emitEvent ran successfully).
+	var gotTerminalEvent bool
+	drain:
+	for {
+		select {
+		case ev := <-statsEvents:
+			if ev.Type == session.EventTerminal {
+				gotTerminalEvent = true
+			}
+		default:
+			break drain
+		}
+	}
+	if !gotTerminalEvent {
+		t.Error("no EventTerminal in statsEvents — emitEvent may have been skipped or deadlocked")
+	}
+}
+
+// TestPollMarkTerminalViaStaleDetectionDoesNotDeadlock verifies that the
+// stale detection path (which calls markTerminal() for disappeared sessions)
+// also does not deadlock. Stale detection is a separate code path from
+// session end markers — it calls markTerminal() directly in the poll loop.
+func TestPollMarkTerminalViaStaleDetectionDoesNotDeadlock(t *testing.T) {
+	dir := t.TempDir()
+	jsonlPath := filepath.Join(dir, "session-stale-dl.jsonl")
+
+	now := time.Now().UTC()
+	ts := now.Format(time.RFC3339Nano)
+	writeJSONL(t, jsonlPath,
+		jsonlLine("user", "session-stale-dl", ts, "", "", "/tmp/stale-dl")+
+			jsonlLine("assistant", "session-stale-dl", ts, "claude-opus-4-5-20251101", "", "/tmp/stale-dl"))
+
+	src := &testSource{
+		handles: []SessionHandle{newTestHandle("session-stale-dl", jsonlPath, "/tmp/stale-dl", now)},
+	}
+
+	cfg := defaultTestConfig()
+	cfg.Monitor.CompletionRemoveAfter = -1
+	m, store, _ := newPollTestMonitor(src, cfg)
+
+	statsEvents := make(chan session.Event, 50)
+	m.statsEvents = statsEvents
+
+	// Poll 1: discover the session.
+	m.poll()
+	if _, ok := store.Get("claude:session-stale-dl"); !ok {
+		t.Fatal("session should exist after first poll")
+	}
+
+	// Remove the file from discovery (simulates the process exiting and
+	// the JSONL file disappearing from the discover window).
+	src.handles = nil
+
+	// Poll 2: stale detection runs → calls markTerminal(state, Lost, ...).
+	// Before the fix: deadlock. After the fix: completes.
+	pollDone := make(chan struct{})
+	go func() {
+		m.poll()
+		close(pollDone)
+	}()
+
+	select {
+	case <-pollDone:
+		// poll() completed without deadlock.
+	case <-time.After(pollDeadlockTimeout):
+		t.Fatal("DEADLOCK: poll() blocked during stale detection markTerminal()")
+	}
+
+	// Store must be accessible after the poll.
+	getAllDone := make(chan struct{})
+	go func() {
+		_ = store.GetAll()
+		_ = store.ActiveCount()
+		close(getAllDone)
+	}()
+
+	select {
+	case <-getAllDone:
+		// All store operations completed.
+	case <-time.After(pollDeadlockTimeout):
+		t.Fatal("DEADLOCK: store.GetAll()/ActiveCount() blocked after stale detection poll")
+	}
+
+	// The session must be terminal (Lost).
+	state, ok := store.Get("claude:session-stale-dl")
+	if !ok {
+		t.Fatal("session should still be in store (CompletionRemoveAfter=-1)")
+	}
+	if state.Activity != session.Lost {
+		t.Errorf("activity = %s, want lost (stale detection)", state.Activity)
+	}
+}
+
+// TestPollConcurrentGetAllDuringMarkTerminal verifies that a goroutine calling
+// store.GetAll() concurrently with poll() processing a session end marker does
+// not deadlock. This is the exact production scenario: the HTTP handler for
+// /api/sessions calls GetAll() while the monitor goroutine calls poll().
+func TestPollConcurrentGetAllDuringMarkTerminal(t *testing.T) {
+	dir := t.TempDir()
+	sessionEndDir := filepath.Join(dir, "end")
+	if err := os.MkdirAll(sessionEndDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC()
+	ts := now.Format(time.RFC3339Nano)
+
+	// Create multiple sessions to make the race window larger.
+	const numSessions = 3
+	handles := make([]SessionHandle, numSessions)
+	for i := 0; i < numSessions; i++ {
+		id := fmt.Sprintf("session-concurrent-%d", i)
+		path := filepath.Join(dir, id+".jsonl")
+		writeJSONL(t, path,
+			jsonlLine("user", id, ts, "", "", "/tmp/concurrent")+
+				jsonlLine("assistant", id, ts, "claude-opus-4-5-20251101", "", "/tmp/concurrent"))
+		handles[i] = newTestHandle(id, path, "/tmp/concurrent", now)
+	}
+
+	src := &testSource{handles: handles}
+
+	cfg := defaultTestConfig()
+	cfg.Monitor.SessionEndDir = sessionEndDir
+	cfg.Monitor.CompletionRemoveAfter = -1
+	m, store, _ := newPollTestMonitor(src, cfg)
+
+	statsEvents := make(chan session.Event, 100)
+	m.statsEvents = statsEvents
+
+	// Poll 1: discover all sessions.
+	m.poll()
+
+	// Drop session end markers for all sessions simultaneously.
+	for i := 0; i < numSessions; i++ {
+		id := fmt.Sprintf("session-concurrent-%d", i)
+		logPath := handles[i].LogPath
+		markerContent := fmt.Sprintf(
+			`{"session_id":"%s","transcript_path":"%s","cwd":"/tmp/concurrent","reason":"success","timestamp":"%s"}`,
+			id, logPath, now.Add(2*time.Second).Format(time.RFC3339Nano),
+		)
+		markerPath := filepath.Join(sessionEndDir, id+".json")
+		if err := os.WriteFile(markerPath, []byte(markerContent), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Launch concurrent readers (simulating HTTP handlers).
+	var readersWg sync.WaitGroup
+	const numReaders = 5
+	for i := 0; i < numReaders; i++ {
+		readersWg.Add(1)
+		go func() {
+			defer readersWg.Done()
+			for j := 0; j < 10; j++ {
+				_ = store.GetAll()
+				_ = store.ActiveCount()
+			}
+		}()
+	}
+
+	// Poll 2: process all end markers (multiple markTerminal calls).
+	pollDone := make(chan struct{})
+	go func() {
+		m.poll()
+		close(pollDone)
+	}()
+
+	// Both the poll and all readers must complete within the deadline.
+	allDone := make(chan struct{})
+	go func() {
+		<-pollDone
+		readersWg.Wait()
+		close(allDone)
+	}()
+
+	select {
+	case <-allDone:
+		// No deadlock.
+	case <-time.After(pollDeadlockTimeout):
+		t.Fatal("DEADLOCK: concurrent poll()+GetAll()/ActiveCount() did not complete — store.mu permanently locked")
+	}
+}
