@@ -3,6 +3,7 @@ package ws
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/agent-racer/backend/internal/config"
@@ -18,15 +19,33 @@ func TestSecurityHeaders(t *testing.T) {
 	securityHeaders(inner).ServeHTTP(rec, req)
 
 	want := map[string]string{
-		"X-Content-Type-Options":  "nosniff",
-		"X-Frame-Options":         "DENY",
-		"X-XSS-Protection":        "1; mode=block",
-		"Content-Security-Policy": "default-src 'self'",
+		"X-Content-Type-Options": "nosniff",
+		"X-Frame-Options":        "DENY",
+		"X-XSS-Protection":       "1; mode=block",
 	}
 
 	for header, expected := range want {
 		if got := rec.Header().Get(header); got != expected {
 			t.Errorf("header %s = %q, want %q", header, got, expected)
+		}
+	}
+
+	// Verify each required CSP directive is present.
+	csp := rec.Header().Get("Content-Security-Policy")
+	if csp == "" {
+		t.Fatal("Content-Security-Policy header is missing")
+	}
+	requiredDirectives := []string{
+		"default-src 'self'",
+		"connect-src 'self' ws: wss:",
+		"style-src 'self' 'unsafe-inline'",
+		"img-src 'self' data:",
+		"object-src 'none'",
+		"base-uri 'self'",
+	}
+	for _, directive := range requiredDirectives {
+		if !strings.Contains(csp, directive) {
+			t.Errorf("CSP %q missing directive %q", csp, directive)
 		}
 	}
 }

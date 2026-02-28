@@ -434,12 +434,32 @@ func (s *Server) checkOrigin(r *http.Request) bool {
 }
 
 // securityHeaders wraps a handler to set standard HTTP security headers on all responses.
+//
+// Content-Security-Policy directives:
+//   - default-src 'self': baseline — only same-origin resources allowed unless overridden below.
+//   - connect-src 'self' ws: wss:: allows fetch/XHR to the same origin and WebSocket connections
+//     over plain (ws:) or secure (wss:) transports. 'self' alone does not reliably cover ws/wss
+//     across all browsers, so both schemes are listed explicitly.
+//   - style-src 'self' 'unsafe-inline': permits dynamically injected <style> elements (used by
+//     the RewardSelector UI component). 'unsafe-inline' is required because the styles are created
+//     at runtime without a nonce.
+//   - img-src 'self' data:: allows same-origin images and data: URIs. Canvas drawImage() with
+//     data: URLs and any canvas.toDataURL() output fall under this directive.
+//   - object-src 'none': disables Flash/plugin embeds entirely.
+//   - base-uri 'self': prevents <base> tag injection from redirecting relative URLs.
 func securityHeaders(next http.Handler) http.Handler {
+	const csp = "default-src 'self'; " +
+		"connect-src 'self' ws: wss:; " +
+		"style-src 'self' 'unsafe-inline'; " +
+		"img-src 'self' data:; " +
+		"object-src 'none'; " +
+		"base-uri 'self'"
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("X-XSS-Protection", "1; mode=block")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'")
+		w.Header().Set("Content-Security-Policy", csp)
 		next.ServeHTTP(w, r)
 	})
 }
