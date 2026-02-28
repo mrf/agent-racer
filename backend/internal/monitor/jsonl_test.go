@@ -30,39 +30,65 @@ func TestEncodeProjectPath(t *testing.T) {
 func TestDecodeProjectPath(t *testing.T) {
 	// Create temp directories for testing
 	tmpBase := t.TempDir()
-	testDirs := []string{
-		filepath.Join(tmpBase, "simple-project"),
-		filepath.Join(tmpBase, "multi-dash-project"),
-		filepath.Join(tmpBase, "no-dashes"),
+
+	// Simple directories (no hyphens in components)
+	simpleDirs := []string{
+		filepath.Join(tmpBase, "simple"),
+		filepath.Join(tmpBase, "nested", "deep"),
 	}
-	for _, dir := range testDirs {
+
+	// Directories with hyphens in components (the ambiguous case)
+	hyphenDirs := []string{
+		filepath.Join(tmpBase, "my-project"),
+		filepath.Join(tmpBase, "a-b", "c-d"),
+	}
+
+	for _, dir := range append(simpleDirs, hyphenDirs...) {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	tests := []struct {
-		name     string
-		encoded  string
-		expected string
-	}{
-		// Paths that exist on filesystem - should return full decoded path
-		{"existing simple-project", encodeProjectPath(testDirs[0]), testDirs[0]},
-		{"existing multi-dash-project", encodeProjectPath(testDirs[1]), testDirs[1]},
-		{"existing no-dashes", encodeProjectPath(testDirs[2]), testDirs[2]},
-		// Paths that don't exist - should return basename as fallback
-		{"non-existent with dashes", "-nonexistent-path-my-project", "my-project"},
-		{"non-existent single segment", "-foo", "foo"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := DecodeProjectPath(tt.encoded)
-			if got != tt.expected {
-				t.Errorf("DecodeProjectPath(%q) = %q, want %q", tt.encoded, got, tt.expected)
+	t.Run("round-trip simple paths", func(t *testing.T) {
+		for _, dir := range simpleDirs {
+			encoded := encodeProjectPath(dir)
+			got := DecodeProjectPath(encoded)
+			if got != dir {
+				t.Errorf("round-trip %q: encoded=%q, decoded=%q", dir, encoded, got)
 			}
-		})
-	}
+		}
+	})
+
+	t.Run("round-trip hyphenated paths", func(t *testing.T) {
+		for _, dir := range hyphenDirs {
+			encoded := encodeProjectPath(dir)
+			got := DecodeProjectPath(encoded)
+			if got != dir {
+				t.Errorf("round-trip %q: encoded=%q, decoded=%q", dir, encoded, got)
+			}
+		}
+	})
+
+	t.Run("non-existent falls back to all slashes", func(t *testing.T) {
+		got := DecodeProjectPath("-nonexistent-path-my-project")
+		if got != "/nonexistent/path/my/project" {
+			t.Errorf("fallback = %q, want /nonexistent/path/my/project", got)
+		}
+	})
+
+	t.Run("single segment", func(t *testing.T) {
+		got := DecodeProjectPath("-foo")
+		if got != "/foo" {
+			t.Errorf("got %q, want /foo", got)
+		}
+	})
+
+	t.Run("no leading dash passthrough", func(t *testing.T) {
+		got := DecodeProjectPath("noleadingdash")
+		if got != "noleadingdash" {
+			t.Errorf("got %q, want noleadingdash", got)
+		}
+	})
 }
 
 func TestParseSessionJSONL(t *testing.T) {
