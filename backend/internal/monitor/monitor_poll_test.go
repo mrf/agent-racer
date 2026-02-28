@@ -131,9 +131,15 @@ func newTestHandle(sessionID, logPath, workingDir string, startedAt time.Time) S
 // newPollTestMonitor creates a Monitor with real Store and Broadcaster,
 // wired to the given test source and config overrides.
 func newPollTestMonitor(src *testSource, cfg *config.Config) (*Monitor, *session.Store, *ws.Broadcaster) {
+	return newPollTestMonitorWithSources([]Source{src}, cfg)
+}
+
+// newPollTestMonitorWithSources creates a Monitor wired to multiple sources.
+// Use this when testing interactions between sources (e.g. panic isolation).
+func newPollTestMonitorWithSources(sources []Source, cfg *config.Config) (*Monitor, *session.Store, *ws.Broadcaster) {
 	store := session.NewStore()
 	broadcaster := ws.NewBroadcaster(store, 50*time.Millisecond, 10*time.Second, 0)
-	m := NewMonitor(cfg, store, broadcaster, []Source{src})
+	m := NewMonitor(cfg, store, broadcaster, sources)
 	return m, store, broadcaster
 }
 
@@ -940,5 +946,154 @@ func TestPollHealthSnapshotIncludesFailingSources(t *testing.T) {
 	}
 	if snap[0].DiscoverFailures != 2 {
 		t.Errorf("DiscoverFailures = %d, want 2", snap[0].DiscoverFailures)
+	}
+}
+
+// panicSource is a Source that panics in Discover or Parse, for testing
+// panic recovery in the poll loop.
+type panicSource struct {
+	name            string
+	panicOnDiscover bool
+	panicOnParse    bool
+	handles         []SessionHandle
+}
+
+func (s *panicSource) Name() string { return s.name }
+
+func (s *panicSource) Discover() ([]SessionHandle, error) {
+	if s.panicOnDiscover {
+		panic("discover: nil pointer dereference")
+	}
+	return s.handles, nil
+}
+
+func (s *panicSource) Parse(handle SessionHandle, offset int64) (SourceUpdate, int64, error) {
+	if s.panicOnParse {
+		panic("parse: index out of range")
+	}
+	return SourceUpdate{}, offset, nil
+}
+
+func TestPollRecoversPanicInDiscover(t *testing.T) {
+	panicker := &panicSource{
+		name:            "panicky",
+		panicOnDiscover: true,
+	}
+
+	cfg := defaultTestConfig()
+	m, _, _ := newPollTestMonitorWithSources([]Source{panicker}, cfg)
+
+	// poll() must not panic -- the recover should catch it.
+	m.poll()
+
+	// The panicking source should be recorded as failed in health.
+	sh := m.health["panicky"]
+	if sh.discoverFailures != 1 {
+		t.Errorf("discoverFailures = %d, want 1 (panic should be recorded)", sh.discoverFailures)
+	}
+	if sh.lastDiscoverErr == "" {
+		t.Error("lastDiscoverErr should be set after panic")
+	}
+}
+
+func TestPollRecoversPanicInParse(t *testing.T) {
+	dir := t.TempDir()
+	jsonlPath := filepath.Join(dir, "session-panic.jsonl")
+	now := time.Now().UTC()
+	ts := now.Format(time.RFC3339Nano)
+	writeJSONL(t, jsonlPath,
+		jsonlLine("user", "session-panic", ts, "", "", "/tmp/panic"))
+
+	panicker := &panicSource{
+		name:         "panicky",
+		panicOnParse: true,
+		handles: []SessionHandle{{
+			SessionID:  "session-panic",
+			LogPath:    jsonlPath,
+			WorkingDir: "/tmp/panic",
+			Source:     "panicky",
+			StartedAt:  now,
+		}},
+	}
+
+	cfg := defaultTestConfig()
+	m, _, _ := newPollTestMonitorWithSources([]Source{panicker}, cfg)
+
+	// poll() must not panic.
+	m.poll()
+
+	// The source should be recorded as failed.
+	sh := m.health["panicky"]
+	if sh.discoverFailures != 1 {
+		t.Errorf("discoverFailures = %d, want 1 (panic should be recorded)", sh.discoverFailures)
+	}
+}
+
+func TestPollPanicInOneSourceDoesNotAffectOthers(t *testing.T) {
+	dir := t.TempDir()
+	jsonlPath := filepath.Join(dir, "session-ok.jsonl")
+	now := time.Now().UTC()
+	ts := now.Format(time.RFC3339Nano)
+	writeJSONL(t, jsonlPath,
+		jsonlLine("user", "session-ok", ts, "", "", "/tmp/ok")+
+			jsonlLine("assistant", "session-ok", ts, "claude-opus-4-5-20251101", "", "/tmp/ok"))
+
+	panicker := &panicSource{
+		name:            "panicky",
+		panicOnDiscover: true,
+	}
+	healthy := &testSource{
+		handles: []SessionHandle{newTestHandle("session-ok", jsonlPath, "/tmp/ok", now)},
+	}
+
+	cfg := defaultTestConfig()
+	// panicky source is first -- it must not prevent the healthy source from running.
+	m, store, _ := newPollTestMonitorWithSources([]Source{panicker, healthy}, cfg)
+
+	m.poll()
+
+	// The healthy source should have discovered and stored its session.
+	state, ok := store.Get("claude:session-ok")
+	if !ok {
+		t.Fatal("healthy source's session should exist despite panicky source")
+	}
+	if state.Model != "claude-opus-4-5-20251101" {
+		t.Errorf("Model = %q, want %q", state.Model, "claude-opus-4-5-20251101")
+	}
+
+	// panicky source should be tracked as failed.
+	sh := m.health["panicky"]
+	if sh.discoverFailures != 1 {
+		t.Errorf("panicky discoverFailures = %d, want 1", sh.discoverFailures)
+	}
+
+	// healthy source should be healthy.
+	sh2 := m.health["claude"]
+	if sh2.discoverFailures != 0 {
+		t.Errorf("healthy discoverFailures = %d, want 0", sh2.discoverFailures)
+	}
+}
+
+func TestPollRepeatedPanicsAccumulateFailures(t *testing.T) {
+	panicker := &panicSource{
+		name:            "panicky",
+		panicOnDiscover: true,
+	}
+
+	cfg := defaultTestConfig()
+	cfg.Monitor.HealthWarningThreshold = 3
+	m, _, _ := newPollTestMonitorWithSources([]Source{panicker}, cfg)
+
+	// Poll multiple times -- each panic should increment the failure counter.
+	for i := 0; i < 5; i++ {
+		m.poll()
+	}
+
+	sh := m.health["panicky"]
+	if sh.discoverFailures != 5 {
+		t.Errorf("discoverFailures = %d, want 5", sh.discoverFailures)
+	}
+	if sh.status(3) != ws.StatusFailed {
+		t.Errorf("status = %s, want failed", sh.status(3))
 	}
 }
