@@ -277,18 +277,8 @@ func TestBroadcaster_SequenceNumberWrapAround(t *testing.T) {
 	maxUint64 := ^uint64(0)
 	b.seq.Store(maxUint64 - 3)
 
-	// Collect sequence numbers from broadcasts
+	// Collect sequence numbers from increments
 	var seqs []uint64
-	seqChan := make(chan uint64, 10)
-
-	// Create a test message type to capture seq values
-	testMsg := WSMessage{
-		Type:    MsgSnapshot,
-		Payload: SnapshotPayload{Sessions: []*session.SessionState{}},
-	}
-
-	// Manually call broadcast and collect seq from the message
-	// We'll do this by directly checking the atomic increment
 	for i := 0; i < 5; i++ {
 		seq := b.seq.Add(1)
 		seqs = append(seqs, seq)
