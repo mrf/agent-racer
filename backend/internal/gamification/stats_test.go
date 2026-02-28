@@ -711,6 +711,131 @@ func TestSeasonRotation_EmptyOldSeasonNotArchived(t *testing.T) {
 	}
 }
 
+func TestStatsTracker_TokensBurned_UsesDelta(t *testing.T) {
+	tracker, eventCh := startTracker(t)
+
+	// Register session.
+	eventCh <- session.Event{
+		Type:        session.EventNew,
+		State:       &session.SessionState{ID: "s1", Source: "test"},
+		ActiveCount: 1,
+	}
+
+	// Three updates with cumulative token counts: 10k, 25k, 40k.
+	// Deltas: 10k, 15k, 15k — should sum to 40k total.
+	for _, tokens := range []int{10_000, 25_000, 40_000} {
+		eventCh <- session.Event{
+			Type:        session.EventUpdate,
+			State:       &session.SessionState{ID: "s1", TokensUsed: tokens},
+			ActiveCount: 1,
+		}
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	stats := tracker.Stats()
+	// Total burned should be 40,000 (the final cumulative value), NOT 75,000 (10k+25k+40k).
+	if stats.WeeklyChallenges.Snapshot.TokensBurned != 40_000 {
+		t.Errorf("TokensBurned = %d, want 40000 (delta tracking)", stats.WeeklyChallenges.Snapshot.TokensBurned)
+	}
+}
+
+func TestStatsTracker_TokensBurned_MultipleSessions(t *testing.T) {
+	tracker, eventCh := startTracker(t)
+
+	// Register two sessions.
+	eventCh <- session.Event{
+		Type:        session.EventNew,
+		State:       &session.SessionState{ID: "s1", Source: "test"},
+		ActiveCount: 1,
+	}
+	eventCh <- session.Event{
+		Type:        session.EventNew,
+		State:       &session.SessionState{ID: "s2", Source: "test"},
+		ActiveCount: 2,
+	}
+
+	// Session 1: two updates, cumulative 5k then 12k.
+	eventCh <- session.Event{
+		Type:        session.EventUpdate,
+		State:       &session.SessionState{ID: "s1", TokensUsed: 5_000},
+		ActiveCount: 2,
+	}
+	eventCh <- session.Event{
+		Type:        session.EventUpdate,
+		State:       &session.SessionState{ID: "s1", TokensUsed: 12_000},
+		ActiveCount: 2,
+	}
+
+	// Session 2: two updates, cumulative 8k then 20k.
+	eventCh <- session.Event{
+		Type:        session.EventUpdate,
+		State:       &session.SessionState{ID: "s2", TokensUsed: 8_000},
+		ActiveCount: 2,
+	}
+	eventCh <- session.Event{
+		Type:        session.EventUpdate,
+		State:       &session.SessionState{ID: "s2", TokensUsed: 20_000},
+		ActiveCount: 2,
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	stats := tracker.Stats()
+	// Expected: 12,000 (s1 final) + 20,000 (s2 final) = 32,000.
+	if stats.WeeklyChallenges.Snapshot.TokensBurned != 32_000 {
+		t.Errorf("TokensBurned = %d, want 32000", stats.WeeklyChallenges.Snapshot.TokensBurned)
+	}
+}
+
+func TestStatsTracker_TokensBurned_CleanupOnTerminal(t *testing.T) {
+	tracker, eventCh := startTracker(t)
+
+	// Register and update session.
+	eventCh <- session.Event{
+		Type:        session.EventNew,
+		State:       &session.SessionState{ID: "s1", Source: "test"},
+		ActiveCount: 1,
+	}
+	eventCh <- session.Event{
+		Type:        session.EventUpdate,
+		State:       &session.SessionState{ID: "s1", TokensUsed: 50_000},
+		ActiveCount: 1,
+	}
+
+	// Terminate session.
+	completedAt := time.Now()
+	eventCh <- session.Event{
+		Type: session.EventTerminal,
+		State: &session.SessionState{
+			ID:          "s1",
+			Activity:    session.Complete,
+			CompletedAt: &completedAt,
+		},
+		ActiveCount: 0,
+	}
+
+	// Re-register same session ID (simulating reuse after cleanup).
+	eventCh <- session.Event{
+		Type:        session.EventNew,
+		State:       &session.SessionState{ID: "s1", Source: "test"},
+		ActiveCount: 1,
+	}
+	eventCh <- session.Event{
+		Type:        session.EventUpdate,
+		State:       &session.SessionState{ID: "s1", TokensUsed: 30_000},
+		ActiveCount: 1,
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	stats := tracker.Stats()
+	// First session: 50k. Second session (same ID): 30k. Total: 80k.
+	if stats.WeeklyChallenges.Snapshot.TokensBurned != 80_000 {
+		t.Errorf("TokensBurned = %d, want 80000 (lastTokens should be cleaned on terminal)", stats.WeeklyChallenges.Snapshot.TokensBurned)
+	}
+}
+
 func TestSeasonRotation_PersistsToDisk(t *testing.T) {
 	dir := t.TempDir()
 	store := NewStore(dir)
