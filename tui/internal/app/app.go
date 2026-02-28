@@ -3,11 +3,12 @@ package app
 import (
 	"context"
 	"sort"
-	"time"
 
 	"github.com/agent-racer/tui/internal/client"
 	"github.com/agent-racer/tui/internal/theme"
+	"github.com/agent-racer/tui/internal/views/dashboard"
 	"github.com/agent-racer/tui/internal/views/status"
+	"github.com/agent-racer/tui/internal/views/track"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -25,13 +26,11 @@ const (
 	OverlayBattlePass
 )
 
-// Zone identifies a track zone.
-type Zone int
-
+// Zone aliases for track.Zone.
 const (
-	ZoneRacing Zone = iota
-	ZonePit
-	ZoneParked
+	ZoneRacing = track.ZoneRacing
+	ZonePit    = track.ZonePit
+	ZoneParked = track.ZoneParked
 )
 
 // Model is the root Bubble Tea model.
@@ -51,11 +50,12 @@ type Model struct {
 
 	// Navigation.
 	selectedIdx int
-	activeZone  Zone
+	activeZone  track.Zone
 	overlay     Overlay
 
 	// Sub-views.
 	statusBar status.Model
+	dashboard dashboard.Model
 
 	// Connection state.
 	connected bool
@@ -73,6 +73,7 @@ func New(ws *client.WSClient, http *client.HTTPClient) Model {
 		keys:      DefaultKeyMap(),
 		sessions:  make(map[string]*client.SessionState),
 		statusBar: status.New(),
+		dashboard: dashboard.New(),
 	}
 }
 
@@ -88,6 +89,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.statusBar.Width = msg.Width
+		m.dashboard.Width = msg.Width
 		return m, nil
 
 	case tea.KeyMsg:
@@ -236,13 +238,12 @@ func (m Model) View() string {
 		return "Initializing..."
 	}
 
-	var sections []string
-
-	sections = append(sections, m.statusBar.View())
-	sections = append(sections, m.renderTrackPlaceholder())
-
-	help := theme.StyleDimmed.Render("  j/k:navigate  tab:zone  a:achievements  g:garage  b:battlepass  d:debug  q:quit")
-	sections = append(sections, help)
+	sections := []string{
+		m.statusBar.View(),
+		m.dashboard.View(),
+		m.renderTrackPlaceholder(),
+		theme.StyleDimmed.Render("  j/k:navigate  tab:zone  a:achievements  g:garage  b:battlepass  d:debug  q:quit"),
+	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, sections...)
 }
@@ -289,16 +290,7 @@ func (m Model) renderTrackPlaceholder() string {
 
 func (m Model) renderSessionLine(prefix string, s *client.SessionState) string {
 	glyph := activityGlyph(string(s.Activity))
-	name := s.Name
-	if name == "" {
-		name = s.Slug
-	}
-	if name == "" && len(s.ID) >= 8 {
-		name = s.ID[:8]
-	}
-	if len(name) > 24 {
-		name = name[:23] + "..."
-	}
+	name := sessionDisplayName(s, 24)
 
 	color := theme.ModelColor(s.Model)
 	nameStr := lipgloss.NewStyle().Foreground(color).Render(name)
@@ -307,23 +299,39 @@ func (m Model) renderSessionLine(prefix string, s *client.SessionState) string {
 	return prefix + glyph + " " + nameStr + "  " + actStr
 }
 
+// sessionDisplayName returns the best display name for a session, truncated
+// to maxLen characters.
+func sessionDisplayName(s *client.SessionState, maxLen int) string {
+	name := s.Name
+	if name == "" {
+		name = s.Slug
+	}
+	if name == "" && len(s.ID) >= 8 {
+		name = s.ID[:8]
+	}
+	if len(name) > maxLen {
+		name = name[:maxLen-1] + "..."
+	}
+	return name
+}
+
 func activityGlyph(activity string) string {
-	switch activity {
-	case "thinking":
+	switch client.Activity(activity) {
+	case client.ActivityThinking:
 		return "●>"
-	case "tool_use":
+	case client.ActivityToolUse:
 		return "⚙>"
-	case "idle":
+	case client.ActivityIdle:
 		return "○"
-	case "waiting":
+	case client.ActivityWaiting:
 		return "◌"
-	case "starting":
+	case client.ActivityStarting:
 		return "◎"
-	case "complete":
+	case client.ActivityComplete:
 		return "✓"
-	case "errored":
+	case client.ActivityErrored:
 		return "✗"
-	case "lost":
+	case client.ActivityLost:
 		return "?"
 	default:
 		return "·"
@@ -333,32 +341,16 @@ func activityGlyph(activity string) string {
 func (m Model) sessionsByZone() (racing, pit, parked []*client.SessionState) {
 	for _, id := range m.order {
 		s := m.sessions[id]
-		switch classifyZone(s) {
-		case ZoneParked:
+		switch track.Classify(s) {
+		case track.ZoneParked:
 			parked = append(parked, s)
-		case ZonePit:
+		case track.ZonePit:
 			pit = append(pit, s)
 		default:
 			racing = append(racing, s)
 		}
 	}
 	return
-}
-
-func classifyZone(s *client.SessionState) Zone {
-	switch s.Activity {
-	case client.ActivityComplete, client.ActivityErrored, client.ActivityLost:
-		return ZoneParked
-	case client.ActivityIdle, client.ActivityWaiting, client.ActivityStarting:
-		if !s.LastDataReceivedAt.IsZero() {
-			if time.Since(s.LastDataReceivedAt).Seconds() < 30 {
-				return ZoneRacing
-			}
-		}
-		return ZonePit
-	default:
-		return ZoneRacing
-	}
 }
 
 func (m *Model) rebuildOrder() {
@@ -369,8 +361,8 @@ func (m *Model) rebuildOrder() {
 	sort.Slice(m.order, func(i, j int) bool {
 		si := m.sessions[m.order[i]]
 		sj := m.sessions[m.order[j]]
-		zi := classifyZone(si)
-		zj := classifyZone(sj)
+		zi := track.Classify(si)
+		zj := track.Classify(sj)
 		if zi != zj {
 			return zi < zj
 		}
@@ -381,14 +373,15 @@ func (m *Model) rebuildOrder() {
 func (m *Model) updateCounts() {
 	racing, pit, parked := 0, 0, 0
 	for _, s := range m.sessions {
-		switch classifyZone(s) {
-		case ZoneRacing:
+		switch track.Classify(s) {
+		case track.ZoneRacing:
 			racing++
-		case ZonePit:
+		case track.ZonePit:
 			pit++
-		case ZoneParked:
+		case track.ZoneParked:
 			parked++
 		}
 	}
 	m.statusBar.SetCounts(racing, pit, parked)
+	m.dashboard.SetSessions(m.sessions)
 }
