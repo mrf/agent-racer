@@ -37,13 +37,14 @@ type Stats struct {
 	DistinctSourcesUsed int            `json:"distinctSourcesUsed"`
 
 	// Peak metrics (all-time highs)
-	MaxContextUtilization float64 `json:"maxContextUtilization"`
-	MaxBurnRate           float64 `json:"maxBurnRate"`
-	MaxConcurrentActive   int     `json:"maxConcurrentActive"`
-	MaxToolCalls          int     `json:"maxToolCalls"`
-	MaxMessages           int     `json:"maxMessages"`
-	MaxSessionDurationSec float64 `json:"maxSessionDurationSec"`
-	PhotoFinishSeen       bool    `json:"photoFinishSeen"`
+	MaxContextUtilization          float64 `json:"maxContextUtilization"`
+	MaxBurnRate                    float64 `json:"maxBurnRate"`
+	MaxConcurrentActive            int     `json:"maxConcurrentActive"`
+	MaxHighUtilizationSimultaneous int     `json:"maxHighUtilizationSimultaneous"`
+	MaxToolCalls                   int     `json:"maxToolCalls"`
+	MaxMessages                    int     `json:"maxMessages"`
+	MaxSessionDurationSec          float64 `json:"maxSessionDurationSec"`
+	PhotoFinishSeen                bool    `json:"photoFinishSeen"`
 
 	// Gamification state
 	AchievementsUnlocked map[string]time.Time `json:"achievementsUnlocked"`
