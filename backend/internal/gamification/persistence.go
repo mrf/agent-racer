@@ -43,6 +43,7 @@ type Stats struct {
 	MaxToolCalls          int     `json:"maxToolCalls"`
 	MaxMessages           int     `json:"maxMessages"`
 	MaxSessionDurationSec float64 `json:"maxSessionDurationSec"`
+	PhotoFinishSeen       bool    `json:"photoFinishSeen"`
 
 	// Gamification state
 	AchievementsUnlocked map[string]time.Time `json:"achievementsUnlocked"`

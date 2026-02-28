@@ -565,6 +565,94 @@ func TestStatsTracker_ThreadSafety(t *testing.T) {
 	}
 }
 
+func TestStatsTracker_PhotoFinish_TwoRapidCompletions(t *testing.T) {
+	tracker, eventCh := startTracker(t)
+
+	// Register two sessions.
+	eventCh <- session.Event{
+		Type:        session.EventNew,
+		State:       &session.SessionState{ID: "s1", Source: "test"},
+		ActiveCount: 2,
+	}
+	eventCh <- session.Event{
+		Type:        session.EventNew,
+		State:       &session.SessionState{ID: "s2", Source: "test"},
+		ActiveCount: 2,
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	// Complete both sessions in quick succession (well within 10s).
+	completedAt := time.Now()
+	eventCh <- session.Event{
+		Type: session.EventTerminal,
+		State: &session.SessionState{
+			ID: "s1", Source: "test",
+			Activity:    session.Complete,
+			CompletedAt: &completedAt,
+		},
+		ActiveCount: 1,
+	}
+	eventCh <- session.Event{
+		Type: session.EventTerminal,
+		State: &session.SessionState{
+			ID: "s2", Source: "test",
+			Activity:    session.Complete,
+			CompletedAt: &completedAt,
+		},
+		ActiveCount: 0,
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	stats := tracker.Stats()
+	if !stats.PhotoFinishSeen {
+		t.Error("PhotoFinishSeen should be true after two rapid completions")
+	}
+}
+
+func TestStatsTracker_PhotoFinish_NotTriggeredByErrors(t *testing.T) {
+	tracker, eventCh := startTracker(t)
+
+	eventCh <- session.Event{
+		Type:        session.EventNew,
+		State:       &session.SessionState{ID: "s1", Source: "test"},
+		ActiveCount: 2,
+	}
+	eventCh <- session.Event{
+		Type:        session.EventNew,
+		State:       &session.SessionState{ID: "s2", Source: "test"},
+		ActiveCount: 2,
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	// First: error, then complete — error should not set lastCompletionAt.
+	eventCh <- session.Event{
+		Type: session.EventTerminal,
+		State: &session.SessionState{
+			ID: "s1", Source: "test",
+			Activity: session.Errored,
+		},
+		ActiveCount: 1,
+	}
+	completedAt := time.Now()
+	eventCh <- session.Event{
+		Type: session.EventTerminal,
+		State: &session.SessionState{
+			ID: "s2", Source: "test",
+			Activity:    session.Complete,
+			CompletedAt: &completedAt,
+		},
+		ActiveCount: 0,
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	stats := tracker.Stats()
+	if stats.PhotoFinishSeen {
+		t.Error("PhotoFinishSeen should be false — error + complete is not a photo finish")
+	}
+}
+
 func TestSeasonRotation_ArchivesOldSeason(t *testing.T) {
 	dir := t.TempDir()
 	store := NewStore(dir)

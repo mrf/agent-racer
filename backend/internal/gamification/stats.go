@@ -39,6 +39,7 @@ type StatsTracker struct {
 	dirty             bool
 	counted           map[string]bool  // session IDs already counted for TotalSessions
 	contextMilestones map[string]uint8 // session ID -> bitmask: bit0=50%, bit1=90%
+	lastCompletionAt  time.Time        // tracks last completion time for photo_finish
 
 	achieveEngine  *AchievementEngine
 	rewardRegistry *RewardRegistry
@@ -219,6 +220,12 @@ func (t *StatsTracker) processEvent(ev session.Event) {
 			t.stats.ConsecutiveCompletions++
 			trackXP("session_complete", XPSessionCompletes)
 			wc.Snapshot.TotalCompletions++
+
+			now := time.Now()
+			if !t.lastCompletionAt.IsZero() && now.Sub(t.lastCompletionAt) <= 10*time.Second {
+				t.stats.PhotoFinishSeen = true
+			}
+			t.lastCompletionAt = now
 		case session.Errored:
 			t.stats.TotalErrors++
 			t.stats.ConsecutiveCompletions = 0
