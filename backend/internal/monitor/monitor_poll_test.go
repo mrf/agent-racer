@@ -839,12 +839,17 @@ func TestPollHealthDiscoverRecovery(t *testing.T) {
 		t.Fatal("should be failed")
 	}
 
-	// Recover
+	// Recover: hysteresis requires threshold (2) consecutive successes.
 	src.discoverErr = nil
 	m.poll()
 
+	if sh.status(2) != ws.StatusFailed {
+		t.Error("single success should not immediately recover from failed status")
+	}
+
+	m.poll()
 	if sh.status(2) != ws.StatusHealthy {
-		t.Errorf("status = %s, want healthy after recovery", sh.status(2))
+		t.Errorf("status = %s, want healthy after threshold consecutive successes", sh.status(2))
 	}
 }
 
@@ -884,12 +889,17 @@ func TestPollHealthParseFailureTracking(t *testing.T) {
 		t.Errorf("status = %s, want degraded", sh.status(2))
 	}
 
-	// Recover.
+	// Recover: hysteresis requires threshold (2) consecutive successes.
 	src.parseErrs = nil
 	m.poll()
 
+	if sh.status(2) != ws.StatusDegraded {
+		t.Error("single success should not immediately recover from degraded status")
+	}
+
+	m.poll()
 	if sh.status(2) != ws.StatusHealthy {
-		t.Errorf("status = %s, want healthy after parse recovery", sh.status(2))
+		t.Errorf("status = %s, want healthy after threshold consecutive successes", sh.status(2))
 	}
 }
 
