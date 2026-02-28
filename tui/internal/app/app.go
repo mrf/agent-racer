@@ -7,6 +7,7 @@ import (
 
 	"github.com/agent-racer/tui/internal/client"
 	"github.com/agent-racer/tui/internal/theme"
+	"github.com/agent-racer/tui/internal/views/detail"
 	"github.com/agent-racer/tui/internal/views/status"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -55,12 +56,16 @@ type Model struct {
 	overlay     Overlay
 
 	// Sub-views.
-	statusBar status.Model
+	statusBar  status.Model
+	detailView detail.Model
 
 	// Connection state.
 	connected bool
 	reading   bool
 }
+
+// focusResultMsg carries the result of a FocusSession HTTP call.
+type focusResultMsg struct{ err error }
 
 // New creates the root model.
 func New(ws *client.WSClient, http *client.HTTPClient) Model {
@@ -151,12 +156,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case client.WSErrorMsg:
 		return m, m.ws.ReadLoop(m.ctx)
+
+	case focusResultMsg:
+		if msg.err != nil {
+			m.detailView.FocusError = msg.err.Error()
+		} else {
+			m.detailView.FocusError = ""
+		}
+		return m, nil
 	}
 
 	return m, nil
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.overlay == OverlayDetail {
+		switch {
+		case key.Matches(msg, m.keys.Escape):
+			m.overlay = OverlayNone
+			m.detailView.FocusError = ""
+			return m, nil
+		case key.Matches(msg, m.keys.Focus):
+			if s := m.detailView.Session; s != nil && s.TmuxTarget != "" {
+				return m, m.cmdFocusSession(s.ID)
+			}
+		}
+		return m, nil
+	}
+
 	if m.overlay != OverlayNone {
 		if key.Matches(msg, m.keys.Escape) {
 			m.overlay = OverlayNone
@@ -223,7 +250,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case key.Matches(msg, m.keys.Enter):
-		m.overlay = OverlayDetail
+		if s := m.selectedSession(); s != nil {
+			m.detailView = detail.New(s)
+			m.overlay = OverlayDetail
+		}
 		return m, nil
 	}
 
@@ -241,10 +271,20 @@ func (m Model) View() string {
 	sections = append(sections, m.statusBar.View())
 	sections = append(sections, m.renderTrackPlaceholder())
 
-	help := theme.StyleDimmed.Render("  j/k:navigate  tab:zone  a:achievements  g:garage  b:battlepass  d:debug  q:quit")
+	help := theme.StyleDimmed.Render("  j/k:navigate  tab:zone  enter:detail  a:achievements  g:garage  b:battlepass  d:debug  q:quit")
 	sections = append(sections, help)
 
-	return lipgloss.JoinVertical(lipgloss.Left, sections...)
+	base := lipgloss.JoinVertical(lipgloss.Left, sections...)
+
+	if m.overlay == OverlayDetail {
+		panel := m.detailView.View()
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, panel,
+			lipgloss.WithWhitespaceChars(" "),
+			lipgloss.WithWhitespaceForeground(theme.ColorBg),
+		)
+	}
+
+	return base
 }
 
 func (m Model) renderTrackPlaceholder() string {
@@ -288,46 +328,16 @@ func (m Model) renderTrackPlaceholder() string {
 }
 
 func (m Model) renderSessionLine(prefix string, s *client.SessionState) string {
-	glyph := activityGlyph(string(s.Activity))
-	name := s.Name
-	if name == "" {
-		name = s.Slug
-	}
-	if name == "" && len(s.ID) >= 8 {
-		name = s.ID[:8]
-	}
+	glyph := theme.ActivityGlyph(string(s.Activity))
+	name := detail.DisplayName(s)
 	if len(name) > 24 {
 		name = name[:23] + "..."
 	}
 
-	color := theme.ModelColor(s.Model)
-	nameStr := lipgloss.NewStyle().Foreground(color).Render(name)
+	nameStr := lipgloss.NewStyle().Foreground(theme.ModelColor(s.Model)).Render(name)
 	actStr := lipgloss.NewStyle().Foreground(theme.ActivityColor(string(s.Activity))).Render(string(s.Activity))
 
 	return prefix + glyph + " " + nameStr + "  " + actStr
-}
-
-func activityGlyph(activity string) string {
-	switch activity {
-	case "thinking":
-		return "●>"
-	case "tool_use":
-		return "⚙>"
-	case "idle":
-		return "○"
-	case "waiting":
-		return "◌"
-	case "starting":
-		return "◎"
-	case "complete":
-		return "✓"
-	case "errored":
-		return "✗"
-	case "lost":
-		return "?"
-	default:
-		return "·"
-	}
 }
 
 func (m Model) sessionsByZone() (racing, pit, parked []*client.SessionState) {
@@ -376,6 +386,32 @@ func (m *Model) rebuildOrder() {
 		}
 		return si.ContextUtilization > sj.ContextUtilization
 	})
+}
+
+// selectedSession returns the session at the current cursor position, or nil.
+func (m Model) selectedSession() *client.SessionState {
+	racing, pit, parked := m.sessionsByZone()
+	var list []*client.SessionState
+	switch m.activeZone {
+	case ZoneRacing:
+		list = racing
+	case ZonePit:
+		list = pit
+	case ZoneParked:
+		list = parked
+	}
+	if len(list) == 0 || m.selectedIdx >= len(list) {
+		return nil
+	}
+	return list[m.selectedIdx]
+}
+
+// cmdFocusSession returns a Cmd that calls POST /api/sessions/{id}/focus.
+func (m Model) cmdFocusSession(sessionID string) tea.Cmd {
+	return func() tea.Msg {
+		err := m.http.FocusSession(sessionID)
+		return focusResultMsg{err: err}
+	}
 }
 
 func (m *Model) updateCounts() {

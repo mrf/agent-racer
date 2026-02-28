@@ -18,6 +18,7 @@ type KeyMap struct {
 	Debug        key.Binding
 	BattlePass   key.Binding
 	Resync       key.Binding
+	Focus        key.Binding
 }
 
 // DefaultKeyMap returns the default key bindings.
@@ -78,6 +79,10 @@ func DefaultKeyMap() KeyMap {
 		Resync: key.NewBinding(
 			key.WithKeys("r"),
 			key.WithHelp("r", "resync"),
+		),
+		Focus: key.NewBinding(
+			key.WithKeys("f"),
+			key.WithHelp("f", "focus tmux"),
 		),
 	}
 }
