@@ -35,6 +35,7 @@ type StatsTracker struct {
 	persist           *Store
 	stats             *Stats
 	events            chan session.Event
+	flushCh           chan chan struct{}
 	mu                sync.Mutex
 	dirty             bool
 	counted           map[string]bool  // session IDs already counted for TotalSessions
@@ -82,6 +83,7 @@ func NewStatsTracker(persist *Store, bufferSize int, sc *SeasonConfig) (*StatsTr
 		persist:           persist,
 		stats:             stats,
 		events:            ch,
+		flushCh:           make(chan chan struct{}),
 		counted:           make(map[string]bool),
 		contextMilestones: make(map[string]uint8),
 		lastTokens:        make(map[string]int),
@@ -137,12 +139,36 @@ func (t *StatsTracker) Run(ctx context.Context) {
 			return
 		case ev := <-t.events:
 			t.processEvent(ev)
+		case done := <-t.flushCh:
+			t.drainEvents()
+			close(done)
 		case <-ticker.C:
 			if t.dirty {
 				t.save()
 			}
 		}
 	}
+}
+
+// drainEvents processes all events currently buffered in the event channel.
+func (t *StatsTracker) drainEvents() {
+	for {
+		select {
+		case ev := <-t.events:
+			t.processEvent(ev)
+		default:
+			return
+		}
+	}
+}
+
+// Flush blocks until all events currently queued in the event channel have
+// been processed by the Run goroutine. It is used in tests to replace
+// time.Sleep-based synchronization with a deterministic wait.
+func (t *StatsTracker) Flush() {
+	done := make(chan struct{})
+	t.flushCh <- done
+	<-done
 }
 
 // Stats returns a deep copy of the current aggregate stats.

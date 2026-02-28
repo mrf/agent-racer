@@ -80,7 +80,7 @@ func TestStatsTracker_EventNew_IncrementsTotalSessions(t *testing.T) {
 		ActiveCount: 1,
 	}
 
-	time.Sleep(100 * time.Millisecond)
+	tracker.Flush()
 
 	stats := tracker.Stats()
 	if stats.TotalSessions != 1 {
@@ -116,7 +116,7 @@ func TestStatsTracker_EventNew_CountsSessionsPerSource(t *testing.T) {
 		ActiveCount: 3,
 	}
 
-	time.Sleep(100 * time.Millisecond)
+	tracker.Flush()
 
 	stats := tracker.Stats()
 	if stats.TotalSessions != 3 {
@@ -152,7 +152,7 @@ func TestStatsTracker_EventNew_TracksMaxConcurrentActive(t *testing.T) {
 		ActiveCount: 8,
 	}
 
-	time.Sleep(100 * time.Millisecond)
+	tracker.Flush()
 
 	stats := tracker.Stats()
 	if stats.MaxConcurrentActive != 12 {
@@ -183,7 +183,7 @@ func TestStatsTracker_EventTerminal_Complete_IncrementsCompletions(t *testing.T)
 		ActiveCount: 0,
 	}
 
-	time.Sleep(100 * time.Millisecond)
+	tracker.Flush()
 
 	stats := tracker.Stats()
 	if stats.TotalCompletions != 1 {
@@ -206,7 +206,7 @@ func TestStatsTracker_EventTerminal_Error_ResetsStreak(t *testing.T) {
 			ActiveCount: 1,
 		}
 	}
-	time.Sleep(50 * time.Millisecond)
+	tracker.Flush()
 
 	for i := 0; i < 3; i++ {
 		eventCh <- session.Event{
@@ -220,7 +220,7 @@ func TestStatsTracker_EventTerminal_Error_ResetsStreak(t *testing.T) {
 			ActiveCount: 0,
 		}
 	}
-	time.Sleep(50 * time.Millisecond)
+	tracker.Flush()
 
 	stats := tracker.Stats()
 	if stats.ConsecutiveCompletions != 3 {
@@ -237,7 +237,7 @@ func TestStatsTracker_EventTerminal_Error_ResetsStreak(t *testing.T) {
 		},
 		ActiveCount: 0,
 	}
-	time.Sleep(50 * time.Millisecond)
+	tracker.Flush()
 
 	stats = tracker.Stats()
 	if stats.ConsecutiveCompletions != 0 {
@@ -262,7 +262,7 @@ func TestStatsTracker_EventTerminal_Lost_ResetsStreak(t *testing.T) {
 		},
 		ActiveCount: 0,
 	}
-	time.Sleep(50 * time.Millisecond)
+	tracker.Flush()
 
 	// Lost resets streak without incrementing errors
 	eventCh <- session.Event{
@@ -273,7 +273,7 @@ func TestStatsTracker_EventTerminal_Lost_ResetsStreak(t *testing.T) {
 		},
 		ActiveCount: 0,
 	}
-	time.Sleep(50 * time.Millisecond)
+	tracker.Flush()
 
 	stats := tracker.Stats()
 	if stats.ConsecutiveCompletions != 0 {
@@ -304,7 +304,7 @@ func TestStatsTracker_EventTerminal_IncrementsErrors(t *testing.T) {
 		ActiveCount: 0,
 	}
 
-	time.Sleep(100 * time.Millisecond)
+	tracker.Flush()
 
 	stats := tracker.Stats()
 	if stats.TotalErrors != 2 {
@@ -325,7 +325,7 @@ func TestStatsTracker_PeakMetrics_OnlyIncrease(t *testing.T) {
 		},
 		ActiveCount: 1,
 	}
-	time.Sleep(50 * time.Millisecond)
+	tracker.Flush()
 
 	stats := tracker.Stats()
 	if stats.MaxContextUtilization != 0.95 {
@@ -345,7 +345,7 @@ func TestStatsTracker_PeakMetrics_OnlyIncrease(t *testing.T) {
 		},
 		ActiveCount: 2,
 	}
-	time.Sleep(50 * time.Millisecond)
+	tracker.Flush()
 
 	stats = tracker.Stats()
 	if stats.MaxContextUtilization != 0.95 {
@@ -376,7 +376,7 @@ func TestStatsTracker_EventTerminal_TracksPeakMetrics(t *testing.T) {
 		ActiveCount: 0,
 	}
 
-	time.Sleep(100 * time.Millisecond)
+	tracker.Flush()
 
 	stats := tracker.Stats()
 	if stats.SessionsPerModel["claude-opus-4"] != 1 {
@@ -408,7 +408,7 @@ func TestStatsTracker_DeduplicatesSessions(t *testing.T) {
 		}
 	}
 
-	time.Sleep(100 * time.Millisecond)
+	tracker.Flush()
 
 	stats := tracker.Stats()
 	if stats.TotalSessions != 1 {
@@ -424,7 +424,7 @@ func TestStatsTracker_Stats_ReturnsCopy(t *testing.T) {
 		State:       &session.SessionState{ID: "s1", Source: "test"},
 		ActiveCount: 1,
 	}
-	time.Sleep(50 * time.Millisecond)
+	tracker.Flush()
 
 	stats1 := tracker.Stats()
 	// Modify the returned copy
@@ -466,7 +466,7 @@ func TestStatsTracker_DebouncedSave(t *testing.T) {
 	}
 
 	// Stats should be updated immediately in memory
-	time.Sleep(50 * time.Millisecond)
+	tracker.Flush()
 	stats := tracker.Stats()
 	if stats.TotalSessions != 10 {
 		t.Errorf("TotalSessions in memory = %d, want 10", stats.TotalSessions)
@@ -507,7 +507,7 @@ func TestStatsTracker_SavesOnContextCancel(t *testing.T) {
 		ActiveCount: 1,
 	}
 
-	time.Sleep(50 * time.Millisecond)
+	tracker.Flush()
 
 	// Cancel context - should trigger final save
 	cancel()
@@ -558,6 +558,7 @@ func TestStatsTracker_ThreadSafety(t *testing.T) {
 	}()
 
 	wg.Wait()
+	tracker.Flush()
 
 	stats := tracker.Stats()
 	if stats.TotalSessions != numGoroutines*eventsPerGoroutine {
@@ -579,7 +580,7 @@ func TestStatsTracker_PhotoFinish_TwoRapidCompletions(t *testing.T) {
 		State:       &session.SessionState{ID: "s2", Source: "test"},
 		ActiveCount: 2,
 	}
-	time.Sleep(50 * time.Millisecond)
+	tracker.Flush()
 
 	// Complete both sessions in quick succession (well within 10s).
 	completedAt := time.Now()
@@ -602,7 +603,7 @@ func TestStatsTracker_PhotoFinish_TwoRapidCompletions(t *testing.T) {
 		ActiveCount: 0,
 	}
 
-	time.Sleep(100 * time.Millisecond)
+	tracker.Flush()
 
 	stats := tracker.Stats()
 	if !stats.PhotoFinishSeen {
@@ -623,7 +624,7 @@ func TestStatsTracker_PhotoFinish_NotTriggeredByErrors(t *testing.T) {
 		State:       &session.SessionState{ID: "s2", Source: "test"},
 		ActiveCount: 2,
 	}
-	time.Sleep(50 * time.Millisecond)
+	tracker.Flush()
 
 	// First: error, then complete — error should not set lastCompletionAt.
 	eventCh <- session.Event{
@@ -645,7 +646,7 @@ func TestStatsTracker_PhotoFinish_NotTriggeredByErrors(t *testing.T) {
 		ActiveCount: 0,
 	}
 
-	time.Sleep(100 * time.Millisecond)
+	tracker.Flush()
 
 	stats := tracker.Stats()
 	if stats.PhotoFinishSeen {
@@ -819,7 +820,7 @@ func TestStatsTracker_TokensBurned_UsesDelta(t *testing.T) {
 		}
 	}
 
-	time.Sleep(100 * time.Millisecond)
+	tracker.Flush()
 
 	stats := tracker.Stats()
 	// Total burned should be 40,000 (the final cumulative value), NOT 75,000 (10k+25k+40k).
@@ -867,7 +868,7 @@ func TestStatsTracker_TokensBurned_MultipleSessions(t *testing.T) {
 		ActiveCount: 2,
 	}
 
-	time.Sleep(100 * time.Millisecond)
+	tracker.Flush()
 
 	stats := tracker.Stats()
 	// Expected: 12,000 (s1 final) + 20,000 (s2 final) = 32,000.
@@ -915,7 +916,7 @@ func TestStatsTracker_TokensBurned_CleanupOnTerminal(t *testing.T) {
 		ActiveCount: 1,
 	}
 
-	time.Sleep(100 * time.Millisecond)
+	tracker.Flush()
 
 	stats := tracker.Stats()
 	// First session: 50k. Second session (same ID): 30k. Total: 80k.
