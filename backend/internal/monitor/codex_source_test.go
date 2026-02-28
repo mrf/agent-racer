@@ -1,8 +1,10 @@
 package monitor
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -399,5 +401,70 @@ func TestCodexSourceDiscoverFindsFiles(t *testing.T) {
 	}
 	if handles[0].LogPath != rollout {
 		t.Errorf("LogPath = %q, want %q", handles[0].LogPath, rollout)
+	}
+}
+
+func TestCodexSourceParseRejectsOversizedFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "rollout-huge.jsonl")
+
+	// Create a sparse file exceeding maxFileSize via Truncate rather than
+	// allocating 500MB in memory.
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	line := `{"type":"session_meta","payload":{"session_id":"huge-test","model":"o3"}}` + "\n"
+	if _, err := f.WriteString(line); err != nil {
+		f.Close()
+		t.Fatal(err)
+	}
+	if err := f.Truncate(maxFileSize + 1); err != nil {
+		f.Close()
+		t.Fatal(err)
+	}
+	f.Close()
+
+	src := NewCodexSource(10 * time.Minute)
+	handle := SessionHandle{SessionID: "huge-test", LogPath: path, Source: "codex"}
+
+	_, _, err = src.Parse(handle, 0)
+	if err == nil {
+		t.Fatal("expected error for oversized file, got nil")
+	}
+	if !strings.Contains(err.Error(), "exceeds max") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestCodexSourceParseSkipsOversizedLine(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "rollout-bigline.jsonl")
+
+	// Build a line whose JSON payload exceeds maxLineLength.
+	// We embed a huge string in a valid JSON envelope so the line ends with \n.
+	bigValue := strings.Repeat("x", maxLineLength+10)
+	oversizedLine := fmt.Sprintf(`{"type":"response_item","payload":{"type":"message","text":%q}}`+"\n", bigValue)
+
+	normalLine := `{"type":"session_meta","payload":{"session_id":"bigline-test","model":"o3"}}` + "\n"
+	content := normalLine + oversizedLine + `{"type":"env_context","payload":{"cwd":"/tmp/proj"}}` + "\n"
+
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	src := NewCodexSource(10 * time.Minute)
+	handle := SessionHandle{SessionID: "bigline-test", LogPath: path, Source: "codex"}
+
+	update, offset, err := src.Parse(handle, 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if offset == 0 {
+		t.Error("expected non-zero offset")
+	}
+	// The oversized line should be skipped; the normal lines should still parse.
+	if update.WorkingDir != "/tmp/proj" {
+		t.Errorf("WorkingDir = %q, want %q (normal lines after oversized line should parse)", update.WorkingDir, "/tmp/proj")
 	}
 }
