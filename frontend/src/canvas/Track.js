@@ -33,7 +33,7 @@ const TRACK_GROUP_LABEL_HEIGHT = 16;
 
 export class Track {
   constructor() {
-    this.trackPadding = { left: 200, right: 60, top: 60, bottom: 40 };
+    this.trackPadding = { left: 65, right: 60, top: 60, bottom: 40 };
     this.laneHeight = 80;
     this.time = 0;
     // Pre-rendered offscreen canvases
