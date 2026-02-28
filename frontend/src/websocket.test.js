@@ -2,10 +2,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { RaceConnection } from './websocket.js';
 
 class MockWebSocket {
+  static OPEN = 1;
   static instances = [];
 
   constructor(url) {
     this.url = url;
+    this.readyState = 0;
     this.onopen = null;
     this.onmessage = null;
     this.onclose = null;
@@ -23,6 +25,7 @@ class MockWebSocket {
   }
 
   simulateOpen() {
+    this.readyState = MockWebSocket.OPEN;
     this.onopen?.();
   }
 
@@ -56,6 +59,10 @@ function createConnection(overrides = {}) {
 function latestSocket() {
   const { instances } = MockWebSocket;
   return instances[instances.length - 1];
+}
+
+function resyncCount(ws) {
+  return ws.sentMessages.filter(m => JSON.parse(m).type === 'resync').length;
 }
 
 describe('RaceConnection', () => {
@@ -309,6 +316,78 @@ describe('RaceConnection', () => {
 
       latestSocket().simulateOpen();
       expect(latestSocket().sentMessages).toHaveLength(0);
+    });
+  });
+
+  describe('sequence gap detection', () => {
+    it('does not resync on gap between pre-snapshot deltas (awaitingSnapshot suppresses check)', () => {
+      // The key bug: before any snapshot, the first delta sets lastSeq to a non-zero value.
+      // A second delta with a gap then falsely triggers resync even though no baseline exists.
+      const onDelta = vi.fn();
+      const conn = createConnection({ onDelta });
+
+      conn.connect();
+      latestSocket().simulateOpen();
+
+      // Two deltas arrive before any snapshot — with a gap between them.
+      latestSocket().simulateMessage({ type: 'delta', seq: 5, payload: { a: 1 } });
+      latestSocket().simulateMessage({ type: 'delta', seq: 7, payload: { b: 2 } });
+
+      // Neither delta should trigger a resync; both should be dispatched.
+      expect(resyncCount(latestSocket())).toBe(0);
+      expect(onDelta).toHaveBeenCalledTimes(2);
+    });
+
+    it('triggers resync on gap in deltas after snapshot is received', () => {
+      const conn = createConnection();
+
+      conn.connect();
+      latestSocket().simulateOpen();
+
+      // Snapshot establishes baseline at seq=10.
+      latestSocket().simulateMessage({ type: 'snapshot', seq: 10, payload: {} });
+
+      // Delta seq=12 skips 11 — real gap, resync expected.
+      latestSocket().simulateMessage({ type: 'delta', seq: 12, payload: {} });
+
+      expect(resyncCount(latestSocket())).toBe(1);
+    });
+
+    it('does not resync on consecutive deltas after snapshot', () => {
+      const onDelta = vi.fn();
+      const conn = createConnection({ onDelta });
+
+      conn.connect();
+      latestSocket().simulateOpen();
+
+      latestSocket().simulateMessage({ type: 'snapshot', seq: 10, payload: {} });
+      latestSocket().simulateMessage({ type: 'delta', seq: 11, payload: { x: 1 } });
+      latestSocket().simulateMessage({ type: 'delta', seq: 12, payload: { x: 2 } });
+
+      expect(resyncCount(latestSocket())).toBe(0);
+      expect(onDelta).toHaveBeenCalledTimes(2);
+    });
+
+    it('resets awaitingSnapshot on reconnect so pre-snapshot deltas are safe again', () => {
+      const conn = createConnection();
+
+      conn.connect();
+      latestSocket().simulateOpen();
+
+      // Normal session: snapshot then some deltas.
+      latestSocket().simulateMessage({ type: 'snapshot', seq: 5, payload: {} });
+      latestSocket().simulateMessage({ type: 'delta', seq: 6, payload: {} });
+
+      // Disconnect and reconnect.
+      latestSocket().simulateClose();
+      vi.advanceTimersByTime(1000);
+      latestSocket().simulateOpen();
+
+      // High-load burst: two pre-snapshot deltas with a gap arrive after reconnect.
+      latestSocket().simulateMessage({ type: 'delta', seq: 100, payload: {} });
+      latestSocket().simulateMessage({ type: 'delta', seq: 102, payload: {} });
+
+      expect(resyncCount(latestSocket())).toBe(0);
     });
   });
 
