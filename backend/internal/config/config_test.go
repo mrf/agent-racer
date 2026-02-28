@@ -390,3 +390,132 @@ func TestDefaultConfigTokenNorm(t *testing.T) {
 		t.Errorf("len(Strategies) = %d, want 4", len(cfg.TokenNorm.Strategies))
 	}
 }
+
+func TestDiffDetectsPollIntervalChange(t *testing.T) {
+	old := defaultConfig()
+	new := defaultConfig()
+	new.Monitor.PollInterval = 2 * 1000000000 // 2 seconds
+
+	changes := Diff(old, new)
+	if len(changes) == 0 {
+		t.Fatal("Diff should detect PollInterval change")
+	}
+
+	found := false
+	for _, c := range changes {
+		if c == "monitor.poll_interval: 1s → 2s" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("Expected 'monitor.poll_interval: 1s → 2s' in changes: %v", changes)
+	}
+}
+
+func TestDiffDetectsBroadcastThrottleChange(t *testing.T) {
+	old := defaultConfig()
+	new := defaultConfig()
+	new.Monitor.BroadcastThrottle = 200000000 // 200ms
+
+	changes := Diff(old, new)
+	if len(changes) == 0 {
+		t.Fatal("Diff should detect BroadcastThrottle change")
+	}
+
+	found := false
+	for _, c := range changes {
+		if c == "monitor.broadcast_throttle: 100ms → 200ms" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("Expected 'monitor.broadcast_throttle: 100ms → 200ms' in changes: %v", changes)
+	}
+}
+
+func TestDiffDetectsSnapshotIntervalChange(t *testing.T) {
+	old := defaultConfig()
+	new := defaultConfig()
+	new.Monitor.SnapshotInterval = 10 * 1000000000 // 10 seconds
+
+	changes := Diff(old, new)
+	if len(changes) == 0 {
+		t.Fatal("Diff should detect SnapshotInterval change")
+	}
+
+	found := false
+	for _, c := range changes {
+		if c == "monitor.snapshot_interval: 5s → 10s" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("Expected 'monitor.snapshot_interval: 5s → 10s' in changes: %v", changes)
+	}
+}
+
+func TestDiffDetectsStatsEventBufferChange(t *testing.T) {
+	old := defaultConfig()
+	new := defaultConfig()
+	new.Monitor.StatsEventBuffer = 512
+
+	changes := Diff(old, new)
+	if len(changes) == 0 {
+		t.Fatal("Diff should detect StatsEventBuffer change")
+	}
+
+	found := false
+	for _, c := range changes {
+		if c == "monitor.stats_event_buffer: 256 → 512" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("Expected 'monitor.stats_event_buffer: 256 → 512' in changes: %v", changes)
+	}
+}
+
+func TestDiffDetectsMultipleMonitorChanges(t *testing.T) {
+	old := defaultConfig()
+	new := defaultConfig()
+
+	// Change multiple monitor fields
+	new.Monitor.PollInterval = 2 * 1000000000
+	new.Monitor.BroadcastThrottle = 150000000
+	new.Monitor.SnapshotInterval = 10 * 1000000000
+	new.Monitor.StatsEventBuffer = 512
+	new.Monitor.SessionStaleAfter = 3 * 60 * 1000000000
+
+	changes := Diff(old, new)
+	if len(changes) == 0 {
+		t.Fatal("Diff should detect multiple changes")
+	}
+
+	expectedCount := 5
+	if len(changes) < expectedCount {
+		t.Errorf("Expected at least %d changes, got %d: %v", expectedCount, len(changes), changes)
+	}
+
+	expectedChanges := []string{
+		"monitor.poll_interval: 1s → 2s",
+		"monitor.snapshot_interval: 5s → 10s",
+		"monitor.broadcast_throttle: 100ms → 150ms",
+		"monitor.session_stale_after: 2m0s → 3m0s",
+		"monitor.stats_event_buffer: 256 → 512",
+	}
+
+	found := map[string]bool{}
+	for _, c := range changes {
+		found[c] = true
+	}
+
+	for _, expected := range expectedChanges {
+		if !found[expected] {
+			t.Errorf("Missing expected change: %q\nGot: %v", expected, changes)
+		}
+	}
+}
