@@ -45,6 +45,13 @@ func (h *sourceHealth) recordDiscoverFailure(err error) {
 	h.lastDiscoverFail = time.Now()
 }
 
+// recordPanic records a recovered panic as a discover failure. Panics are
+// treated as severe failures — the source is marked failed via the same
+// consecutive failure counter used by Discover errors.
+func (h *sourceHealth) recordPanic(err error) {
+	h.recordDiscoverFailure(err)
+}
+
 func (h *sourceHealth) recordParseSuccess(sessionKey string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()

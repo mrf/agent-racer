@@ -3,10 +3,12 @@ package monitor
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -203,181 +205,11 @@ func (m *Monitor) poll() {
 	var updates []*session.SessionState
 
 	for _, src := range sources {
-		sh := health[src.Name()]
-		handles, err := src.Discover()
-		if err != nil {
-			log.Printf("[%s] discovery error: %v", src.Name(), err)
-			sh.recordDiscoverFailure(err)
-			continue
+		srcUpdates, srcActiveKeys := m.pollSource(src, cfg, health[src.Name()], now)
+		for k := range srcActiveKeys {
+			activeKeys[k] = true
 		}
-		sh.recordDiscoverSuccess()
-
-		for _, h := range handles {
-			key := trackingKey(h.Source, h.SessionID)
-			activeKeys[key] = true
-		}
-
-		for _, h := range handles {
-			key := trackingKey(h.Source, h.SessionID)
-
-			ts, exists := m.tracked[key]
-			if !exists {
-				// Skip removed sessions when we have no prior offset to
-				// distinguish new data from old. Prevents zombie re-creation.
-				if m.removedKeys[key] {
-					continue
-				}
-				ts = &trackedSession{
-					handle: h,
-				}
-				m.tracked[key] = ts
-				log.Printf("[%s] Tracking new session: %s (offset=0)", src.Name(), h.SessionID)
-			}
-
-			oldOffset := ts.fileOffset
-			ts.handle.KnownSlug = m.knownSlug(key)
-			ts.handle.KnownSubagentParents = m.knownSubagentParents(key)
-			update, newOffset, err := src.Parse(ts.handle, ts.fileOffset)
-			if err != nil {
-				log.Printf("[%s] parse error for %s: %v", src.Name(), h.SessionID, err)
-				sh.recordParseFailure(key, err)
-				continue
-			}
-			sh.recordParseSuccess(key)
-			ts.fileOffset = newOffset
-			hasNewData := newOffset > oldOffset || update.HasData()
-			if hasNewData && newOffset > oldOffset {
-				log.Printf("[%s] Parsed %d new bytes from %s (offset %d→%d)", src.Name(), newOffset-oldOffset, h.LogPath, oldOffset, newOffset)
-			}
-			if hasNewData {
-				// Use the actual timestamp from parsed data when available
-				// so that old sessions discovered on startup are immediately
-				// detected as stale rather than appearing active for 2 minutes.
-				if !update.LastTime.IsZero() {
-					ts.lastDataTime = update.LastTime
-				} else {
-					ts.lastDataTime = now
-				}
-			}
-
-			// Always use filename-based session ID to ensure session identity
-			// remains stable across model switches and JSONL sessionId changes
-			sessionID := h.SessionID
-			storeKey := trackingKey(h.Source, sessionID)
-
-			// Check for resumed sessions that were already removed from store.
-			if m.removedKeys[key] {
-				if !hasNewData {
-					continue
-				}
-				delete(m.removedKeys, key)
-				log.Printf("[%s] Session resumed after removal: %s (newData=%d bytes)", src.Name(), h.SessionID, newOffset-oldOffset)
-			}
-
-			state, existed := m.store.Get(storeKey)
-			if existed && state.IsTerminal() {
-				if !hasNewData {
-					continue
-				}
-				// New JSONL data on a terminal session — it's being resumed.
-				state.CompletedAt = nil
-				delete(m.pendingRemoval, storeKey)
-				log.Printf("[%s] Session resumed from %s: %s (newData=%d bytes)", src.Name(), state.Activity, h.SessionID, newOffset-oldOffset)
-			}
-
-			if !existed {
-				// Skip sessions that are already stale on initial discovery.
-				// This prevents dead session files from briefly appearing as
-				// active on server startup.
-				if !update.LastTime.IsZero() && cfg.Monitor.SessionStaleAfter > 0 {
-					if now.Sub(update.LastTime) > cfg.Monitor.SessionStaleAfter {
-						delete(m.tracked, key)
-						m.removedKeys[key] = true
-						continue
-					}
-				}
-				startedAt := h.StartedAt
-				if startedAt.IsZero() {
-					startedAt = now
-				}
-				workingDir := h.WorkingDir
-				if workingDir == "" {
-					workingDir = update.WorkingDir
-				}
-				state = &session.SessionState{
-					ID:         storeKey,
-					Name:       nameFromPath(workingDir),
-					Source:     h.Source,
-					StartedAt:  startedAt,
-					WorkingDir: workingDir,
-					Branch:     detectBranch(workingDir),
-				}
-			}
-
-			if update.WorkingDir != "" && update.WorkingDir != state.WorkingDir {
-				state.WorkingDir = update.WorkingDir
-				state.Name = nameFromPath(update.WorkingDir)
-				state.Branch = detectBranch(update.WorkingDir)
-			}
-
-			// Only classify activity when we have new data or a fresh session.
-			// No-data polls must not overwrite with Idle — the frontend
-			// derives pit transitions from lastDataReceivedAt staleness.
-			if hasNewData || !existed {
-				state.Activity = classifyActivityFromUpdate(update)
-			}
-
-			if update.Model != "" {
-				state.Model = update.Model
-			}
-
-			if update.Slug != "" && state.Slug == "" {
-				state.Slug = update.Slug
-			}
-
-			// Prefer source-reported context ceiling; fall back to config.
-			maxTokens := update.MaxContextTokens
-			if maxTokens == 0 {
-				modelForLookup := state.Model
-				if modelForLookup == "" {
-					modelForLookup = "unknown"
-				}
-				maxTokens = cfg.MaxContextTokens(modelForLookup)
-			}
-
-			if update.LastTime.IsZero() {
-				state.LastActivityAt = now
-			} else {
-				state.LastActivityAt = update.LastTime
-			}
-
-			if hasNewData {
-				state.LastDataReceivedAt = now
-			}
-
-			// Accumulate message/tool deltas before token resolution so
-			// that estimation strategies can use the updated counts.
-			state.MessageCount += update.MessageCount
-			state.ToolCallCount += update.ToolCalls
-			state.CompactionCount += update.CompactionCount
-			if update.LastTool != "" {
-				state.CurrentTool = update.LastTool
-			}
-
-			mergeSubagents(state, update.Subagents)
-
-			m.resolveTokens(cfg, state, update, maxTokens)
-
-			// Calculate burn rate from token history
-			state.BurnRatePerMinute = m.calculateBurnRate(ts, state.TokensUsed, now)
-
-			if !existed {
-				m.emitEvent(session.EventNew, state)
-			} else if hasNewData {
-				m.emitEvent(session.EventUpdate, state)
-			}
-			updates = append(updates, state)
-		}
+		updates = append(updates, srcUpdates...)
 	}
 
 	// Emit health events for sources that crossed a status threshold.
@@ -529,6 +361,194 @@ func (m *Monitor) poll() {
 	}
 
 	m.flushRemovals(now)
+}
+
+// pollSource processes a single source within a deferred recover, so that a
+// panic in Discover or Parse does not crash the entire server. Returns the
+// session updates and the set of active tracking keys discovered.
+func (m *Monitor) pollSource(src Source, cfg *config.Config, sh *sourceHealth, now time.Time) (updates []*session.SessionState, activeKeys map[string]bool) {
+	activeKeys = make(map[string]bool)
+
+	defer func() {
+		if r := recover(); r != nil {
+			buf := make([]byte, 4096)
+			n := runtime.Stack(buf, false)
+			log.Printf("[%s] PANIC recovered in poll: %v\n%s", src.Name(), r, buf[:n])
+			sh.recordPanic(fmt.Errorf("panic: %v", r))
+		}
+	}()
+
+	handles, err := src.Discover()
+	if err != nil {
+		log.Printf("[%s] discovery error: %v", src.Name(), err)
+		sh.recordDiscoverFailure(err)
+		return nil, activeKeys
+	}
+	sh.recordDiscoverSuccess()
+
+	for _, h := range handles {
+		key := trackingKey(h.Source, h.SessionID)
+		activeKeys[key] = true
+	}
+
+	for _, h := range handles {
+		key := trackingKey(h.Source, h.SessionID)
+
+		ts, exists := m.tracked[key]
+		if !exists {
+			// Skip removed sessions when we have no prior offset to
+			// distinguish new data from old. Prevents zombie re-creation.
+			if m.removedKeys[key] {
+				continue
+			}
+			ts = &trackedSession{
+				handle: h,
+			}
+			m.tracked[key] = ts
+			log.Printf("[%s] Tracking new session: %s (offset=0)", src.Name(), h.SessionID)
+		}
+
+		oldOffset := ts.fileOffset
+		ts.handle.KnownSlug = m.knownSlug(key)
+		ts.handle.KnownSubagentParents = m.knownSubagentParents(key)
+		update, newOffset, err := src.Parse(ts.handle, ts.fileOffset)
+		if err != nil {
+			log.Printf("[%s] parse error for %s: %v", src.Name(), h.SessionID, err)
+			sh.recordParseFailure(key, err)
+			continue
+		}
+		sh.recordParseSuccess(key)
+		ts.fileOffset = newOffset
+		hasNewData := newOffset > oldOffset || update.HasData()
+		if hasNewData && newOffset > oldOffset {
+			log.Printf("[%s] Parsed %d new bytes from %s (offset %d→%d)", src.Name(), newOffset-oldOffset, h.LogPath, oldOffset, newOffset)
+		}
+		if hasNewData {
+			// Use the actual timestamp from parsed data when available
+			// so that old sessions discovered on startup are immediately
+			// detected as stale rather than appearing active for 2 minutes.
+			if !update.LastTime.IsZero() {
+				ts.lastDataTime = update.LastTime
+			} else {
+				ts.lastDataTime = now
+			}
+		}
+
+		// Check for resumed sessions that were already removed from store.
+		if m.removedKeys[key] {
+			if !hasNewData {
+				continue
+			}
+			delete(m.removedKeys, key)
+			log.Printf("[%s] Session resumed after removal: %s (newData=%d bytes)", src.Name(), h.SessionID, newOffset-oldOffset)
+		}
+
+		state, existed := m.store.Get(key)
+		if existed && state.IsTerminal() {
+			if !hasNewData {
+				continue
+			}
+			// New JSONL data on a terminal session — it's being resumed.
+			state.CompletedAt = nil
+			delete(m.pendingRemoval, key)
+			log.Printf("[%s] Session resumed from %s: %s (newData=%d bytes)", src.Name(), state.Activity, h.SessionID, newOffset-oldOffset)
+		}
+
+		if !existed {
+			// Skip sessions that are already stale on initial discovery.
+			// This prevents dead session files from briefly appearing as
+			// active on server startup.
+			if !update.LastTime.IsZero() && cfg.Monitor.SessionStaleAfter > 0 {
+				if now.Sub(update.LastTime) > cfg.Monitor.SessionStaleAfter {
+					delete(m.tracked, key)
+					m.removedKeys[key] = true
+					continue
+				}
+			}
+			startedAt := h.StartedAt
+			if startedAt.IsZero() {
+				startedAt = now
+			}
+			workingDir := h.WorkingDir
+			if workingDir == "" {
+				workingDir = update.WorkingDir
+			}
+			state = &session.SessionState{
+				ID:         key,
+				Name:       nameFromPath(workingDir),
+				Source:     h.Source,
+				StartedAt:  startedAt,
+				WorkingDir: workingDir,
+				Branch:     detectBranch(workingDir),
+			}
+		}
+
+		if update.WorkingDir != "" && update.WorkingDir != state.WorkingDir {
+			state.WorkingDir = update.WorkingDir
+			state.Name = nameFromPath(update.WorkingDir)
+			state.Branch = detectBranch(update.WorkingDir)
+		}
+
+		// Only classify activity when we have new data or a fresh session.
+		// No-data polls must not overwrite with Idle — the frontend
+		// derives pit transitions from lastDataReceivedAt staleness.
+		if hasNewData || !existed {
+			state.Activity = classifyActivityFromUpdate(update)
+		}
+
+		if update.Model != "" {
+			state.Model = update.Model
+		}
+
+		if update.Slug != "" && state.Slug == "" {
+			state.Slug = update.Slug
+		}
+
+		// Prefer source-reported context ceiling; fall back to config.
+		maxTokens := update.MaxContextTokens
+		if maxTokens == 0 {
+			modelForLookup := state.Model
+			if modelForLookup == "" {
+				modelForLookup = "unknown"
+			}
+			maxTokens = cfg.MaxContextTokens(modelForLookup)
+		}
+
+		if update.LastTime.IsZero() {
+			state.LastActivityAt = now
+		} else {
+			state.LastActivityAt = update.LastTime
+		}
+
+		if hasNewData {
+			state.LastDataReceivedAt = now
+		}
+
+		// Accumulate message/tool deltas before token resolution so
+		// that estimation strategies can use the updated counts.
+		state.MessageCount += update.MessageCount
+		state.ToolCallCount += update.ToolCalls
+		state.CompactionCount += update.CompactionCount
+		if update.LastTool != "" {
+			state.CurrentTool = update.LastTool
+		}
+
+		mergeSubagents(state, update.Subagents)
+
+		m.resolveTokens(cfg, state, update, maxTokens)
+
+		// Calculate burn rate from token history
+		state.BurnRatePerMinute = m.calculateBurnRate(ts, state.TokensUsed, now)
+
+		if !existed {
+			m.emitEvent(session.EventNew, state)
+		} else if hasNewData {
+			m.emitEvent(session.EventUpdate, state)
+		}
+		updates = append(updates, state)
+	}
+
+	return updates, activeKeys
 }
 
 // markTerminal marks a session with a terminal state (Complete, Errored, or Lost).
