@@ -78,7 +78,6 @@ export class AchievementPanel {
     });
 
     this._onMouseMove = (e) => this._repositionTooltip(e.clientX, e.clientY);
-    document.addEventListener('mousemove', this._onMouseMove);
   }
 
   async hydrate() {
@@ -96,6 +95,7 @@ export class AchievementPanel {
     if (this._visible) return;
     this._visible = true;
     this._overlay.classList.remove('hidden');
+    document.addEventListener('mousemove', this._onMouseMove);
     this.hydrate();
     this._overlay.querySelector('.ap-close').focus();
   }
@@ -105,6 +105,7 @@ export class AchievementPanel {
     this._visible = false;
     this._overlay.classList.add('hidden');
     this._tooltip.classList.add('hidden');
+    document.removeEventListener('mousemove', this._onMouseMove);
   }
 
   toggle() {
