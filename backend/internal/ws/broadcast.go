@@ -19,12 +19,14 @@ var ErrTooManyConnections = errors.New("too many WebSocket connections")
 type client struct {
 	conn *websocket.Conn
 	send chan []byte
+	b    *Broadcaster
 }
 
-func newClient(conn *websocket.Conn) *client {
+func newClient(conn *websocket.Conn, b *Broadcaster) *client {
 	c := &client{
 		conn: conn,
 		send: make(chan []byte, 64),
+		b:    b,
 	}
 	go c.writePump()
 	return c
@@ -34,6 +36,7 @@ func (c *client) writePump() {
 	defer c.conn.Close()
 	for msg := range c.send {
 		if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+			c.b.RemoveClient(c)
 			return
 		}
 	}
@@ -114,7 +117,7 @@ func (b *Broadcaster) AddClient(conn *websocket.Conn) (*client, error) {
 		return nil, ErrTooManyConnections
 	}
 
-	c := newClient(conn)
+	c := newClient(conn, b)
 	b.clients[c] = true
 	b.mu.Unlock()
 
