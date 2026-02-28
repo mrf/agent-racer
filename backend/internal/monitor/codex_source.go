@@ -3,6 +3,7 @@ package monitor
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -100,6 +101,15 @@ func (c *CodexSource) Parse(handle SessionHandle, offset int64) (SourceUpdate, i
 	}
 	defer f.Close()
 
+	info, err := f.Stat()
+	if err != nil {
+		return SourceUpdate{}, offset, err
+	}
+	if info.Size() > maxFileSize {
+		log.Printf("[codex] Skipping %s: file size %d exceeds limit %d", handle.LogPath, info.Size(), maxFileSize)
+		return SourceUpdate{}, offset, fmt.Errorf("file size %d exceeds max %d", info.Size(), maxFileSize)
+	}
+
 	if offset > 0 {
 		if _, err := f.Seek(offset, io.SeekStart); err != nil {
 			return SourceUpdate{}, offset, err
@@ -128,6 +138,17 @@ func (c *CodexSource) Parse(handle SessionHandle, offset int64) (SourceUpdate, i
 		// Incomplete lines (no trailing newline) are preserved for next read.
 		if line[len(line)-1] != '\n' {
 			// Line is incomplete - don't parse or advance offset
+			if err == io.EOF {
+				break
+			}
+			continue
+		}
+
+		// Skip oversized lines to prevent excessive memory use during JSON parsing.
+		if len(line) > maxLineLength {
+			log.Printf("[codex] Skipping oversized line (%d bytes) in %s at offset %d",
+				len(line), handle.LogPath, parsedOffset)
+			parsedOffset += int64(len(line))
 			if err == io.EOF {
 				break
 			}
