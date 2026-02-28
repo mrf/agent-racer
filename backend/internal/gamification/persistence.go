@@ -238,12 +238,22 @@ func (st *Stats) clone() *Stats {
 	}
 	if len(st.ArchivedSeasons) > 0 {
 		cp.ArchivedSeasons = make([]ArchivedSeason, len(st.ArchivedSeasons))
-		copy(cp.ArchivedSeasons, st.ArchivedSeasons)
+		for i := 0; i < len(st.ArchivedSeasons); i++ {
+			cp.ArchivedSeasons[i] = st.ArchivedSeasons[i]
+		}
 	}
-	cp.WeeklyChallenges.ActiveIDs = make([]string, len(st.WeeklyChallenges.ActiveIDs))
-	copy(cp.WeeklyChallenges.ActiveIDs, st.WeeklyChallenges.ActiveIDs)
-	cp.WeeklyChallenges.Completed = make([]string, len(st.WeeklyChallenges.Completed))
-	copy(cp.WeeklyChallenges.Completed, st.WeeklyChallenges.Completed)
+	if len(st.WeeklyChallenges.ActiveIDs) > 0 {
+		cp.WeeklyChallenges.ActiveIDs = make([]string, len(st.WeeklyChallenges.ActiveIDs))
+		for i := 0; i < len(st.WeeklyChallenges.ActiveIDs); i++ {
+			cp.WeeklyChallenges.ActiveIDs[i] = st.WeeklyChallenges.ActiveIDs[i]
+		}
+	}
+	if len(st.WeeklyChallenges.Completed) > 0 {
+		cp.WeeklyChallenges.Completed = make([]string, len(st.WeeklyChallenges.Completed))
+		for i := 0; i < len(st.WeeklyChallenges.Completed); i++ {
+			cp.WeeklyChallenges.Completed[i] = st.WeeklyChallenges.Completed[i]
+		}
+	}
 	cp.WeeklyChallenges.Snapshot.SessionsPerModel = make(map[string]int, len(st.WeeklyChallenges.Snapshot.SessionsPerModel))
 	for k, v := range st.WeeklyChallenges.Snapshot.SessionsPerModel {
 		cp.WeeklyChallenges.Snapshot.SessionsPerModel[k] = v
