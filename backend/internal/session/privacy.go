@@ -54,7 +54,7 @@ func (f *PrivacyFilter) IsAllowed(workingDir string) bool {
 // nested paths like "/home/user/work/project-a" because the parent
 // "/home/user/work" matches the glob.
 func matchPathOrParent(pattern, path string) bool {
-	for p := path; p != "/" && p != "." && p != ""; p = filepath.Dir(p) {
+	for p := path; p != "." && p != "" && p != filepath.Dir(p); p = filepath.Dir(p) {
 		if matched, _ := filepath.Match(pattern, p); matched {
 			return true
 		}
