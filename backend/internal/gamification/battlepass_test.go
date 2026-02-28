@@ -590,3 +590,131 @@ func TestStatsTracker_AwardXP_CallbackIncludesUpdatedProgress(t *testing.T) {
 		t.Errorf("callback progress XP = %d, want %d", capturedProgress.XP, xpPerTier+50)
 	}
 }
+
+// --- getProgress pct: tier boundary edge cases ---
+
+func TestGetProgress_PctEdgeCase_ZeroXPTierOne(t *testing.T) {
+	// XP = 0, Tier = 1: pct should be 0.0 (just started)
+	bp := &BattlePass{Tier: 1, XP: 0}
+	p := getProgress(bp)
+	if p.Pct != 0.0 {
+		t.Errorf("Pct = %f, want 0.0 (zero XP at tier 1)", p.Pct)
+	}
+}
+
+func TestGetProgress_PctEdgeCase_ExactlyAtTierThreshold(t *testing.T) {
+	// XP exactly at tier threshold transitions to new tier.
+	// At Tier 2, XP = 1000 (threshold for tier 2), pct should be 0.0
+	// (start of the new tier, need 1000 more to reach tier 3).
+	bp := &BattlePass{Tier: 2, XP: 1000}
+	p := getProgress(bp)
+	if p.Pct != 0.0 {
+		t.Errorf("Pct = %f, want 0.0 (exactly at tier 2 threshold)", p.Pct)
+	}
+}
+
+func TestGetProgress_PctEdgeCase_ExactlyAtHigherTierThreshold(t *testing.T) {
+	// Verify the pattern holds at higher tiers too.
+	// At Tier 5, XP = 4000 (threshold for tier 5), pct should be 0.0
+	bp := &BattlePass{Tier: 5, XP: 4000}
+	p := getProgress(bp)
+	if p.Pct != 0.0 {
+		t.Errorf("Pct = %f, want 0.0 (exactly at tier 5 threshold)", p.Pct)
+	}
+}
+
+func TestGetProgress_PctEdgeCase_JustBelowNextThreshold(t *testing.T) {
+	// One XP below the next tier threshold should be just under 1.0
+	// At Tier 3, XP = 2999 (one below threshold 3000), pct should be 0.999
+	bp := &BattlePass{Tier: 3, XP: 2999}
+	p := getProgress(bp)
+	if p.Pct != 0.999 {
+		t.Errorf("Pct = %f, want 0.999 (one below next threshold)", p.Pct)
+	}
+}
+
+func TestGetProgress_PctEdgeCase_MaxTierWithMinXP(t *testing.T) {
+	// At max tier with minimum XP for that tier, pct should be 1.0
+	// (no further advancement possible)
+	bp := &BattlePass{Tier: maxTiers, XP: (maxTiers - 1) * xpPerTier}
+	p := getProgress(bp)
+	if p.Pct != 1.0 {
+		t.Errorf("Pct = %f, want 1.0 (at max tier, minimum XP)", p.Pct)
+	}
+}
+
+func TestGetProgress_PctEdgeCase_MaxTierWithExcessXP(t *testing.T) {
+	// At max tier with excess XP beyond threshold, pct should still be 1.0
+	// (clamped, no further advancement)
+	bp := &BattlePass{Tier: maxTiers, XP: (maxTiers - 1)*xpPerTier + 5000}
+	p := getProgress(bp)
+	if p.Pct != 1.0 {
+		t.Errorf("Pct = %f, want 1.0 (at max tier, excess XP)", p.Pct)
+	}
+}
+
+func TestGetProgress_PctEdgeCase_NegativeXPClampsToZero(t *testing.T) {
+	// Negative XP (edge case for formula validation) should be clamped to 0.0
+	// Pct formula: (XP - (tier-1)*xpPerTier) / xpPerTier
+	// At Tier 2, XP = 500: (500 - 1000) / 1000 = -0.5 → clamped to 0.0
+	bp := &BattlePass{Tier: 2, XP: 500}
+	p := getProgress(bp)
+	if p.Pct != 0.0 {
+		t.Errorf("Pct = %f, want 0.0 (negative calc clamped)", p.Pct)
+	}
+}
+
+func TestGetProgress_PctEdgeCase_AllTierBoundaries(t *testing.T) {
+	// Verify pct = 0.0 at the exact threshold for each tier (except maxTiers).
+	// At maxTiers, pct is always 1.0 per the special rule in getProgress.
+	// Uses traditional for loop as required.
+	for tier := 1; tier <= maxTiers; tier++ {
+		threshold := (tier - 1) * xpPerTier
+		t.Run(fmt.Sprintf("tier%d_at_threshold", tier), func(t *testing.T) {
+			bp := &BattlePass{Tier: tier, XP: threshold}
+			p := getProgress(bp)
+			if tier == maxTiers {
+				// At maxTiers, pct is always 1.0 (no further advancement)
+				if p.Pct != 1.0 {
+					t.Errorf("Pct = %f, want 1.0 (at max tier)", p.Pct)
+				}
+			} else {
+				// Before maxTiers, pct = 0.0 at the tier start
+				if p.Pct != 0.0 {
+					t.Errorf("Pct = %f, want 0.0 (at tier %d threshold)", p.Pct, tier)
+				}
+			}
+		})
+	}
+}
+
+func TestGetProgress_PctEdgeCase_BoundaryClampingRange(t *testing.T) {
+	// Verify min/max clamping keeps pct in [0.0, 1.0] across all scenarios
+	testCases := []struct {
+		name      string
+		tier      int
+		xp        int
+		expectMin float64 // should be >= this
+		expectMax float64 // should be <= this
+	}{
+		{"tier1_zero", 1, 0, 0.0, 1.0},
+		{"tier2_negative_calc", 2, 500, 0.0, 1.0},
+		{"tier3_midpoint", 3, 2500, 0.0, 1.0},
+		{"tier5_just_below", 5, 4999, 0.0, 1.0},
+		{"maxTier_any_xp", maxTiers, 50000, 0.0, 1.0},
+	}
+
+	for i := 0; i < len(testCases); i++ {
+		tc := testCases[i]
+		t.Run(tc.name, func(t *testing.T) {
+			bp := &BattlePass{Tier: tc.tier, XP: tc.xp}
+			p := getProgress(bp)
+			if p.Pct < tc.expectMin {
+				t.Errorf("Pct = %f, want >= %f (below minimum)", p.Pct, tc.expectMin)
+			}
+			if p.Pct > tc.expectMax {
+				t.Errorf("Pct = %f, want <= %f (above maximum)", p.Pct, tc.expectMax)
+			}
+		})
+	}
+}
