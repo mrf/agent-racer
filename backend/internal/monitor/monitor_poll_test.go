@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -249,7 +250,7 @@ func TestPollTerminalSessionNotRecreatedAfterRemoval(t *testing.T) {
 
 	// Mark terminal and verify.
 	state, _ := store.Get("claude:session-term")
-	m.markTerminal(state, session.Complete, time.Now())
+	m.markTerminal(m.cfg, state, session.Complete, time.Now())
 
 	state, _ = store.Get("claude:session-term")
 	if !state.IsTerminal() {
@@ -421,7 +422,7 @@ func TestPollSessionResumesAfterTerminal(t *testing.T) {
 	m.poll()
 
 	state, _ := store.Get("claude:session-resume")
-	m.markTerminal(state, session.Complete, time.Now())
+	m.markTerminal(m.cfg, state, session.Complete, time.Now())
 
 	state, _ = store.Get("claude:session-resume")
 	if !state.IsTerminal() {
@@ -606,7 +607,7 @@ func TestPollRemovedKeysPurgedWhenFileDisappears(t *testing.T) {
 
 	// Mark terminal and flush.
 	state, _ := store.Get("claude:session-purge")
-	m.markTerminal(state, session.Complete, time.Now())
+	m.markTerminal(m.cfg, state, session.Complete, time.Now())
 	m.poll()
 
 	key := trackingKey("claude", "session-purge")
@@ -663,7 +664,7 @@ func TestPollRemovedSessionResumesAfterStaleCleanup(t *testing.T) {
 
 	// Mark terminal → immediate removal by flushRemovals.
 	state, _ := store.Get("claude:session-revive")
-	m.markTerminal(state, session.Complete, time.Now())
+	m.markTerminal(m.cfg, state, session.Complete, time.Now())
 	m.poll()
 
 	if _, ok := store.Get("claude:session-revive"); ok {
@@ -941,4 +942,136 @@ func TestPollHealthSnapshotIncludesFailingSources(t *testing.T) {
 	if snap[0].DiscoverFailures != 2 {
 		t.Errorf("DiscoverFailures = %d, want 2", snap[0].DiscoverFailures)
 	}
+}
+
+// TestPollSetConfigRace verifies that concurrent SetConfig calls do not
+// race with poll(). This test is meaningful only under -race.
+func TestPollSetConfigRace(t *testing.T) {
+	dir := t.TempDir()
+	jsonlPath := filepath.Join(dir, "session-race.jsonl")
+
+	now := time.Now().UTC()
+	ts := now.Format(time.RFC3339Nano)
+	writeJSONL(t, jsonlPath,
+		jsonlLine("user", "session-race", ts, "", "", "/tmp/race")+
+			jsonlLine("assistant", "session-race", ts, "claude-opus-4-5-20251101", "", "/tmp/race"))
+
+	src := &testSource{
+		handles: []SessionHandle{newTestHandle("session-race", jsonlPath, "/tmp/race", now)},
+	}
+
+	cfg := defaultTestConfig()
+	m, _, _ := newPollTestMonitor(src, cfg)
+
+	var wg sync.WaitGroup
+	const iterations = 100
+
+	// Concurrent SetConfig calls (simulating SIGHUP handler).
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			newCfg := defaultTestConfig()
+			newCfg.Monitor.SessionStaleAfter = time.Duration(i+1) * time.Minute
+			m.SetConfig(newCfg)
+		}
+	}()
+
+	// Concurrent poll calls (simulating monitor goroutine).
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			m.poll()
+		}
+	}()
+
+	wg.Wait()
+}
+
+// TestPollSetSourcesRace verifies that concurrent SetSources calls do not
+// race with poll(). This test is meaningful only under -race.
+func TestPollSetSourcesRace(t *testing.T) {
+	dir := t.TempDir()
+	jsonlPath := filepath.Join(dir, "session-src-race.jsonl")
+
+	now := time.Now().UTC()
+	ts := now.Format(time.RFC3339Nano)
+	writeJSONL(t, jsonlPath,
+		jsonlLine("user", "session-src-race", ts, "", "", "/tmp/srace")+
+			jsonlLine("assistant", "session-src-race", ts, "claude-opus-4-5-20251101", "", "/tmp/srace"))
+
+	src1 := &testSource{
+		handles: []SessionHandle{newTestHandle("session-src-race", jsonlPath, "/tmp/srace", now)},
+	}
+	src2 := &testSource{} // empty source
+
+	cfg := defaultTestConfig()
+	m, _, _ := newPollTestMonitor(src1, cfg)
+
+	var wg sync.WaitGroup
+	const iterations = 100
+
+	// Concurrent SetSources calls (simulating SIGHUP handler).
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			if i%2 == 0 {
+				m.SetSources([]Source{src1})
+			} else {
+				m.SetSources([]Source{src2})
+			}
+		}
+	}()
+
+	// Concurrent poll calls (simulating monitor goroutine).
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			m.poll()
+		}
+	}()
+
+	wg.Wait()
+}
+
+// TestPollSourceHealthSnapshotRace verifies that concurrent
+// sourceHealthSnapshot calls (from the broadcaster goroutine) do not
+// race with SetSources or poll.
+func TestPollSourceHealthSnapshotRace(t *testing.T) {
+	src := &testSource{
+		discoverErr: fmt.Errorf("fail"),
+	}
+
+	cfg := defaultTestConfig()
+	cfg.Monitor.HealthWarningThreshold = 2
+	m, _, _ := newPollTestMonitor(src, cfg)
+
+	var wg sync.WaitGroup
+	const iterations = 100
+
+	// Concurrent sourceHealthSnapshot calls (simulating broadcaster hook).
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			_ = m.sourceHealthSnapshot()
+		}
+	}()
+
+	// Concurrent SetSources + poll (simulating SIGHUP + monitor).
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			if i%10 == 0 {
+				m.SetSources([]Source{src})
+			}
+			m.poll()
+		}
+	}()
+
+	wg.Wait()
 }

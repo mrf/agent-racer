@@ -83,9 +83,11 @@ func (b *Broadcaster) SetPrivacyFilter(f *session.PrivacyFilter) {
 }
 
 // SetHealthHook registers a function that returns the current source health
-// status for inclusion in snapshot broadcasts.
+// status for inclusion in snapshot broadcasts. Safe for concurrent use.
 func (b *Broadcaster) SetHealthHook(hook func() []SourceHealthPayload) {
+	b.mu.Lock()
 	b.healthHook = hook
+	b.mu.Unlock()
 }
 
 // privacyFilter returns the current privacy filter under lock.
@@ -218,8 +220,11 @@ func (b *Broadcaster) snapshotMessage() WSMessage {
 	payload := SnapshotPayload{
 		Sessions: b.privacyFilter().FilterSlice(b.store.GetAll()),
 	}
-	if b.healthHook != nil {
-		payload.SourceHealth = b.healthHook()
+	b.mu.RLock()
+	hook := b.healthHook
+	b.mu.RUnlock()
+	if hook != nil {
+		payload.SourceHealth = hook()
 	}
 	return WSMessage{
 		Type:    MsgSnapshot,

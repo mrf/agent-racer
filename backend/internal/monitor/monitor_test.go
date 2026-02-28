@@ -289,11 +289,11 @@ func TestScheduleRemovalDoubleScheduleKeepsEarlierTime(t *testing.T) {
 	later := earlier.Add(5 * time.Second)
 
 	// Schedule with earlier completion time first.
-	m.scheduleRemoval(key, earlier)
+	m.scheduleRemoval(m.cfg,key, earlier)
 	firstRemoveAt := m.pendingRemoval[key]
 
 	// Schedule again with later completion time — should keep the earlier one.
-	m.scheduleRemoval(key, later)
+	m.scheduleRemoval(m.cfg,key, later)
 	secondRemoveAt := m.pendingRemoval[key]
 
 	if !secondRemoveAt.Equal(firstRemoveAt) {
@@ -302,8 +302,8 @@ func TestScheduleRemovalDoubleScheduleKeepsEarlierTime(t *testing.T) {
 
 	// Reverse order: schedule later first, then earlier — should update to earlier.
 	m.pendingRemoval = make(map[string]time.Time)
-	m.scheduleRemoval(key, later)
-	m.scheduleRemoval(key, earlier)
+	m.scheduleRemoval(m.cfg,key, later)
+	m.scheduleRemoval(m.cfg,key, earlier)
 	finalRemoveAt := m.pendingRemoval[key]
 
 	expectedRemoveAt := earlier.Add(10 * time.Second)
@@ -325,7 +325,7 @@ func TestScheduleRemovalZeroDurationIsImmediate(t *testing.T) {
 	}
 
 	completedAt := time.Now()
-	m.scheduleRemoval("claude:session-zero", completedAt)
+	m.scheduleRemoval(m.cfg,"claude:session-zero", completedAt)
 
 	removeAt, ok := m.pendingRemoval["claude:session-zero"]
 	if !ok {
@@ -348,7 +348,7 @@ func TestScheduleRemovalNegativeDurationDisablesRemoval(t *testing.T) {
 		removedKeys:    make(map[string]bool),
 	}
 
-	m.scheduleRemoval("claude:session-neg", time.Now())
+	m.scheduleRemoval(m.cfg,"claude:session-neg", time.Now())
 
 	if _, ok := m.pendingRemoval["claude:session-neg"]; ok {
 		t.Error("scheduleRemoval with negative duration should not add to pendingRemoval")
@@ -454,7 +454,7 @@ func TestHandleSessionEndFallsBackToTranscriptPath(t *testing.T) {
 		Reason:         "success",
 	}
 
-	m.handleSessionEnd(marker, time.Now())
+	m.handleSessionEnd(m.cfg, marker, time.Now())
 
 	// The session should be marked terminal via the transcript path fallback.
 	state, ok := store.Get(filenameKey)
@@ -482,7 +482,7 @@ func TestResolveTokensUsageWithRealData(t *testing.T) {
 	state := &session.SessionState{Source: "claude", MessageCount: 5}
 	update := SourceUpdate{TokensIn: 50000}
 
-	m.resolveTokens(state, update, 200000)
+	m.resolveTokens(m.cfg,state, update, 200000)
 
 	if state.TokensUsed != 50000 {
 		t.Errorf("TokensUsed = %d, want 50000", state.TokensUsed)
@@ -507,7 +507,7 @@ func TestResolveTokensUsageFallbackToEstimate(t *testing.T) {
 	state := &session.SessionState{Source: "codex", MessageCount: 10}
 	update := SourceUpdate{TokensIn: 0}
 
-	m.resolveTokens(state, update, 272000)
+	m.resolveTokens(m.cfg,state, update, 272000)
 
 	expectedTokens := 10 * 2000
 	if state.TokensUsed != expectedTokens {
@@ -534,7 +534,7 @@ func TestResolveTokensUsageTransitionEstimateToReal(t *testing.T) {
 
 	// Real data arrives, even if lower than estimate.
 	update := SourceUpdate{TokensIn: 15000}
-	m.resolveTokens(state, update, 272000)
+	m.resolveTokens(m.cfg,state, update, 272000)
 
 	if state.TokensUsed != 15000 {
 		t.Errorf("TokensUsed = %d, want 15000 (real data should replace estimate)", state.TokensUsed)
@@ -560,7 +560,7 @@ func TestResolveTokensUsageKeepsRealWhenNoNewData(t *testing.T) {
 
 	// Update with no token data -- should keep existing real value.
 	update := SourceUpdate{TokensIn: 0}
-	m.resolveTokens(state, update, 200000)
+	m.resolveTokens(m.cfg,state, update, 200000)
 
 	if state.TokensUsed != 80000 {
 		t.Errorf("TokensUsed = %d, want 80000 (should keep real data)", state.TokensUsed)
@@ -579,7 +579,7 @@ func TestResolveTokensEstimateStrategy(t *testing.T) {
 	state := &session.SessionState{Source: "custom", MessageCount: 8}
 	update := SourceUpdate{TokensIn: 50000} // real data ignored for estimate strategy
 
-	m.resolveTokens(state, update, 200000)
+	m.resolveTokens(m.cfg,state, update, 200000)
 
 	expectedTokens := 8 * 1500
 	if state.TokensUsed != expectedTokens {
@@ -599,7 +599,7 @@ func TestResolveTokensMessageCountStrategy(t *testing.T) {
 	state := &session.SessionState{Source: "new_cli", MessageCount: 5}
 	update := SourceUpdate{}
 
-	m.resolveTokens(state, update, 100000)
+	m.resolveTokens(m.cfg,state, update, 100000)
 
 	if state.TokensUsed != 10000 {
 		t.Errorf("TokensUsed = %d, want 10000", state.TokensUsed)
@@ -618,7 +618,7 @@ func TestResolveTokensZeroMessages(t *testing.T) {
 	state := &session.SessionState{Source: "unknown", MessageCount: 0}
 	update := SourceUpdate{}
 
-	m.resolveTokens(state, update, 200000)
+	m.resolveTokens(m.cfg,state, update, 200000)
 
 	if state.TokensUsed != 0 {
 		t.Errorf("TokensUsed = %d, want 0 (no messages = no estimate)", state.TokensUsed)
@@ -637,7 +637,7 @@ func TestResolveTokensDefaultStrategy(t *testing.T) {
 	state := &session.SessionState{Source: "test"}
 	update := SourceUpdate{TokensIn: 5000}
 
-	m.resolveTokens(state, update, 200000)
+	m.resolveTokens(m.cfg,state, update, 200000)
 
 	if state.TokensUsed != 5000 {
 		t.Errorf("TokensUsed = %d, want 5000", state.TokensUsed)
