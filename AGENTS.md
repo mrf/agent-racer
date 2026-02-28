@@ -43,6 +43,7 @@ This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get sta
 
 - Never delete a worktree directory while your CWD is inside it. Always `cd` to the main repo directory first before running cleanup commands.
 - When spawning commands in tmux or subshells, keep shell quoting simple. Do not over-escape or nest quotes. Prefer heredocs or temp files for complex multi-line prompts.
+- After merge-cleanup, use `git branch -d` (safe delete) only. If `-d` fails because the branch is not pushed to remote, **stop** and tell the user. Do NOT attempt `git branch -D` (force delete) — it is denied by policy. The user will clean up branches after pushing.
 
 ## Post-Merge Checklist
 
