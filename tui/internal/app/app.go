@@ -2,12 +2,14 @@ package app
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/agent-racer/tui/internal/client"
 	"github.com/agent-racer/tui/internal/theme"
 	"github.com/agent-racer/tui/internal/views/achievements"
 	"github.com/agent-racer/tui/internal/views/battlepass"
 	"github.com/agent-racer/tui/internal/views/dashboard"
+	"github.com/agent-racer/tui/internal/views/debug"
 	"github.com/agent-racer/tui/internal/views/detail"
 	"github.com/agent-racer/tui/internal/views/garage"
 	"github.com/agent-racer/tui/internal/views/status"
@@ -36,6 +38,13 @@ type httpBattlePassMsg struct {
 	err        error
 }
 
+// Responsive breakpoints (terminal width).
+const (
+	breakpointCompact = 60  // minimal: short labels
+	breakpointNarrow  = 80  // condensed
+	breakpointWide    = 120 // full: all columns
+)
+
 // Model is the root Bubble Tea model.
 type Model struct {
 	ws     *client.WSClient
@@ -61,6 +70,7 @@ type Model struct {
 	achievements achievements.Model
 	battlePass   battlepass.Model
 	garageView   garage.Model
+	debugLog     debug.Model
 
 	// Connection state.
 	connected bool
@@ -72,7 +82,7 @@ type focusResultMsg struct{ err error }
 // New creates the root model.
 func New(ws *client.WSClient, http *client.HTTPClient) Model {
 	ctx, cancel := context.WithCancel(context.Background())
-	return Model{
+	m := Model{
 		ws:           ws,
 		http:         http,
 		ctx:          ctx,
@@ -85,7 +95,10 @@ func New(ws *client.WSClient, http *client.HTTPClient) Model {
 		achievements: achievements.New(),
 		battlePass:   battlepass.New(),
 		garageView:   garage.New(http),
+		debugLog:     debug.New(),
 	}
+	m.debugLog.Add("nav", "TUI started")
+	return m
 }
 
 // Init starts the WebSocket connection and fetches initial battle pass data.
@@ -140,11 +153,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case client.WSConnectedMsg:
 		m.connected = true
 		m.statusBar.Connected = true
+		m.debugLog.Add("ws", "connected")
 		return m, m.ws.ReadLoop(m.ctx)
 
 	case client.WSDisconnectedMsg:
 		m.connected = false
 		m.statusBar.Connected = false
+		errStr := "unknown"
+		if msg.Err != nil {
+			errStr = msg.Err.Error()
+		}
+		m.debugLog.Add("ws", "disconnected: "+errStr)
 		return m, m.ws.Listen(m.ctx)
 
 	case client.WSSnapshotMsg:
@@ -156,6 +175,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusBar.SourceHealth[h.Source] = h
 		}
 		m.refreshTrack()
+		m.debugLog.Add("ws", fmt.Sprintf("snapshot: %d sessions", len(msg.Payload.Sessions)))
 		return m, m.ws.ReadLoop(m.ctx)
 
 	case client.WSDeltaMsg:
@@ -166,6 +186,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			delete(m.sessions, id)
 		}
 		m.refreshTrack()
+		m.debugLog.Add("ws", fmt.Sprintf("delta: +%d -%d", len(msg.Payload.Updates), len(msg.Payload.Removed)))
 		return m, m.ws.ReadLoop(m.ctx)
 
 	case client.WSCompletionMsg:
@@ -173,14 +194,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			s.Activity = msg.Payload.Activity
 		}
 		m.refreshTrack()
+		m.debugLog.Add("ws", fmt.Sprintf("completion: %s → %s", msg.Payload.Name, string(msg.Payload.Activity)))
 		return m, m.ws.ReadLoop(m.ctx)
 
 	case client.WSSourceHealthMsg:
 		m.statusBar.SourceHealth[msg.Payload.Source] = msg.Payload
+		m.debugLog.Add("hlth", fmt.Sprintf("%s: %s", msg.Payload.Source, string(msg.Payload.Status)))
 		return m, m.ws.ReadLoop(m.ctx)
 
 	case client.WSEquippedMsg:
 		m.garageView.SetEquipped(msg.Payload.Loadout)
+		m.debugLog.Add("ws", "loadout changed")
 		return m, m.ws.ReadLoop(m.ctx)
 
 	case achievements.LoadedMsg:
@@ -189,13 +213,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case client.WSAchievementMsg:
 		m.achievements.ApplyUnlock(msg.Payload.ID)
+		m.debugLog.Add("ws", fmt.Sprintf("achievement: %s", msg.Payload.Name))
 		return m, m.ws.ReadLoop(m.ctx)
 
 	case client.WSBattlePassMsg:
 		m.battlePass.SetProgress(msg.Payload)
+		m.debugLog.Add("ws", fmt.Sprintf("xp +%d (tier %d)", msg.Payload.XP, msg.Payload.Tier))
 		return m, m.ws.ReadLoop(m.ctx)
 
 	case client.WSErrorMsg:
+		m.debugLog.Add("err", string(msg.Raw))
 		return m, m.ws.ReadLoop(m.ctx)
 
 	case focusResultMsg:
@@ -211,6 +238,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Always allow quit.
+	if key.Matches(msg, m.keys.Quit) {
+		m.cancel()
+		return m, tea.Quit
+	}
+
+	// Detail overlay has focus key.
 	if m.overlay == OverlayDetail {
 		switch {
 		case key.Matches(msg, m.keys.Escape):
@@ -225,6 +259,23 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Debug overlay has its own scroll keybindings.
+	if m.overlay == OverlayDebug {
+		switch {
+		case key.Matches(msg, m.keys.Escape):
+			m.overlay = OverlayNone
+			return m, nil
+		case key.Matches(msg, m.keys.Down):
+			m.debugLog.ScrollDown(1)
+			return m, nil
+		case key.Matches(msg, m.keys.Up):
+			m.debugLog.ScrollUp(1)
+			return m, nil
+		}
+		return m, nil
+	}
+
+	// Other overlays: escape closes, delegate keys.
 	if m.overlay != OverlayNone {
 		if key.Matches(msg, m.keys.Escape) {
 			m.overlay = OverlayNone
@@ -242,10 +293,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch {
-	case key.Matches(msg, m.keys.Quit):
-		m.cancel()
-		return m, tea.Quit
-
 	case key.Matches(msg, m.keys.Down):
 		m.trackView.MoveDown()
 		return m, nil
@@ -290,6 +337,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case key.Matches(msg, m.keys.Resync):
 		m.ws.Resync()
+		m.debugLog.Add("nav", "resync requested")
 		return m, nil
 
 	case key.Matches(msg, m.keys.Enter):
@@ -309,6 +357,12 @@ func (m Model) View() string {
 		return "Initializing..."
 	}
 
+	// Disconnect overlay takes over the whole screen.
+	if !m.connected {
+		return m.renderDisconnectOverlay()
+	}
+
+	// Full-screen overlays.
 	if m.overlay == OverlayAchievements {
 		return m.achievements.ViewOverlay(m.width, m.height)
 	}
@@ -327,11 +381,16 @@ func (m Model) View() string {
 
 	sections = append(sections, m.statusBar.View())
 	sections = append(sections, m.dashboard.View())
-	sections = append(sections, m.trackView.View())
-	sections = append(sections, m.battlePass.CollapsedBar())
 
-	help := theme.StyleDimmed.Render("  j/k:navigate  tab:zone  1-3:jump  enter:detail  f:focus  a:achievements  g:garage  b:battlepass  d:debug  r:resync  q:quit")
-	sections = append(sections, help)
+	// Debug overlay replaces the track area.
+	if m.overlay == OverlayDebug {
+		sections = append(sections, m.debugLog.View(m.width, m.height-4))
+	} else {
+		sections = append(sections, m.trackView.View())
+	}
+
+	sections = append(sections, m.battlePass.CollapsedBar())
+	sections = append(sections, m.renderHelp())
 
 	base := lipgloss.JoinVertical(lipgloss.Left, sections...)
 
@@ -344,6 +403,42 @@ func (m Model) View() string {
 	}
 
 	return base
+}
+
+// renderDisconnectOverlay shows a full-screen disconnect indicator.
+func (m Model) renderDisconnectOverlay() string {
+	w := m.width
+	h := m.height
+	if w < 40 {
+		w = 40
+	}
+
+	icon := lipgloss.NewStyle().
+		Foreground(theme.ColorDanger).
+		Bold(true).
+		Render("⚡ DISCONNECTED")
+
+	sub := theme.StyleDimmed.Render("Reconnecting to backend...")
+	hint := theme.StyleDimmed.Render("Press q to quit")
+
+	box := lipgloss.JoinVertical(lipgloss.Center, "", icon, "", sub, "", hint, "")
+
+	return lipgloss.NewStyle().
+		Width(w).
+		Height(h).
+		Align(lipgloss.Center, lipgloss.Center).
+		Render(box)
+}
+
+// renderHelp returns a responsive help bar.
+func (m Model) renderHelp() string {
+	if m.width < breakpointCompact {
+		return theme.StyleDimmed.Render("  j/k tab d q")
+	}
+	if m.width < breakpointNarrow {
+		return theme.StyleDimmed.Render("  j/k:nav  tab:zone  d:debug  r:resync  q:quit")
+	}
+	return theme.StyleDimmed.Render("  j/k:navigate  tab:zone  1-3:jump  enter:detail  f:focus  a:achievements  g:garage  b:battlepass  d:debug  r:resync  q:quit")
 }
 
 // refreshTrack rebuilds the track view, dashboard, and updates status bar counts.
