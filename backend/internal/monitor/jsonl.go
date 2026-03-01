@@ -546,58 +546,55 @@ func FindRecentSessionFiles(within time.Duration) ([]string, error) {
 	return results, nil
 }
 
-// DecodeProjectPath reverses the encoding to get the original working dir
+// DecodeProjectPath reverses the encoding to get the original working dir.
+// The encoding is lossy: slash-to-dash means /home/my-user/proj and
+// /home/my/user-proj both encode to -home-my-user-proj. This function
+// tries all possible interpretations recursively and returns the first
+// filesystem-verified match. Falls back to all-dashes-as-slashes.
 func DecodeProjectPath(encoded string) string {
-	// encoded is like -home-user-proj
-	// We need to figure out the original path
-	// The encoding replaces / with -, so -home-mrf-Projects becomes /home/mrf/Projects
-	// But this is ambiguous for dirs with hyphens. We check if the path exists.
 	decoded, err := url.PathUnescape(encoded)
 	if err != nil {
 		decoded = encoded
 	}
 
-	// Try treating all dashes as path separators
-	if strings.HasPrefix(decoded, "-") {
-		candidate := strings.ReplaceAll(decoded, "-", "/")
-		if _, err := os.Stat(candidate); err == nil {
-			return candidate
-		}
-
-		// If that didn't work, try progressively: check multiple combinations
-		// by treating some dashes as path separators and others as literal dashes
-		parts := strings.Split(decoded[1:], "-") // skip leading dash
-
-		// Try replacing dashes from left to right, keeping last segments with dashes
-		for numSlashes := len(parts) - 1; numSlashes > 0; numSlashes-- {
-			// Join first numSlashes parts with /, rest with -
-			pathParts := make([]string, numSlashes)
-			for i := 0; i < numSlashes; i++ {
-				pathParts[i] = parts[i]
-			}
-			candidate := "/" + strings.Join(pathParts, "/")
-
-			if numSlashes < len(parts) {
-				remaining := strings.Join(parts[numSlashes:], "-")
-				candidate = candidate + "/" + remaining
-			}
-
-			if _, err := os.Stat(candidate); err == nil {
-				return candidate
-			}
-		}
+	if !strings.HasPrefix(decoded, "-") {
+		return decoded
 	}
 
-	// Fallback: return basename (best effort)
-	// Assume first 1-2 parts are directory path, rest is the basename
-	parts := strings.Split(strings.TrimPrefix(decoded, "-"), "-")
-	if len(parts) > 2 {
-		// Assume structure like /home/user/... or /tmp/... where first 2 are dir
-		return strings.Join(parts[2:], "-")
-	} else if len(parts) > 0 {
-		return parts[len(parts)-1]
+	parts := strings.Split(decoded[1:], "-") // skip leading dash
+
+	// Recursive search: the first part always follows the root slash.
+	// Remaining dashes can be either slashes or literal hyphens.
+	if result := decodeTryPaths(parts, 1, "/"+parts[0]); result != "" {
+		return result
 	}
-	return decoded
+
+	// Fallback: treat all dashes as slashes (best effort).
+	return "/" + strings.Join(parts, "/")
+}
+
+// decodeTryPaths recursively builds candidate paths by choosing slash or
+// hyphen at each boundary between parts. Returns the first path that exists
+// on the filesystem, or "" if none match.
+func decodeTryPaths(parts []string, idx int, prefix string) string {
+	if idx >= len(parts) {
+		if _, err := os.Stat(prefix); err == nil {
+			return prefix
+		}
+		return ""
+	}
+
+	// Option 1: this dash was a path separator (slash)
+	if result := decodeTryPaths(parts, idx+1, prefix+"/"+parts[idx]); result != "" {
+		return result
+	}
+
+	// Option 2: this dash was a literal hyphen (join with previous component)
+	if result := decodeTryPaths(parts, idx+1, prefix+"-"+parts[idx]); result != "" {
+		return result
+	}
+
+	return ""
 }
 
 // FindSessionForProcess tries to find the most recent session file

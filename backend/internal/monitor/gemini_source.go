@@ -81,12 +81,21 @@ func (g *GeminiSource) Discover() ([]SessionHandle, error) {
 	// Build hash-to-path mappings from running gemini processes.
 	g.refreshHashMappings()
 
+	return g.discoverFromDir(tmpDir), nil
+}
+
+// discoverFromDir scans a Gemini tmp directory for active sessions and prunes
+// stale entries from internal maps. Extracted from Discover() for testability.
+func (g *GeminiSource) discoverFromDir(tmpDir string) []SessionHandle {
 	cutoff := time.Now().Add(-g.discoverWindow)
 	var handles []SessionHandle
 
+	activeHashes := make(map[string]bool)
+	activeLogPaths := make(map[string]bool)
+
 	projectDirs, err := os.ReadDir(tmpDir)
 	if err != nil {
-		return nil, nil
+		return nil
 	}
 
 	for _, projEntry := range projectDirs {
@@ -117,12 +126,17 @@ func (g *GeminiSource) Discover() ([]SessionHandle, error) {
 				continue
 			}
 
+			activeHashes[hash] = true
+
 			sessionID := geminiSessionIDFromFilename(f.Name())
 			workingDir := g.hashToPath[hash]
+			logPath := filepath.Join(chatsDir, f.Name())
+
+			activeLogPaths[logPath] = true
 
 			handles = append(handles, SessionHandle{
 				SessionID:  sessionID,
-				LogPath:    filepath.Join(chatsDir, f.Name()),
+				LogPath:    logPath,
 				WorkingDir: workingDir,
 				Source:     "gemini",
 				StartedAt:  info.ModTime(),
@@ -130,7 +144,24 @@ func (g *GeminiSource) Discover() ([]SessionHandle, error) {
 		}
 	}
 
-	return handles, nil
+	// Prune stale entries from internal maps to prevent unbounded growth.
+	for hash := range g.hashToPath {
+		if !activeHashes[hash] {
+			delete(g.hashToPath, hash)
+		}
+	}
+	for path := range g.lastParsed {
+		if !activeLogPaths[path] {
+			delete(g.lastParsed, path)
+		}
+	}
+	for path := range g.prevCounts {
+		if !activeLogPaths[path] {
+			delete(g.prevCounts, path)
+		}
+	}
+
+	return handles
 }
 
 func (g *GeminiSource) Parse(handle SessionHandle, offset int64) (SourceUpdate, int64, error) {

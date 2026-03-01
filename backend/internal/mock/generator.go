@@ -46,6 +46,32 @@ type MockGenerator struct {
 	store       *session.Store
 	broadcaster *ws.Broadcaster
 	sessions    []*mockSession
+	statsEvents chan<- session.Event
+}
+
+// SetStatsEvents configures a channel for session lifecycle events so that
+// mock sessions contribute to the gamification system (achievements, battle
+// pass XP, challenge progress) just like real monitored sessions.
+func (g *MockGenerator) SetStatsEvents(ch chan<- session.Event) {
+	g.statsEvents = ch
+}
+
+// emitEvent sends a session lifecycle event to the stats channel if one is
+// configured. Uses a non-blocking send so a full channel never stalls the
+// mock generator.
+func (g *MockGenerator) emitEvent(evType session.EventType, state *session.SessionState) {
+	if g.statsEvents == nil {
+		return
+	}
+	snap := *state
+	select {
+	case g.statsEvents <- session.Event{
+		Type:        evType,
+		State:       &snap,
+		ActiveCount: g.store.ActiveCount(),
+	}:
+	default:
+	}
 }
 
 func (g *MockGenerator) Start(ctx context.Context) {
@@ -136,6 +162,7 @@ func (g *MockGenerator) Start(ctx context.Context) {
 
 	for _, ms := range g.sessions {
 		g.store.Update(ms.state)
+		g.emitEvent(session.EventNew, ms.state)
 	}
 
 	go g.run(ctx)
@@ -161,6 +188,11 @@ func (g *MockGenerator) run(ctx context.Context) {
 				g.store.Update(ms.state)
 				copy := *ms.state
 				updates = append(updates, &copy)
+				if ms.completed {
+					g.emitEvent(session.EventTerminal, ms.state)
+				} else {
+					g.emitEvent(session.EventUpdate, ms.state)
+				}
 			}
 			if len(updates) > 0 {
 				g.broadcaster.QueueUpdate(updates)

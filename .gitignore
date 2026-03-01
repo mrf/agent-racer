@@ -1,5 +1,6 @@
 # Build artifacts
 agent-racer
+agent-racer-server
 backend/server
 backend/cmd/server/server
 dist/
@@ -15,3 +16,6 @@ backend/test-results/
 
 # Local config (use config.example.yaml as template)
 config.yaml
+
+#
+.claude

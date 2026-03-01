@@ -75,3 +75,83 @@ func TestClaudeSourceParse(t *testing.T) {
 		t.Error("expected no new data on re-read")
 	}
 }
+
+func TestReadFirstTimestamp(t *testing.T) {
+	dir := t.TempDir()
+
+	t.Run("valid timestamp on first line", func(t *testing.T) {
+		path := filepath.Join(dir, "valid.jsonl")
+		content := `{"type":"user","sessionId":"abc","timestamp":"2026-01-30T10:00:00.000Z"}
+{"type":"assistant","sessionId":"abc","timestamp":"2026-01-30T10:00:01.000Z"}
+`
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		got, ok := readFirstTimestamp(path)
+		if !ok {
+			t.Fatal("readFirstTimestamp returned false, want true")
+		}
+		want := time.Date(2026, 1, 30, 10, 0, 0, 0, time.UTC)
+		if !got.Equal(want) {
+			t.Errorf("StartedAt = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("first line timestamp used even when file was modified later", func(t *testing.T) {
+		path := filepath.Join(dir, "old-session.jsonl")
+		// First line has an old timestamp; file modtime would be recent.
+		content := `{"type":"user","sessionId":"xyz","timestamp":"2020-06-15T08:30:00.000Z"}
+{"type":"assistant","sessionId":"xyz","timestamp":"2020-06-15T08:30:01.000Z"}
+`
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		got, ok := readFirstTimestamp(path)
+		if !ok {
+			t.Fatal("readFirstTimestamp returned false, want true")
+		}
+		want := time.Date(2020, 6, 15, 8, 30, 0, 0, time.UTC)
+		if !got.Equal(want) {
+			t.Errorf("StartedAt = %v, want %v", got, want)
+		}
+		// Sanity check: modtime is definitely more recent than the parsed timestamp.
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !info.ModTime().After(want) {
+			t.Errorf("expected modtime %v to be after first-line timestamp %v", info.ModTime(), want)
+		}
+	})
+
+	t.Run("empty file returns false", func(t *testing.T) {
+		path := filepath.Join(dir, "empty.jsonl")
+		if err := os.WriteFile(path, []byte(""), 0644); err != nil {
+			t.Fatal(err)
+		}
+		_, ok := readFirstTimestamp(path)
+		if ok {
+			t.Error("expected false for empty file")
+		}
+	})
+
+	t.Run("file with no timestamp field returns false", func(t *testing.T) {
+		path := filepath.Join(dir, "no-ts.jsonl")
+		if err := os.WriteFile(path, []byte(`{"type":"user","sessionId":"abc"}`+"\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		_, ok := readFirstTimestamp(path)
+		if ok {
+			t.Error("expected false when timestamp field is absent")
+		}
+	})
+
+	t.Run("non-existent file returns false", func(t *testing.T) {
+		_, ok := readFirstTimestamp(filepath.Join(dir, "does-not-exist.jsonl"))
+		if ok {
+			t.Error("expected false for non-existent file")
+		}
+	})
+}

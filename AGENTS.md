@@ -2,6 +2,11 @@
 
 This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get started.
 
+## General Rules
+
+- When asked to create an issue, ONLY create the issue. Do not make code changes, mark issues in-progress, or take any action beyond what was explicitly requested.
+- When a fix attempt fails twice for the same root cause, stop and re-evaluate the approach from scratch rather than iterating on the same strategy. Especially for WebGL/rendering issues — check whether the underlying library even supports the approach.
+
 ## Global Engineering Principle
 
 **Favor modular design and minimal duplication.** Keep backend logic UI-agnostic so the Go service can power alternative GUIs. For multi-agent work, reuse shared abstractions instead of duplicating parsing or state logic, and avoid tight coupling between agent sources and frontend rendering.
@@ -17,15 +22,32 @@ This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get sta
 - Branch frontend logic on source name
 - Couple source discovery to a specific UI
 
+**Go code must use traditional `for i := 0; i < n; i++` loops** — do not use range-over-integer syntax, for compatibility.
+
 **Follow XDG Base Directory spec** for config, state, and cache paths whenever applicable (e.g., config in `~/.config`, state in `~/.local/state`). Avoid writing new files directly into `$HOME` unless there is a clear exception.
 
 **Place research and planning docs in `docs/`.** All design documents, research notes, and implementation plans go in the `docs/` directory — not the project root. Keep the root clean (only README.md, AGENTS.md, and config files).
+
+## Architecture
+
+- **Frontend** is served via Vite dev server (`make dev`), NOT the Go backend. When debugging 404s or frontend issues, ensure the Vite dev server is running.
+- **Backend** is a Go service in `backend/`. The Go backend serves the built frontend only in production mode (`make run`).
 
 ## Scope Discipline
 
 **Test tasks must only add tests.** When a beads issue says "add tests for X", the spawned session must NOT refactor, rewrite, or extend the production code it's testing. If a test reveals a bug or improvement opportunity, file a new beads issue — don't fix it in the test branch. Production changes hiding in "test" branches bypass review and cause regressions.
 
 **Spawned worktree sessions must stay in scope.** The seed prompt defines the task boundary. If the agent discovers adjacent work, it should create a beads issue (with `discovered-from` dependency) rather than expanding scope.
+
+## Git Worktrees
+
+- Never delete a worktree directory while your CWD is inside it. Always `cd` to the main repo directory first before running cleanup commands.
+- When spawning commands in tmux or subshells, keep shell quoting simple. Do not over-escape or nest quotes. Prefer heredocs or temp files for complex multi-line prompts.
+- After merge-cleanup, use `git branch -d` (safe delete) only. If `-d` fails because the branch is not pushed to remote, **stop** and tell the user. Do NOT attempt `git branch -D` (force delete) — it is denied by policy. The user will clean up branches after pushing.
+
+## Post-Merge Checklist
+
+After merging a frontend branch to main, always verify the app loads correctly in the browser (check for runtime errors, not just build success). Run `curl localhost:<port>` or check dev server output for errors.
 
 ## Regression Investigation
 

@@ -173,7 +173,7 @@ func defaultConfig() *Config {
 			SnapshotInterval:        5 * time.Second,
 			BroadcastThrottle:       100 * time.Millisecond,
 			SessionStaleAfter:       2 * time.Minute,
-			CompletionRemoveAfter:   90 * time.Second,
+			CompletionRemoveAfter:   5 * time.Minute,
 			SessionEndDir:           filepath.Join(defaultStateDir(), "agent-racer", "session-end"),
 			ChurningCPUThreshold:    15.0,
 			ChurningRequiresNetwork: false,
@@ -335,6 +335,15 @@ func Diff(old, new *Config) []string {
 	}
 
 	// Monitor timings
+	if old.Monitor.PollInterval != new.Monitor.PollInterval {
+		changes = append(changes, fmt.Sprintf("monitor.poll_interval: %s → %s", old.Monitor.PollInterval, new.Monitor.PollInterval))
+	}
+	if old.Monitor.SnapshotInterval != new.Monitor.SnapshotInterval {
+		changes = append(changes, fmt.Sprintf("monitor.snapshot_interval: %s → %s", old.Monitor.SnapshotInterval, new.Monitor.SnapshotInterval))
+	}
+	if old.Monitor.BroadcastThrottle != new.Monitor.BroadcastThrottle {
+		changes = append(changes, fmt.Sprintf("monitor.broadcast_throttle: %s → %s", old.Monitor.BroadcastThrottle, new.Monitor.BroadcastThrottle))
+	}
 	if old.Monitor.SessionStaleAfter != new.Monitor.SessionStaleAfter {
 		changes = append(changes, fmt.Sprintf("monitor.session_stale_after: %s → %s", old.Monitor.SessionStaleAfter, new.Monitor.SessionStaleAfter))
 	}
@@ -349,6 +358,9 @@ func Diff(old, new *Config) []string {
 	}
 	if old.Monitor.HealthWarningThreshold != new.Monitor.HealthWarningThreshold {
 		changes = append(changes, fmt.Sprintf("monitor.health_warning_threshold: %d → %d", old.Monitor.HealthWarningThreshold, new.Monitor.HealthWarningThreshold))
+	}
+	if old.Monitor.StatsEventBuffer != new.Monitor.StatsEventBuffer {
+		changes = append(changes, fmt.Sprintf("monitor.stats_event_buffer: %d → %d", old.Monitor.StatsEventBuffer, new.Monitor.StatsEventBuffer))
 	}
 
 	// Sound

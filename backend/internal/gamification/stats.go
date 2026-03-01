@@ -35,10 +35,14 @@ type StatsTracker struct {
 	persist           *Store
 	stats             *Stats
 	events            chan session.Event
+	flushCh           chan chan struct{}
 	mu                sync.Mutex
 	dirty             bool
 	counted           map[string]bool  // session IDs already counted for TotalSessions
 	contextMilestones map[string]uint8 // session ID -> bitmask: bit0=50%, bit1=90%
+	lastTokens        map[string]int   // session ID -> last seen TokensUsed (for delta tracking)
+	highUtilSessions  map[string]bool  // session IDs currently at or above 50% context utilization
+	lastCompletionAt  time.Time        // tracks last completion time for photo_finish
 
 	achieveEngine  *AchievementEngine
 	rewardRegistry *RewardRegistry
@@ -80,8 +84,11 @@ func NewStatsTracker(persist *Store, bufferSize int, sc *SeasonConfig) (*StatsTr
 		persist:           persist,
 		stats:             stats,
 		events:            ch,
+		flushCh:           make(chan chan struct{}),
 		counted:           make(map[string]bool),
 		contextMilestones: make(map[string]uint8),
+		lastTokens:        make(map[string]int),
+		highUtilSessions:  make(map[string]bool),
 		achieveEngine:     NewAchievementEngine(),
 		rewardRegistry:    NewRewardRegistry(),
 	}
@@ -134,12 +141,36 @@ func (t *StatsTracker) Run(ctx context.Context) {
 			return
 		case ev := <-t.events:
 			t.processEvent(ev)
+		case done := <-t.flushCh:
+			t.drainEvents()
+			close(done)
 		case <-ticker.C:
 			if t.dirty {
 				t.save()
 			}
 		}
 	}
+}
+
+// drainEvents processes all events currently buffered in the event channel.
+func (t *StatsTracker) drainEvents() {
+	for {
+		select {
+		case ev := <-t.events:
+			t.processEvent(ev)
+		default:
+			return
+		}
+	}
+}
+
+// Flush blocks until all events currently queued in the event channel have
+// been processed by the Run goroutine. It is used in tests to replace
+// time.Sleep-based synchronization with a deterministic wait.
+func (t *StatsTracker) Flush() {
+	done := make(chan struct{})
+	t.flushCh <- done
+	<-done
 }
 
 // Stats returns a deep copy of the current aggregate stats.
@@ -197,6 +228,17 @@ func (t *StatsTracker) processEvent(ev session.Event) {
 		if ev.ActiveCount > t.stats.MaxConcurrentActive {
 			t.stats.MaxConcurrentActive = ev.ActiveCount
 		}
+		// Track sessions simultaneously above 50% context utilization.
+		t.highUtilSessions[s.ID] = s.ContextUtilization >= 0.5
+		highUtilCount := 0
+		for _, above := range t.highUtilSessions {
+			if above {
+				highUtilCount++
+			}
+		}
+		if highUtilCount > t.stats.MaxHighUtilizationSimultaneous {
+			t.stats.MaxHighUtilizationSimultaneous = highUtilCount
+		}
 		mask := t.contextMilestones[s.ID]
 		if s.ContextUtilization >= 0.9 && mask&0x02 == 0 {
 			trackXP("context_90pct", XPContext90Pct)
@@ -207,9 +249,13 @@ func (t *StatsTracker) processEvent(ev session.Event) {
 			t.contextMilestones[s.ID] = mask | 0x01
 		}
 
-		// Weekly challenge: accumulate tokens.
+		// Weekly challenge: accumulate token delta (TokensUsed is cumulative).
 		if s.TokensUsed > 0 {
-			wc.Snapshot.TokensBurned += s.TokensUsed
+			prev := t.lastTokens[s.ID]
+			if delta := s.TokensUsed - prev; delta > 0 {
+				wc.Snapshot.TokensBurned += delta
+			}
+			t.lastTokens[s.ID] = s.TokensUsed
 		}
 
 	case session.EventTerminal:
@@ -219,6 +265,12 @@ func (t *StatsTracker) processEvent(ev session.Event) {
 			t.stats.ConsecutiveCompletions++
 			trackXP("session_complete", XPSessionCompletes)
 			wc.Snapshot.TotalCompletions++
+
+			now := time.Now()
+			if !t.lastCompletionAt.IsZero() && now.Sub(t.lastCompletionAt) <= 10*time.Second {
+				t.stats.PhotoFinishSeen = true
+			}
+			t.lastCompletionAt = now
 		case session.Errored:
 			t.stats.TotalErrors++
 			t.stats.ConsecutiveCompletions = 0
@@ -251,6 +303,8 @@ func (t *StatsTracker) processEvent(ev session.Event) {
 
 		delete(t.counted, s.ID)
 		delete(t.contextMilestones, s.ID)
+		delete(t.lastTokens, s.ID)
+		delete(t.highUtilSessions, s.ID)
 	}
 
 	// Award XP for newly completed weekly challenges.
@@ -304,8 +358,25 @@ func (t *StatsTracker) Challenges() []ChallengeProgress {
 // the change immediately, and returns the updated loadout. It is safe for
 // concurrent use.
 func (t *StatsTracker) Equip(reg *RewardRegistry, rewardID string) (Equipped, error) {
+	return t.mutateLoadout(func() error {
+		return reg.Equip(rewardID, t.stats)
+	})
+}
+
+// Unequip clears the given slot, persists the change, and returns the updated
+// loadout. It is a no-op when the slot is already empty. It is safe for
+// concurrent use.
+func (t *StatsTracker) Unequip(reg *RewardRegistry, slot RewardType) (Equipped, error) {
+	return t.mutateLoadout(func() error {
+		return reg.Unequip(slot, t.stats)
+	})
+}
+
+// mutateLoadout applies fn under the stats lock, persists the result, and
+// returns the updated loadout. fn must only modify t.stats.Equipped.
+func (t *StatsTracker) mutateLoadout(fn func() error) (Equipped, error) {
 	t.mu.Lock()
-	if err := reg.Equip(rewardID, t.stats); err != nil {
+	if err := fn(); err != nil {
 		t.mu.Unlock()
 		return Equipped{}, err
 	}
@@ -314,7 +385,7 @@ func (t *StatsTracker) Equip(reg *RewardRegistry, rewardID string) (Equipped, er
 	t.mu.Unlock()
 
 	if err := t.persist.Save(stats); err != nil {
-		log.Printf("Failed to save stats after equip: %v", err)
+		log.Printf("Failed to save stats after loadout change: %v", err)
 	}
 	return equipped, nil
 }

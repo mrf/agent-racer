@@ -16,6 +16,13 @@ const TIER_REWARDS = {
 const MAX_TIERS = 10;
 const XP_PER_TIER = 1000;
 const MAX_XP_LOG_ENTRIES = 20;
+const NEAR_TIER_UP_THRESHOLD = 0.9;
+
+const CONFETTI_COUNT = 30;
+const CONFETTI_CANVAS_HEIGHT = 120;
+const CONFETTI_GRAVITY = 0.08;
+const CONFETTI_COLORS = ['#f59e0b', '#fbbf24', '#e94560', '#f06292', '#4ade80', '#fff'];
+const TIER_UP_DURATION_MS = 2000;
 
 function computeTierProgress(tier, xp) {
   if (tier >= MAX_TIERS) return 1;
@@ -31,9 +38,9 @@ export class BattlePassBar {
     this.xpLog = [];
     this.expanded = false;
     this.toastTimer = null;
+    this.tierUpTimer = null;
 
     this.buildDOM();
-    this.injectStyles();
     this.loadInitialData();
   }
 
@@ -64,13 +71,13 @@ export class BattlePassBar {
     this.xpBarWrap.appendChild(this.xpBarFill);
     this.xpBarWrap.appendChild(this.xpBarLabel);
 
-    this.xpToast = document.createElement('span');
-    this.xpToast.className = 'bp-xp-toast';
+    this.toastContainer = document.createElement('div');
+    this.toastContainer.className = 'bp-toast-container';
 
     this.collapsedRow.appendChild(this.seasonLabel);
     this.collapsedRow.appendChild(this.tierBadge);
     this.collapsedRow.appendChild(this.xpBarWrap);
-    this.collapsedRow.appendChild(this.xpToast);
+    this.collapsedRow.appendChild(this.toastContainer);
 
     // Expanded panel
     this.expandedPanel = document.createElement('div');
@@ -91,255 +98,6 @@ export class BattlePassBar {
 
     this.container.appendChild(this.collapsedRow);
     this.container.appendChild(this.expandedPanel);
-  }
-
-  injectStyles() {
-    if (document.getElementById('bp-bar-styles')) return;
-    const style = document.createElement('style');
-    style.id = 'bp-bar-styles';
-    style.textContent = `
-      .bp-bar {
-        background: #16213e;
-        border-bottom: 1px solid #0f3460;
-        font-family: 'Courier New', monospace;
-        font-size: 12px;
-        color: #e0e0e0;
-        user-select: none;
-      }
-
-      .bp-collapsed {
-        display: flex;
-        align-items: center;
-        padding: 6px 20px;
-        gap: 12px;
-        cursor: pointer;
-        height: 32px;
-      }
-      .bp-collapsed:hover {
-        background: rgba(255,255,255,0.03);
-      }
-
-      .bp-season {
-        color: #888;
-        font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        white-space: nowrap;
-      }
-
-      .bp-tier-badge {
-        background: #e94560;
-        color: #fff;
-        font-size: 11px;
-        font-weight: bold;
-        padding: 1px 8px;
-        border-radius: 3px;
-        white-space: nowrap;
-      }
-      .bp-tier-badge.tier-max {
-        background: #f59e0b;
-        color: #1a1a2e;
-      }
-
-      .bp-xp-bar-wrap {
-        flex: 1;
-        max-width: 300px;
-        height: 14px;
-        background: #222;
-        border-radius: 3px;
-        position: relative;
-        overflow: hidden;
-      }
-
-      .bp-xp-bar-fill {
-        height: 100%;
-        background: linear-gradient(90deg, #e94560, #f06292);
-        border-radius: 3px;
-        transition: width 0.4s ease;
-        width: 0%;
-      }
-      .bp-xp-bar-fill.tier-max {
-        background: linear-gradient(90deg, #f59e0b, #fbbf24);
-      }
-
-      .bp-xp-bar-label {
-        position: absolute;
-        top: 0;
-        left: 6px;
-        line-height: 14px;
-        font-size: 10px;
-        color: #fff;
-        text-shadow: 0 0 3px #000;
-      }
-
-      .bp-xp-toast {
-        font-size: 11px;
-        font-weight: bold;
-        color: #4ade80;
-        opacity: 0;
-        transition: opacity 0.3s ease;
-        white-space: nowrap;
-      }
-      .bp-xp-toast.visible {
-        opacity: 1;
-      }
-
-      .bp-expanded {
-        padding: 10px 20px 14px;
-        border-top: 1px solid #0f3460;
-      }
-      .bp-expanded.hidden {
-        display: none;
-      }
-
-      /* Tier track */
-      .bp-tier-track {
-        display: flex;
-        align-items: flex-start;
-        gap: 0;
-        margin-bottom: 12px;
-        overflow-x: auto;
-      }
-
-      .bp-tier-node {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        min-width: 64px;
-        position: relative;
-      }
-
-      .bp-tier-connector {
-        width: 100%;
-        height: 2px;
-        position: absolute;
-        top: 13px;
-        left: -50%;
-        z-index: 0;
-      }
-
-      .bp-tier-dot {
-        width: 28px;
-        height: 28px;
-        border-radius: 50%;
-        border: 2px solid #444;
-        background: #1a1a2e;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 10px;
-        font-weight: bold;
-        color: #666;
-        z-index: 1;
-        position: relative;
-      }
-      .bp-tier-dot.completed {
-        background: #e94560;
-        border-color: #e94560;
-        color: #fff;
-      }
-      .bp-tier-dot.current {
-        border-color: #e94560;
-        color: #e94560;
-        animation: bp-pulse 1.5s ease-in-out infinite;
-      }
-      .bp-tier-dot.tier-max-dot {
-        background: #f59e0b;
-        border-color: #f59e0b;
-        color: #1a1a2e;
-      }
-
-      @keyframes bp-pulse {
-        0%, 100% { box-shadow: 0 0 0 0 rgba(233,69,96,0.4); }
-        50% { box-shadow: 0 0 0 6px rgba(233,69,96,0); }
-      }
-
-      .bp-tier-reward {
-        font-size: 9px;
-        color: #666;
-        text-align: center;
-        margin-top: 4px;
-        max-width: 64px;
-        line-height: 1.2;
-      }
-      .bp-tier-reward.unlocked {
-        color: #fbbf24;
-      }
-
-      /* Challenges */
-      .bp-challenges {
-        margin-bottom: 10px;
-      }
-      .bp-challenges-title {
-        font-size: 11px;
-        color: #888;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        margin-bottom: 6px;
-      }
-      .bp-challenge-row {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        padding: 4px 0;
-      }
-      .bp-challenge-desc {
-        flex: 1;
-        font-size: 11px;
-        color: #ccc;
-      }
-      .bp-challenge-desc.complete {
-        color: #4ade80;
-        text-decoration: line-through;
-      }
-      .bp-challenge-progress {
-        font-size: 10px;
-        color: #888;
-        white-space: nowrap;
-      }
-      .bp-challenge-bar-wrap {
-        width: 60px;
-        height: 6px;
-        background: #222;
-        border-radius: 3px;
-        overflow: hidden;
-      }
-      .bp-challenge-bar-fill {
-        height: 100%;
-        background: #4ade80;
-        border-radius: 3px;
-        transition: width 0.3s ease;
-      }
-
-      /* XP log */
-      .bp-xp-log {
-        max-height: 80px;
-        overflow-y: auto;
-      }
-      .bp-xp-log-title {
-        font-size: 11px;
-        color: #888;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        margin-bottom: 4px;
-      }
-      .bp-xp-log-entry {
-        font-size: 10px;
-        color: #aaa;
-        padding: 2px 0;
-        display: flex;
-        justify-content: space-between;
-      }
-      .bp-xp-log-entry .xp-amount {
-        color: #4ade80;
-        font-weight: bold;
-      }
-
-      .bp-xp-log::-webkit-scrollbar { width: 4px; }
-      .bp-xp-log::-webkit-scrollbar-track { background: transparent; }
-      .bp-xp-log::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
-    `;
-    document.head.appendChild(style);
   }
 
   async loadInitialData() {
@@ -377,6 +135,7 @@ export class BattlePassBar {
 
   onProgress(payload) {
     const recentXP = payload.recentXP || [];
+    const prevTier = this.state.tier;
 
     this.state = {
       ...this.state,
@@ -397,6 +156,10 @@ export class BattlePassBar {
     this.render();
     this.showXPToast(recentXP);
     this.refreshChallenges();
+
+    if (payload.tier > prevTier) {
+      this.playTierUpCelebration();
+    }
   }
 
   async refreshChallenges() {
@@ -417,13 +180,109 @@ export class BattlePassBar {
     if (!entries.length) return;
 
     const total = entries.reduce((sum, e) => sum + e.amount, 0);
-    this.xpToast.textContent = `+${total} XP`;
-    this.xpToast.classList.add('visible');
+    const toast = document.createElement('span');
+    toast.className = 'bp-xp-toast';
+    toast.textContent = `+${total} XP`;
+
+    restartAnimation(this.xpBarWrap, 'bp-xp-flash');
 
     clearTimeout(this.toastTimer);
     this.toastTimer = setTimeout(() => {
       this.xpToast.classList.remove('visible');
     }, 3000);
+
+    this.toastContainer.appendChild(toast);
+    toast.addEventListener('animationend', () => toast.remove());
+  }
+
+  playTierUpCelebration() {
+    clearTimeout(this.tierUpTimer);
+
+    // Gold flash on collapsed bar
+    this.collapsedRow.classList.add('bp-tier-up-flash');
+
+    // Briefly expand to show new tier
+    const wasExpanded = this.expanded;
+    if (!wasExpanded) {
+      this.expanded = true;
+      this.expandedPanel.classList.remove('hidden');
+      this.renderExpanded();
+    }
+
+    // Confetti burst from tier badge
+    this.spawnConfetti();
+
+    this.tierUpTimer = setTimeout(() => {
+      this.collapsedRow.classList.remove('bp-tier-up-flash');
+      if (!wasExpanded) {
+        this.expanded = false;
+        this.expandedPanel.classList.add('hidden');
+      }
+    }, TIER_UP_DURATION_MS);
+  }
+
+  spawnConfetti() {
+    const badgeRect = this.tierBadge.getBoundingClientRect();
+    const containerRect = this.container.getBoundingClientRect();
+
+    const canvas = document.createElement('canvas');
+    canvas.className = 'bp-confetti-canvas';
+    canvas.width = containerRect.width;
+    canvas.height = CONFETTI_CANVAS_HEIGHT;
+    canvas.style.left = '0';
+    canvas.style.top = `${badgeRect.bottom - containerRect.top}px`;
+    this.container.appendChild(canvas);
+
+    const ctx = canvas.getContext('2d');
+    const originX = badgeRect.left - containerRect.left + badgeRect.width / 2;
+    const particles = Array.from({ length: CONFETTI_COUNT }, () => {
+      const angle = Math.random() * Math.PI * 0.8 + Math.PI * 0.1;
+      const speed = 1.5 + Math.random() * 3;
+      const direction = Math.random() > 0.5 ? 1 : -1;
+      return {
+        x: originX,
+        y: 0,
+        vx: Math.cos(angle) * speed * direction,
+        vy: Math.sin(angle) * speed,
+        size: 2 + Math.random() * 3,
+        color: CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)],
+        life: 1,
+        decay: 0.015 + Math.random() * 0.01,
+        rotation: Math.random() * Math.PI * 2,
+        rotSpeed: (Math.random() - 0.5) * 0.2,
+      };
+    });
+
+    const animate = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      let alive = false;
+
+      for (const p of particles) {
+        if (p.life <= 0) continue;
+        alive = true;
+
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += CONFETTI_GRAVITY;
+        p.life -= p.decay;
+        p.rotation += p.rotSpeed;
+
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rotation);
+        ctx.globalAlpha = Math.max(0, p.life);
+        ctx.fillStyle = p.color;
+        ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.6);
+        ctx.restore();
+      }
+
+      if (alive) {
+        requestAnimationFrame(animate);
+      } else {
+        canvas.remove();
+      }
+    };
+    requestAnimationFrame(animate);
   }
 
   toggleExpanded() {
@@ -447,6 +306,9 @@ export class BattlePassBar {
     this.xpBarFill.style.width = `${pct}%`;
     this.xpBarFill.classList.toggle('tier-max', isMaxTier);
 
+    const nearTierUp = !isMaxTier && tierProgress > NEAR_TIER_UP_THRESHOLD;
+    this.xpBarWrap.classList.toggle('bp-near-tier-up', nearTierUp);
+
     if (isMaxTier) {
       this.xpBarLabel.textContent = `${xp} XP — MAX`;
     } else {
@@ -467,7 +329,7 @@ export class BattlePassBar {
 
   renderTierTrack() {
     this.tierTrack.innerHTML = '';
-    const { tier } = this.state;
+    const { tier, tierProgress } = this.state;
 
     for (let t = 1; t <= MAX_TIERS; t++) {
       const node = document.createElement('div');
@@ -493,6 +355,26 @@ export class BattlePassBar {
       node.appendChild(dot);
       node.appendChild(reward);
       this.tierTrack.appendChild(node);
+
+      if (t < MAX_TIERS) {
+        const connector = document.createElement('div');
+        connector.className = 'bp-tier-connector';
+
+        const fill = document.createElement('div');
+        fill.className = 'bp-tier-connector-fill';
+
+        if (t < tier) {
+          connector.classList.add('completed');
+        } else if (t === tier) {
+          connector.classList.add('current');
+          fill.style.width = `${Math.round(tierProgress * 100)}%`;
+        } else {
+          connector.classList.add('future');
+        }
+
+        connector.appendChild(fill);
+        this.tierTrack.appendChild(connector);
+      }
     }
   }
 
@@ -506,7 +388,7 @@ export class BattlePassBar {
 
     if (!this.challenges.length) {
       const empty = document.createElement('div');
-      empty.style.cssText = 'font-size: 11px; color: #666; padding: 4px 0;';
+      empty.className = 'bp-empty-message';
       empty.textContent = 'No active challenges';
       this.challengeSection.appendChild(empty);
       return;
@@ -551,7 +433,7 @@ export class BattlePassBar {
 
     if (!this.xpLog.length) {
       const empty = document.createElement('div');
-      empty.style.cssText = 'font-size: 10px; color: #666; padding: 2px 0;';
+      empty.className = 'bp-empty-message bp-empty-message--small';
       empty.textContent = 'No XP awarded yet';
       this.xpLogSection.appendChild(empty);
       return;
@@ -577,4 +459,11 @@ export class BattlePassBar {
 
 function formatReason(reason) {
   return reason.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+/** Remove and re-add a CSS class, forcing a reflow to restart the animation. */
+function restartAnimation(el, className) {
+  el.classList.remove(className);
+  void el.offsetWidth;
+  el.classList.add(className);
 }

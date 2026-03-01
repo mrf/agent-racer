@@ -15,6 +15,7 @@ export class RaceConnection {
     this.reconnectAttempts = 0;
     this.reconnectTimeoutId = null;
     this.lastSeq = 0;
+    this.awaitingSnapshot = true;
   }
 
   connect() {
@@ -31,6 +32,7 @@ export class RaceConnection {
       this.reconnectAttempts = 0;
       this.reconnectDelay = 1000;
       this.lastSeq = 0;
+      this.awaitingSnapshot = true;
       this.onStatus('connected');
     };
 
@@ -42,7 +44,8 @@ export class RaceConnection {
         // Snapshots always reset the sequence baseline.
         if (msg.type === 'snapshot') {
           this.lastSeq = seq;
-        } else if (seq && this.lastSeq && seq !== this.lastSeq + 1) {
+          this.awaitingSnapshot = false;
+        } else if (!this.awaitingSnapshot && seq && this.lastSeq && seq !== this.lastSeq + 1) {
           this.requestResync();
           return;
         } else {

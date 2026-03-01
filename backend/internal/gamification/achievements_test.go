@@ -430,17 +430,20 @@ func TestPerformance_CleanSweep(t *testing.T) {
 	}
 }
 
-func TestPerformance_PhotoFinish_AlwaysFalse(t *testing.T) {
+func TestPerformance_PhotoFinish(t *testing.T) {
 	e := NewAchievementEngine()
 
 	s := newStats()
-	s.TotalSessions = 9999
-	s.MaxConcurrentActive = 100
-	s.MaxContextUtilization = 1.0
-	s.MaxBurnRate = 100000
-	e.Evaluate(s)
-	if _, ok := s.AchievementsUnlocked["photo_finish"]; ok {
-		t.Error("photo_finish should never unlock (not yet implemented)")
+	s.PhotoFinishSeen = false
+	if u := e.Evaluate(s); hasID(u, "photo_finish") {
+		t.Error("photo_finish unlocked without near-simultaneous completions")
+	}
+
+	e = NewAchievementEngine()
+	s = newStats()
+	s.PhotoFinishSeen = true
+	if u := e.Evaluate(s); !hasID(u, "photo_finish") {
+		t.Error("photo_finish not unlocked when PhotoFinishSeen is true")
 	}
 }
 
@@ -526,30 +529,19 @@ func TestSpectacle_CrashSurvivor(t *testing.T) {
 func TestSpectacle_BurningRubber(t *testing.T) {
 	e := NewAchievementEngine()
 
-	// Only concurrent, not utilization
+	// Below threshold: only 2 sessions simultaneously above 50%
 	s := newStats()
-	s.MaxConcurrentActive = 3
-	s.MaxContextUtilization = 0.49
+	s.MaxHighUtilizationSimultaneous = 2
 	if u := e.Evaluate(s); hasID(u, "burning_rubber") {
-		t.Error("burning_rubber unlocked with utilization < 0.50")
+		t.Error("burning_rubber unlocked with only 2 simultaneous high-utilization sessions")
 	}
 
-	// Only utilization, not concurrent
+	// At threshold: exactly 3 sessions simultaneously above 50%
 	e = NewAchievementEngine()
 	s = newStats()
-	s.MaxConcurrentActive = 2
-	s.MaxContextUtilization = 0.50
-	if u := e.Evaluate(s); hasID(u, "burning_rubber") {
-		t.Error("burning_rubber unlocked with concurrent < 3")
-	}
-
-	// Both met
-	e = NewAchievementEngine()
-	s = newStats()
-	s.MaxConcurrentActive = 3
-	s.MaxContextUtilization = 0.50
+	s.MaxHighUtilizationSimultaneous = 3
 	if u := e.Evaluate(s); !hasID(u, "burning_rubber") {
-		t.Error("burning_rubber not unlocked with concurrent=3 and utilization=0.50")
+		t.Error("burning_rubber not unlocked with 3 simultaneous high-utilization sessions")
 	}
 }
 
@@ -623,6 +615,7 @@ func TestEdge_SimultaneousMultiUnlock(t *testing.T) {
 	s.MaxContextUtilization = 0.99
 	s.MaxBurnRate = 10000
 	s.MaxConcurrentActive = 10
+	s.MaxHighUtilizationSimultaneous = 10
 	s.MaxToolCalls = 500
 	s.MaxMessages = 200
 	s.MaxSessionDurationSec = 7200

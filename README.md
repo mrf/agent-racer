@@ -16,19 +16,19 @@ JSONL File Discovery               Go Backend            Browser (Canvas)
  |-- classify activity ----------->|                      |
  |                                  |-- WebSocket -------->|
  |                                  |   snapshots + deltas |
+                                    |                      |-- Canvas renders
                                     |                      |
-                                    |   Canvas renders:    |
-                                    |   - Race track       |
-                                    |   - Cars per session  |
-                                    |   - Particles/FX     |
-                                    |   - Detail panel     |
+                                    |                     Terminal (TUI)
+                                    |                      |
+                                    |-- WebSocket -------->|
+                                    |                      |-- Bubble Tea views
 ```
 
 **Position = context window fill.** Each API response in Claude Code's session log contains token usage (`input_tokens + cache_read_input_tokens + cache_creation_input_tokens`). That total divided by the model's max context (200K) gives a 0.0-1.0 utilization value that maps to track position. As the conversation grows, the car moves forward. Reaching the limit means the finish line (or compaction time).
 
 ## Quick Start
 
-**Prerequisites:** Go 1.22+, a modern browser.
+**Prerequisites:** Go 1.22+, a modern browser (for web UI) or terminal (for TUI).
 
 **Localhost-only:** Agent Racer is intended to run on your local machine only. It is not designed or supported for public or multi-user deployment.
 
@@ -46,11 +46,56 @@ make run
 ```
 
 ```bash
-# Build a single binary with embedded frontend
+# Build the server binary with embedded frontend
 make build
-./agent-racer --mock    # demo mode
-./agent-racer           # real mode
+./agent-racer-server --mock    # demo mode
+./agent-racer-server           # real mode
 ```
+
+```bash
+# Or use the terminal dashboard (no browser needed)
+make tui
+./agent-racer
+```
+
+## Terminal UI (TUI)
+
+The TUI is a terminal dashboard built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) that connects to the same backend as the browser frontend. No browser needed -- everything runs in your terminal.
+
+### Build and Run
+
+```bash
+make tui
+./agent-racer
+```
+
+If the backend uses an auth token (see `auth_token` in config.yaml), pass it with `-token`:
+
+```bash
+./agent-racer -token <your-token>
+```
+
+To connect to a backend on a different host or port:
+
+```bash
+./agent-racer -url ws://192.168.1.10:9090/ws
+```
+
+### TUI Keyboard Shortcuts
+
+| Key | Action |
+|-----|--------|
+| `j` / `k` | Navigate up/down in lists |
+| `Tab` | Cycle through views |
+| `1`-`3` | Switch to track / dashboard / detail |
+| `Enter` | Select session for detail view |
+| `f` | Toggle fullscreen |
+| `a` | Achievements view |
+| `g` | Garage view |
+| `b` | Battle pass view |
+| `d` | Debug view |
+| `r` | Refresh |
+| `q` | Quit |
 
 ## Mock Mode
 
@@ -218,13 +263,24 @@ If no config file exists, agent-racer uses sensible defaults. See `docs/configur
 
 ## CLI Flags
 
+**Server (`agent-racer-server`):**
+
 ```
-Usage: agent-racer [flags]
+Usage: agent-racer-server [flags]
 
   --mock            Use mock session data (demo mode)
   --dev             Serve frontend from filesystem (for development)
   --config string   Path to config file (default: ~/.config/agent-racer/config.yaml)
   --port int        Override server port
+```
+
+**TUI (`agent-racer`):**
+
+```
+Usage: agent-racer [flags]
+
+  -url string    WebSocket URL of the backend (default: ws://127.0.0.1:8080/ws)
+  -token string  Auth token (if backend requires it)
 ```
 
 ## API
@@ -320,6 +376,23 @@ agent-racer/
 │       └── frontend/
 │           ├── embed.go          # go:embed for production builds
 │           └── noembed.go        # Filesystem fallback for dev
+├── tui/
+│   ├── go.mod
+│   ├── cmd/racer-tui/
+│   │   └── main.go               # TUI entry point, flag parsing
+│   └── internal/
+│       ├── app/                   # Bubble Tea application model
+│       ├── client/                # WebSocket + HTTP client
+│       ├── theme/                 # Terminal color theme
+│       └── views/
+│           ├── track/             # ASCII race track
+│           ├── dashboard/         # Session stats overview
+│           ├── detail/            # Session detail panel
+│           ├── achievements/      # Achievements view
+│           ├── battlepass/        # Battle pass view
+│           ├── garage/            # Garage view
+│           ├── debug/             # Raw WebSocket messages
+│           └── status/            # Status bar
 └── frontend/
     ├── index.html
     ├── styles.css
@@ -335,7 +408,7 @@ agent-racer/
             └── Racer.js           # Car entity with activity animations
 ```
 
-**No build tools for the frontend.** Vanilla JS with ES modules, served directly. The backend is a single Go binary with minimal dependencies (`gorilla/websocket`, `gopsutil`, `yaml.v3`).
+**No build tools for the frontend.** Vanilla JS with ES modules, served directly. The backend is a single Go binary with minimal dependencies (`gorilla/websocket`, `gopsutil`, `yaml.v3`). The TUI is a separate Go binary using Bubble Tea.
 
 **Frontend embedding:** The `frontend/` directory is the single source of truth. During builds (`make build`), it's copied to `backend/internal/frontend/static/` as a build artifact (git-ignored) for Go's embed directive.
 
@@ -345,24 +418,29 @@ agent-racer/
 |--------|-------------|
 | `make dev` | Run mock mode with filesystem frontend (hot-reload friendly) |
 | `make run` | Run real mode with filesystem frontend fallback |
-| `make build` | Embed frontend into Go binary, produce `./agent-racer` |
-| `make dist` | Cross-compile for linux/darwin amd64/arm64 |
-| `make test` | Run all Go tests |
+| `make build` | Embed frontend into Go binary, produce `./agent-racer-server` |
+| `make tui` | Build TUI binary, produce `./agent-racer` |
+| `make dist` | Cross-compile server + TUI for linux/darwin amd64/arm64 |
+| `make test` | Run backend Go tests |
+| `make tui-test` | Run TUI Go tests |
 | `make test-frontend` | Run frontend Vitest suite |
 | `make test-e2e` | Run Playwright E2E tests |
 | `make lint` | Run `go vet` on backend |
-| `make ci` | Run all checks: test, lint, test-frontend, test-e2e |
-| `make clean` | Remove binary and embedded files |
-| `make deps` | Download Go dependencies |
+| `make tui-lint` | Run `go vet` on TUI |
+| `make ci` | Run all checks: test, lint, test-frontend, test-e2e, tui-test, tui-lint |
+| `make clean` | Remove binaries and embedded files |
+| `make deps` | Download backend Go dependencies |
+| `make tui-deps` | Download TUI Go dependencies |
 
 ## Installing
 
 ```bash
 # Option 1: Build and install
 make build
-cp agent-racer /usr/local/bin/
+make tui
+cp agent-racer-server agent-racer /usr/local/bin/
 
-# Option 2: Use the install script
+# Option 2: Use the install script (builds + installs both binaries)
 ./scripts/install.sh
 ```
 

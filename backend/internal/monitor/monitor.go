@@ -3,11 +3,14 @@ package monitor
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/agent-racer/backend/internal/config"
@@ -53,6 +56,7 @@ type sessionEndMarker struct {
 }
 
 type Monitor struct {
+	mu               sync.RWMutex               // protects cfg, sources, health
 	cfg              *config.Config
 	store            *session.Store
 	broadcaster      *ws.Broadcaster
@@ -66,6 +70,7 @@ type Monitor struct {
 	statsDropped     int64                      // events dropped since last log
 	statsLastDropLog time.Time                  // last time a drop was logged
 	health           map[string]*sourceHealth   // keyed by source name
+	reconfigureCh    chan struct{}               // signals Start() to recreate its poll ticker
 }
 
 func NewMonitor(cfg *config.Config, store *session.Store, broadcaster *ws.Broadcaster, sources []Source) *Monitor {
@@ -84,6 +89,7 @@ func NewMonitor(cfg *config.Config, store *session.Store, broadcaster *ws.Broadc
 		prevCPU:         make(map[int]cpuSample),
 		lastProcessPoll: time.Now(),
 		health:          healthMap,
+		reconfigureCh:   make(chan struct{}, 1),
 	}
 	broadcaster.SetHealthHook(m.sourceHealthSnapshot)
 	return m
@@ -94,8 +100,21 @@ func NewMonitor(cfg *config.Config, store *session.Store, broadcaster *ws.Broadc
 // (models, token normalization, monitor timings, churning thresholds).
 // Server-level settings (port, host, auth) are NOT applied — those require
 // a full restart.
+//
+// If PollInterval changed, SetConfig signals the Start() goroutine to
+// recreate its ticker so the new interval takes effect immediately.
 func (m *Monitor) SetConfig(cfg *config.Config) {
+	m.mu.Lock()
 	m.cfg = cfg
+	m.mu.Unlock()
+
+	// Signal Start() to recreate its ticker with the updated poll interval.
+	// Non-blocking: if a signal is already pending, the new config will be
+	// picked up when that pending signal is processed.
+	select {
+	case m.reconfigureCh <- struct{}{}:
+	default:
+	}
 }
 
 // SetSources replaces the monitor's source list with newSources. Sources that
@@ -103,6 +122,8 @@ func (m *Monitor) SetConfig(cfg *config.Config) {
 // sessions for removed sources are left in the store (they'll age out via
 // stale detection). Health tracking is updated to match.
 func (m *Monitor) SetSources(newSources []Source) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	newHealth := make(map[string]*sourceHealth, len(newSources))
 	for _, src := range newSources {
 		name := src.Name()
@@ -150,13 +171,17 @@ func (m *Monitor) emitEvent(evType session.EventType, state *session.SessionStat
 }
 
 func (m *Monitor) Start(ctx context.Context) {
-	ticker := time.NewTicker(m.cfg.Monitor.PollInterval)
-	defer ticker.Stop()
-
+	m.mu.RLock()
+	pollInterval := m.cfg.Monitor.PollInterval
 	sourceNames := make([]string, len(m.sources))
 	for i, s := range m.sources {
 		sourceNames[i] = s.Name()
 	}
+	m.mu.RUnlock()
+
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+
 	log.Printf("Monitor started with sources: %v", sourceNames)
 
 	// Initial poll
@@ -167,6 +192,14 @@ func (m *Monitor) Start(ctx context.Context) {
 		case <-ctx.Done():
 			log.Println("Monitor stopped")
 			return
+		case <-m.reconfigureCh:
+			// PollInterval may have changed — recreate the ticker.
+			ticker.Stop()
+			m.mu.RLock()
+			newInterval := m.cfg.Monitor.PollInterval
+			m.mu.RUnlock()
+			ticker = time.NewTicker(newInterval)
+			log.Printf("Monitor poll interval updated to %s", newInterval)
 		case <-ticker.C:
 			m.poll()
 		}
@@ -175,193 +208,33 @@ func (m *Monitor) Start(ctx context.Context) {
 
 func (m *Monitor) poll() {
 	now := time.Now()
-	m.consumeSessionEndMarkers(now)
+
+	// Snapshot mutable fields under the read lock so that concurrent
+	// SetConfig/SetSources calls from the SIGHUP goroutine don't race
+	// with this poll iteration.
+	m.mu.RLock()
+	cfg := m.cfg
+	sources := m.sources
+	health := m.health
+	m.mu.RUnlock()
+
+	m.consumeSessionEndMarkers(cfg, now)
 
 	// Collect active session keys from all sources for stale detection.
 	activeKeys := make(map[string]bool)
 
 	var updates []*session.SessionState
 
-	for _, src := range m.sources {
-		sh := m.health[src.Name()]
-		handles, err := src.Discover()
-		if err != nil {
-			log.Printf("[%s] discovery error: %v", src.Name(), err)
-			sh.recordDiscoverFailure(err)
-			continue
+	for _, src := range sources {
+		srcUpdates, srcActiveKeys := m.pollSource(src, cfg, health[src.Name()], now)
+		for k := range srcActiveKeys {
+			activeKeys[k] = true
 		}
-		sh.recordDiscoverSuccess()
-
-		for _, h := range handles {
-			key := trackingKey(h.Source, h.SessionID)
-			activeKeys[key] = true
-		}
-
-		for _, h := range handles {
-			key := trackingKey(h.Source, h.SessionID)
-
-			ts, exists := m.tracked[key]
-			if !exists {
-				// Skip removed sessions when we have no prior offset to
-				// distinguish new data from old. Prevents zombie re-creation.
-				if m.removedKeys[key] {
-					continue
-				}
-				ts = &trackedSession{
-					handle: h,
-				}
-				m.tracked[key] = ts
-				log.Printf("[%s] Tracking new session: %s (offset=0)", src.Name(), h.SessionID)
-			}
-
-			oldOffset := ts.fileOffset
-			ts.handle.KnownSlug = m.knownSlug(key)
-			ts.handle.KnownSubagentParents = m.knownSubagentParents(key)
-			update, newOffset, err := src.Parse(ts.handle, ts.fileOffset)
-			if err != nil {
-				log.Printf("[%s] parse error for %s: %v", src.Name(), h.SessionID, err)
-				sh.recordParseFailure(key, err)
-				continue
-			}
-			sh.recordParseSuccess(key)
-			ts.fileOffset = newOffset
-			hasNewData := newOffset > oldOffset || update.HasData()
-			if hasNewData && newOffset > oldOffset {
-				log.Printf("[%s] Parsed %d new bytes from %s (offset %d→%d)", src.Name(), newOffset-oldOffset, h.LogPath, oldOffset, newOffset)
-			}
-			if hasNewData {
-				// Use the actual timestamp from parsed data when available
-				// so that old sessions discovered on startup are immediately
-				// detected as stale rather than appearing active for 2 minutes.
-				if !update.LastTime.IsZero() {
-					ts.lastDataTime = update.LastTime
-				} else {
-					ts.lastDataTime = now
-				}
-			}
-
-			// Always use filename-based session ID to ensure session identity
-			// remains stable across model switches and JSONL sessionId changes
-			sessionID := h.SessionID
-			storeKey := trackingKey(h.Source, sessionID)
-
-			// Check for resumed sessions that were already removed from store.
-			if m.removedKeys[key] {
-				if !hasNewData {
-					continue
-				}
-				delete(m.removedKeys, key)
-				log.Printf("[%s] Session resumed after removal: %s (newData=%d bytes)", src.Name(), h.SessionID, newOffset-oldOffset)
-			}
-
-			state, existed := m.store.Get(storeKey)
-			if existed && state.IsTerminal() {
-				if !hasNewData {
-					continue
-				}
-				// New JSONL data on a terminal session — it's being resumed.
-				state.CompletedAt = nil
-				delete(m.pendingRemoval, storeKey)
-				log.Printf("[%s] Session resumed from %s: %s (newData=%d bytes)", src.Name(), state.Activity, h.SessionID, newOffset-oldOffset)
-			}
-
-			if !existed {
-				// Skip sessions that are already stale on initial discovery.
-				// This prevents dead session files from briefly appearing as
-				// active on server startup.
-				if !update.LastTime.IsZero() && m.cfg.Monitor.SessionStaleAfter > 0 {
-					if now.Sub(update.LastTime) > m.cfg.Monitor.SessionStaleAfter {
-						delete(m.tracked, key)
-						m.removedKeys[key] = true
-						continue
-					}
-				}
-				startedAt := h.StartedAt
-				if startedAt.IsZero() {
-					startedAt = now
-				}
-				workingDir := h.WorkingDir
-				if workingDir == "" {
-					workingDir = update.WorkingDir
-				}
-				state = &session.SessionState{
-					ID:         storeKey,
-					Name:       nameFromPath(workingDir),
-					Source:     h.Source,
-					StartedAt:  startedAt,
-					WorkingDir: workingDir,
-					Branch:     detectBranch(workingDir),
-				}
-			}
-
-			if update.WorkingDir != "" && update.WorkingDir != state.WorkingDir {
-				state.WorkingDir = update.WorkingDir
-				state.Name = nameFromPath(update.WorkingDir)
-				state.Branch = detectBranch(update.WorkingDir)
-			}
-
-			// Only classify activity when we have new data or a fresh session.
-			// No-data polls must not overwrite with Idle — the frontend
-			// derives pit transitions from lastDataReceivedAt staleness.
-			if hasNewData || !existed {
-				state.Activity = classifyActivityFromUpdate(update)
-			}
-
-			if update.Model != "" {
-				state.Model = update.Model
-			}
-
-			if update.Slug != "" && state.Slug == "" {
-				state.Slug = update.Slug
-			}
-
-			// Prefer source-reported context ceiling; fall back to config.
-			maxTokens := update.MaxContextTokens
-			if maxTokens == 0 {
-				modelForLookup := state.Model
-				if modelForLookup == "" {
-					modelForLookup = "unknown"
-				}
-				maxTokens = m.cfg.MaxContextTokens(modelForLookup)
-			}
-
-			if update.LastTime.IsZero() {
-				state.LastActivityAt = now
-			} else {
-				state.LastActivityAt = update.LastTime
-			}
-
-			if hasNewData {
-				state.LastDataReceivedAt = now
-			}
-
-			// Accumulate message/tool deltas before token resolution so
-			// that estimation strategies can use the updated counts.
-			state.MessageCount += update.MessageCount
-			state.ToolCallCount += update.ToolCalls
-			state.CompactionCount += update.CompactionCount
-			if update.LastTool != "" {
-				state.CurrentTool = update.LastTool
-			}
-
-			mergeSubagents(state, update.Subagents)
-
-			m.resolveTokens(state, update, maxTokens)
-
-			// Calculate burn rate from token history
-			state.BurnRatePerMinute = m.calculateBurnRate(ts, state.TokensUsed, now)
-
-			if !existed {
-				m.emitEvent(session.EventNew, state)
-			} else if hasNewData {
-				m.emitEvent(session.EventUpdate, state)
-			}
-			updates = append(updates, state)
-		}
+		updates = append(updates, srcUpdates...)
 	}
 
 	// Emit health events for sources that crossed a status threshold.
-	m.maybeEmitHealthEvents()
+	m.maybeEmitHealthEvents(cfg, sources, health)
 
 	// Poll process activity for churning detection.
 	elapsed := now.Sub(m.lastProcessPoll)
@@ -388,8 +261,8 @@ func (m *Monitor) poll() {
 	// sets the flag and lets the frontend decide visibility -- Racer.js
 	// suppresses churning visuals when thinking/tool_use animations are
 	// already playing.
-	cpuThreshold := m.cfg.Monitor.ChurningCPUThreshold
-	requireNetwork := m.cfg.Monitor.ChurningRequiresNetwork
+	cpuThreshold := cfg.Monitor.ChurningCPUThreshold
+	requireNetwork := cfg.Monitor.ChurningRequiresNetwork
 	for _, state := range updates {
 		churning := false
 		if !state.IsTerminal() && state.Activity != session.Waiting {
@@ -442,12 +315,12 @@ func (m *Monitor) poll() {
 				continue
 			}
 			// Still discovered and not stale by time — skip.
-			isStale := m.cfg.Monitor.SessionStaleAfter > 0 && now.Sub(ts.lastDataTime) > m.cfg.Monitor.SessionStaleAfter
+			isStale := cfg.Monitor.SessionStaleAfter > 0 && now.Sub(ts.lastDataTime) > cfg.Monitor.SessionStaleAfter
 			if !isStale {
 				continue
 			}
 			log.Printf("Session %s stale (lastData=%s, age=%s, threshold=%s)",
-				key, ts.lastDataTime.Format("15:04:05"), now.Sub(ts.lastDataTime).Round(time.Second), m.cfg.Monitor.SessionStaleAfter)
+				key, ts.lastDataTime.Format("15:04:05"), now.Sub(ts.lastDataTime).Round(time.Second), cfg.Monitor.SessionStaleAfter)
 		}
 
 		if state, ok := getSessionState(key); ok {
@@ -469,7 +342,7 @@ func (m *Monitor) poll() {
 				reason = "file gone"
 			}
 			log.Printf("Marking session %s as lost (reason=%s, activity=%s)", key, reason, state.Activity)
-			m.markTerminal(state, session.Lost, completedAt)
+			m.markTerminal(cfg, state, session.Lost, completedAt)
 		}
 		// Keep tracked entry (and its file offset) while the file is still
 		// discovered.  Without the offset, the next poll re-parses from 0,
@@ -484,7 +357,7 @@ func (m *Monitor) poll() {
 	for _, key := range toRemove {
 		delete(m.tracked, key)
 		// Clean up parse failure tracking for removed sessions.
-		if sh, ok := m.health[sourceFromKey(key)]; ok {
+		if sh, ok := health[sourceFromKey(key)]; ok {
 			sh.removeSession(key)
 		}
 	}
@@ -511,10 +384,198 @@ func (m *Monitor) poll() {
 	m.flushRemovals(now)
 }
 
+// pollSource processes a single source within a deferred recover, so that a
+// panic in Discover or Parse does not crash the entire server. Returns the
+// session updates and the set of active tracking keys discovered.
+func (m *Monitor) pollSource(src Source, cfg *config.Config, sh *sourceHealth, now time.Time) (updates []*session.SessionState, activeKeys map[string]bool) {
+	activeKeys = make(map[string]bool)
+
+	defer func() {
+		if r := recover(); r != nil {
+			buf := make([]byte, 4096)
+			n := runtime.Stack(buf, false)
+			log.Printf("[%s] PANIC recovered in poll: %v\n%s", src.Name(), r, buf[:n])
+			sh.recordPanic(fmt.Errorf("panic: %v", r))
+		}
+	}()
+
+	handles, err := src.Discover()
+	if err != nil {
+		log.Printf("[%s] discovery error: %v", src.Name(), err)
+		sh.recordDiscoverFailure(err)
+		return nil, activeKeys
+	}
+	sh.recordDiscoverSuccess()
+
+	for _, h := range handles {
+		key := trackingKey(h.Source, h.SessionID)
+		activeKeys[key] = true
+	}
+
+	for _, h := range handles {
+		key := trackingKey(h.Source, h.SessionID)
+
+		ts, exists := m.tracked[key]
+		if !exists {
+			// Skip removed sessions when we have no prior offset to
+			// distinguish new data from old. Prevents zombie re-creation.
+			if m.removedKeys[key] {
+				continue
+			}
+			ts = &trackedSession{
+				handle: h,
+			}
+			m.tracked[key] = ts
+			log.Printf("[%s] Tracking new session: %s (offset=0)", src.Name(), h.SessionID)
+		}
+
+		oldOffset := ts.fileOffset
+		ts.handle.KnownSlug = m.knownSlug(key)
+		ts.handle.KnownSubagentParents = m.knownSubagentParents(key)
+		update, newOffset, err := src.Parse(ts.handle, ts.fileOffset)
+		if err != nil {
+			log.Printf("[%s] parse error for %s: %v", src.Name(), h.SessionID, err)
+			sh.recordParseFailure(key, err)
+			continue
+		}
+		sh.recordParseSuccess(key)
+		ts.fileOffset = newOffset
+		hasNewData := newOffset > oldOffset || update.HasData()
+		if hasNewData && newOffset > oldOffset {
+			log.Printf("[%s] Parsed %d new bytes from %s (offset %d→%d)", src.Name(), newOffset-oldOffset, h.LogPath, oldOffset, newOffset)
+		}
+		if hasNewData {
+			// Use the actual timestamp from parsed data when available
+			// so that old sessions discovered on startup are immediately
+			// detected as stale rather than appearing active for 2 minutes.
+			if !update.LastTime.IsZero() {
+				ts.lastDataTime = update.LastTime
+			} else {
+				ts.lastDataTime = now
+			}
+		}
+
+		// Check for resumed sessions that were already removed from store.
+		if m.removedKeys[key] {
+			if !hasNewData {
+				continue
+			}
+			delete(m.removedKeys, key)
+			log.Printf("[%s] Session resumed after removal: %s (newData=%d bytes)", src.Name(), h.SessionID, newOffset-oldOffset)
+		}
+
+		state, existed := m.store.Get(key)
+		if existed && state.IsTerminal() {
+			if !hasNewData {
+				continue
+			}
+			// New JSONL data on a terminal session — it's being resumed.
+			state.CompletedAt = nil
+			delete(m.pendingRemoval, key)
+			log.Printf("[%s] Session resumed from %s: %s (newData=%d bytes)", src.Name(), state.Activity, h.SessionID, newOffset-oldOffset)
+		}
+
+		if !existed {
+			// Skip sessions that are already stale on initial discovery.
+			// This prevents dead session files from briefly appearing as
+			// active on server startup.
+			if !update.LastTime.IsZero() && cfg.Monitor.SessionStaleAfter > 0 {
+				if now.Sub(update.LastTime) > cfg.Monitor.SessionStaleAfter {
+					delete(m.tracked, key)
+					m.removedKeys[key] = true
+					continue
+				}
+			}
+			startedAt := h.StartedAt
+			if startedAt.IsZero() {
+				startedAt = now
+			}
+			workingDir := h.WorkingDir
+			if workingDir == "" {
+				workingDir = update.WorkingDir
+			}
+			state = &session.SessionState{
+				ID:         key,
+				Name:       nameFromPath(workingDir),
+				Source:     h.Source,
+				StartedAt:  startedAt,
+				WorkingDir: workingDir,
+				Branch:     detectBranch(workingDir),
+			}
+		}
+
+		if update.WorkingDir != "" && update.WorkingDir != state.WorkingDir {
+			state.WorkingDir = update.WorkingDir
+			state.Name = nameFromPath(update.WorkingDir)
+			state.Branch = detectBranch(update.WorkingDir)
+		}
+
+		// Only classify activity when we have new data or a fresh session.
+		// No-data polls must not overwrite with Idle — the frontend
+		// derives pit transitions from lastDataReceivedAt staleness.
+		if hasNewData || !existed {
+			state.Activity = classifyActivityFromUpdate(update)
+		}
+
+		if update.Model != "" {
+			state.Model = update.Model
+		}
+
+		if update.Slug != "" && state.Slug == "" {
+			state.Slug = update.Slug
+		}
+
+		// Prefer source-reported context ceiling; fall back to config.
+		maxTokens := update.MaxContextTokens
+		if maxTokens == 0 {
+			modelForLookup := state.Model
+			if modelForLookup == "" {
+				modelForLookup = "unknown"
+			}
+			maxTokens = cfg.MaxContextTokens(modelForLookup)
+		}
+
+		if update.LastTime.IsZero() {
+			state.LastActivityAt = now
+		} else {
+			state.LastActivityAt = update.LastTime
+		}
+
+		if hasNewData {
+			state.LastDataReceivedAt = now
+		}
+
+		// Accumulate message/tool deltas before token resolution so
+		// that estimation strategies can use the updated counts.
+		state.MessageCount += update.MessageCount
+		state.ToolCallCount += update.ToolCalls
+		state.CompactionCount += update.CompactionCount
+		if update.LastTool != "" {
+			state.CurrentTool = update.LastTool
+		}
+
+		mergeSubagents(state, update.Subagents)
+
+		m.resolveTokens(cfg, state, update, maxTokens)
+
+		// Calculate burn rate from token history
+		state.BurnRatePerMinute = m.calculateBurnRate(ts, state.TokensUsed, now)
+
+		if !existed {
+			m.emitEvent(session.EventNew, state)
+		} else if hasNewData {
+			m.emitEvent(session.EventUpdate, state)
+		}
+		updates = append(updates, state)
+	}
+
+	return updates, activeKeys
+}
+
 // markTerminal marks a session with a terminal state (Complete, Errored, or Lost).
 // The store update and broadcast are performed atomically so that HTTP readers
 // cannot observe the terminal state before WebSocket clients are notified.
-func (m *Monitor) markTerminal(state *session.SessionState, activity session.Activity, completedAt time.Time) {
+func (m *Monitor) markTerminal(cfg *config.Config, state *session.SessionState, activity session.Activity, completedAt time.Time) {
 	if state == nil {
 		return
 	}
@@ -525,25 +586,29 @@ func (m *Monitor) markTerminal(state *session.SessionState, activity session.Act
 		if !wasTerminal {
 			log.Printf("Session %s terminal: %s → %s (broadcasting completion)", state.ID, state.Name, activity)
 			m.broadcaster.QueueCompletion(state.ID, activity, state.Name)
-			m.emitEvent(session.EventTerminal, state)
 		}
 		m.broadcaster.QueueUpdate([]*session.SessionState{state})
 	})
-	m.scheduleRemoval(state.ID, completedAt)
+	// emitEvent calls store.ActiveCount() which takes a read lock —
+	// must be outside UpdateAndNotify to avoid deadlock (write lock is held).
+	if !wasTerminal {
+		m.emitEvent(session.EventTerminal, state)
+	}
+	m.scheduleRemoval(cfg, state.ID, completedAt)
 }
 
 // markComplete marks a session as successfully completed.
-func (m *Monitor) markComplete(state *session.SessionState, completedAt time.Time) {
-	m.markTerminal(state, session.Complete, completedAt)
+func (m *Monitor) markComplete(cfg *config.Config, state *session.SessionState, completedAt time.Time) {
+	m.markTerminal(cfg, state, session.Complete, completedAt)
 }
 
 // scheduleRemoval enqueues a session for removal after CompletionRemoveAfter.
 // A zero duration removes immediately; a negative duration disables removal.
-func (m *Monitor) scheduleRemoval(sessionID string, completedAt time.Time) {
-	if m.cfg.Monitor.CompletionRemoveAfter < 0 {
+func (m *Monitor) scheduleRemoval(cfg *config.Config, sessionID string, completedAt time.Time) {
+	if cfg.Monitor.CompletionRemoveAfter < 0 {
 		return
 	}
-	removeAt := completedAt.Add(m.cfg.Monitor.CompletionRemoveAfter)
+	removeAt := completedAt.Add(cfg.Monitor.CompletionRemoveAfter)
 	if existing, ok := m.pendingRemoval[sessionID]; ok && existing.Before(removeAt) {
 		return
 	}
@@ -573,8 +638,8 @@ func (m *Monitor) flushRemovals(now time.Time) {
 // consumeSessionEndMarkers handles Claude-specific SessionEnd hook markers.
 // These are JSON files dropped into a directory by the Claude CLI when a
 // session ends. Other sources don't use this mechanism.
-func (m *Monitor) consumeSessionEndMarkers(now time.Time) {
-	dir := m.cfg.Monitor.SessionEndDir
+func (m *Monitor) consumeSessionEndMarkers(cfg *config.Config, now time.Time) {
+	dir := cfg.Monitor.SessionEndDir
 	if dir == "" {
 		return
 	}
@@ -610,7 +675,7 @@ func (m *Monitor) consumeSessionEndMarkers(now time.Time) {
 			continue
 		}
 
-		m.handleSessionEnd(marker, now)
+		m.handleSessionEnd(cfg, marker, now)
 
 		if err := os.Remove(path); err != nil {
 			log.Printf("Session end marker cleanup error: %v", err)
@@ -618,7 +683,7 @@ func (m *Monitor) consumeSessionEndMarkers(now time.Time) {
 	}
 }
 
-func (m *Monitor) handleSessionEnd(marker sessionEndMarker, now time.Time) {
+func (m *Monitor) handleSessionEnd(cfg *config.Config, marker sessionEndMarker, now time.Time) {
 	// Session end markers use the claude source prefix.
 	// Try the marker's session_id first, then fall back to the filename-
 	// based ID derived from the transcript path.  The monitor tracks
@@ -636,18 +701,8 @@ func (m *Monitor) handleSessionEnd(marker sessionEndMarker, now time.Time) {
 	}
 
 	if !ok {
-		workingDir := marker.Cwd
-		if workingDir == "" && marker.TranscriptPath != "" {
-			workingDir = workingDirFromFile(marker.TranscriptPath)
-		}
-		state = &session.SessionState{
-			ID:         storeKey,
-			Name:       nameFromPath(workingDir),
-			Source:     "claude",
-			WorkingDir: workingDir,
-			Branch:     detectBranch(workingDir),
-			StartedAt:  now,
-		}
+		log.Printf("Session end marker for unknown session %s (transcript=%s) — ignoring", marker.SessionID, marker.TranscriptPath)
+		return
 	}
 
 	completedAt := now
@@ -659,7 +714,7 @@ func (m *Monitor) handleSessionEnd(marker sessionEndMarker, now time.Time) {
 
 	// Determine terminal activity based on reason field
 	activity := determineActivityFromReason(marker.Reason)
-	m.markTerminal(state, activity, completedAt)
+	m.markTerminal(cfg, state, activity, completedAt)
 
 	// Note: tracked sessions are intentionally kept after session end to
 	// maintain file offset for resume detection. They are cleaned up when
@@ -718,9 +773,9 @@ func classifyActivityFromUpdate(update SourceUpdate) session.Activity {
 //
 // This method sets TokensUsed, TokenEstimated, MaxContextTokens, and
 // ContextUtilization on the session state.
-func (m *Monitor) resolveTokens(state *session.SessionState, update SourceUpdate, maxTokens int) {
-	strategy := m.cfg.TokenStrategy(state.Source)
-	tokensPerMsg := m.cfg.TokenNorm.TokensPerMessage
+func (m *Monitor) resolveTokens(cfg *config.Config, state *session.SessionState, update SourceUpdate, maxTokens int) {
+	strategy := cfg.TokenStrategy(state.Source)
+	tokensPerMsg := cfg.TokenNorm.TokensPerMessage
 	if tokensPerMsg <= 0 {
 		tokensPerMsg = 2000
 	}
@@ -830,8 +885,8 @@ func (m *Monitor) calculateBurnRate(ts *trackedSession, currentTokens int, now t
 
 // healthThreshold returns the configured health warning threshold,
 // falling back to 3 if unconfigured or zero.
-func (m *Monitor) healthThreshold() int {
-	if t := m.cfg.Monitor.HealthWarningThreshold; t > 0 {
+func healthThreshold(cfg *config.Config) int {
+	if t := cfg.Monitor.HealthWarningThreshold; t > 0 {
 		return t
 	}
 	return 3
@@ -839,53 +894,55 @@ func (m *Monitor) healthThreshold() int {
 
 // maybeEmitHealthEvents checks each source's health status and emits a
 // source_health WS event when the status transitions (e.g. healthy -> failed).
-func (m *Monitor) maybeEmitHealthEvents() {
-	threshold := m.healthThreshold()
+func (m *Monitor) maybeEmitHealthEvents(cfg *config.Config, sources []Source, health map[string]*sourceHealth) {
+	threshold := healthThreshold(cfg)
 	now := time.Now()
-	for _, src := range m.sources {
-		sh := m.health[src.Name()]
-		status := sh.status(threshold)
-		if status == sh.lastEmittedStatus {
+	for _, src := range sources {
+		sh := health[src.Name()]
+		status, discoverFailures, parseFailures, lastErr, changed := sh.snapshotAndEmit(threshold)
+		if !changed {
 			continue
 		}
-		sh.lastEmittedStatus = status
-		sh.lastEmittedAt = now
-
-		payload := ws.SourceHealthPayload{
-			Source:           src.Name(),
-			Status:           status,
-			DiscoverFailures: sh.discoverFailures,
-			ParseFailures:    sh.degradedSessionCount(threshold),
-			LastError:        sh.lastError(),
-			Timestamp:        now,
-		}
 		m.broadcaster.BroadcastMessage(ws.WSMessage{
-			Type:    ws.MsgSourceHealth,
-			Payload: payload,
+			Type: ws.MsgSourceHealth,
+			Payload: ws.SourceHealthPayload{
+				Source:           src.Name(),
+				Status:           status,
+				DiscoverFailures: discoverFailures,
+				ParseFailures:    parseFailures,
+				LastError:        lastErr,
+				Timestamp:        now,
+			},
 		})
 		log.Printf("[%s] health status: %s (discover=%d, parseDegraded=%d)",
-			src.Name(), status, sh.discoverFailures, payload.ParseFailures)
+			src.Name(), status, discoverFailures, parseFailures)
 	}
 }
 
 // sourceHealthSnapshot builds SourceHealthPayload entries for all non-healthy
 // sources. Used by the broadcaster's health hook for snapshot broadcasts.
 func (m *Monitor) sourceHealthSnapshot() []ws.SourceHealthPayload {
-	threshold := m.healthThreshold()
+	m.mu.RLock()
+	cfg := m.cfg
+	sources := m.sources
+	health := m.health
+	m.mu.RUnlock()
+
+	threshold := healthThreshold(cfg)
 	var result []ws.SourceHealthPayload
 	now := time.Now()
-	for _, src := range m.sources {
-		sh := m.health[src.Name()]
-		status := sh.status(threshold)
+	for _, src := range sources {
+		sh := health[src.Name()]
+		status, discoverFailures, parseFailures, lastErr := sh.snapshot(threshold)
 		if status == ws.StatusHealthy {
 			continue
 		}
 		result = append(result, ws.SourceHealthPayload{
 			Source:           src.Name(),
 			Status:           status,
-			DiscoverFailures: sh.discoverFailures,
-			ParseFailures:    sh.degradedSessionCount(threshold),
-			LastError:        sh.lastError(),
+			DiscoverFailures: discoverFailures,
+			ParseFailures:    parseFailures,
+			LastError:        lastErr,
 			Timestamp:        now,
 		})
 	}

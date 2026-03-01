@@ -1,10 +1,41 @@
 package monitor
 
 import (
+	"bufio"
+	"encoding/json"
 	"log"
 	"os"
 	"time"
 )
+
+// readFirstTimestamp opens path, reads its first line, and parses the JSON
+// "timestamp" field as RFC3339. Returns a zero Time and false if the file
+// cannot be read or contains no valid timestamp.
+func readFirstTimestamp(path string) (time.Time, bool) {
+	f, err := os.Open(path)
+	if err != nil {
+		return time.Time{}, false
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	if !scanner.Scan() {
+		return time.Time{}, false
+	}
+
+	var entry struct {
+		Timestamp string `json:"timestamp"`
+	}
+	if json.Unmarshal(scanner.Bytes(), &entry) != nil || entry.Timestamp == "" {
+		return time.Time{}, false
+	}
+
+	t, err := time.Parse(time.RFC3339Nano, entry.Timestamp)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return t, true
+}
 
 // ClaudeSource implements Source for Claude Code sessions. It discovers
 // sessions by scanning ~/.claude/projects/ for recently-modified JSONL
@@ -33,10 +64,7 @@ func (c *ClaudeSource) Discover() ([]SessionHandle, error) {
 		sessionID := SessionIDFromPath(path)
 		workingDir := workingDirFromFile(path)
 
-		var startedAt time.Time
-		if info, err := os.Stat(path); err == nil {
-			startedAt = info.ModTime()
-		}
+		startedAt, _ := readFirstTimestamp(path)
 
 		handles = append(handles, SessionHandle{
 			SessionID:  sessionID,

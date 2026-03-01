@@ -19,12 +19,14 @@ var ErrTooManyConnections = errors.New("too many WebSocket connections")
 type client struct {
 	conn *websocket.Conn
 	send chan []byte
+	b    *Broadcaster
 }
 
-func newClient(conn *websocket.Conn) *client {
+func newClient(conn *websocket.Conn, b *Broadcaster) *client {
 	c := &client{
 		conn: conn,
 		send: make(chan []byte, 64),
+		b:    b,
 	}
 	go c.writePump()
 	return c
@@ -34,6 +36,7 @@ func (c *client) writePump() {
 	defer c.conn.Close()
 	for msg := range c.send {
 		if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+			c.b.RemoveClient(c)
 			return
 		}
 	}
@@ -51,6 +54,8 @@ type Broadcaster struct {
 	privacy        *session.PrivacyFilter
 	throttle       time.Duration
 	snapshotTicker *time.Ticker
+	stop           chan struct{}
+	snapshotReset  chan time.Duration // signals snapshotLoop to recreate its ticker
 	pendingUpdates []*session.SessionState
 	pendingRemoved []string
 	flushTimer     *time.Timer
@@ -61,16 +66,16 @@ type Broadcaster struct {
 
 func NewBroadcaster(store *session.Store, throttle, snapshotInterval time.Duration, maxConns int) *Broadcaster {
 	b := &Broadcaster{
-		clients:  make(map[*client]bool),
-		maxConns: maxConns,
-		store:    store,
-		privacy:  &session.PrivacyFilter{},
-		throttle: throttle,
+		clients:        make(map[*client]bool),
+		maxConns:       maxConns,
+		store:          store,
+		privacy:        &session.PrivacyFilter{},
+		throttle:       throttle,
+		snapshotTicker: time.NewTicker(snapshotInterval),
+		stop:           make(chan struct{}),
+		snapshotReset:  make(chan time.Duration, 1),
 	}
-
-	b.snapshotTicker = time.NewTicker(snapshotInterval)
 	go b.snapshotLoop()
-
 	return b
 }
 
@@ -83,9 +88,11 @@ func (b *Broadcaster) SetPrivacyFilter(f *session.PrivacyFilter) {
 }
 
 // SetHealthHook registers a function that returns the current source health
-// status for inclusion in snapshot broadcasts.
+// status for inclusion in snapshot broadcasts. Safe for concurrent use.
 func (b *Broadcaster) SetHealthHook(hook func() []SourceHealthPayload) {
+	b.mu.Lock()
 	b.healthHook = hook
+	b.mu.Unlock()
 }
 
 // privacyFilter returns the current privacy filter under lock.
@@ -112,7 +119,7 @@ func (b *Broadcaster) AddClient(conn *websocket.Conn) (*client, error) {
 		return nil, ErrTooManyConnections
 	}
 
-	c := newClient(conn)
+	c := newClient(conn, b)
 	b.clients[c] = true
 	b.mu.Unlock()
 
@@ -206,9 +213,34 @@ func (b *Broadcaster) flush() {
 	b.broadcast(msg)
 }
 
+// SetConfig applies timing changes from a new config. Takes effect on the
+// next queue flush (throttle) and next snapshotLoop iteration (snapshot interval).
+func (b *Broadcaster) SetConfig(throttle, snapshotInterval time.Duration) {
+	b.flushMu.Lock()
+	b.throttle = throttle
+	b.flushMu.Unlock()
+
+	// Drain any pending reset so the latest interval wins, then send.
+	select {
+	case <-b.snapshotReset:
+	default:
+	}
+	b.snapshotReset <- snapshotInterval
+}
+
 func (b *Broadcaster) snapshotLoop() {
-	for range b.snapshotTicker.C {
-		b.broadcast(b.snapshotMessage())
+	ticker := b.snapshotTicker
+	for {
+		select {
+		case <-ticker.C:
+			b.broadcast(b.snapshotMessage())
+		case d := <-b.snapshotReset:
+			ticker.Stop()
+			ticker = time.NewTicker(d)
+		case <-b.stop:
+			ticker.Stop()
+			return
+		}
 	}
 }
 
@@ -218,8 +250,11 @@ func (b *Broadcaster) snapshotMessage() WSMessage {
 	payload := SnapshotPayload{
 		Sessions: b.privacyFilter().FilterSlice(b.store.GetAll()),
 	}
-	if b.healthHook != nil {
-		payload.SourceHealth = b.healthHook()
+	b.mu.RLock()
+	hook := b.healthHook
+	b.mu.RUnlock()
+	if hook != nil {
+		payload.SourceHealth = hook()
 	}
 	return WSMessage{
 		Type:    MsgSnapshot,
@@ -273,9 +308,10 @@ func (b *Broadcaster) BroadcastMessage(msg WSMessage) {
 	b.broadcast(msg)
 }
 
-// Stop stops the snapshot ticker, preventing further broadcast ticks.
+// Stop stops the snapshot ticker and terminates the snapshotLoop goroutine.
 func (b *Broadcaster) Stop() {
 	b.snapshotTicker.Stop()
+	close(b.stop)
 }
 
 func (b *Broadcaster) ClientCount() int {

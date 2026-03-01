@@ -23,8 +23,7 @@ func (s *Store) Get(id string) (*SessionState, bool) {
 	if !ok {
 		return nil, false
 	}
-	copy := *st
-	return &copy, true
+	return st.Clone(), true
 }
 
 func (s *Store) GetAll() []*SessionState {
@@ -32,8 +31,7 @@ func (s *Store) GetAll() []*SessionState {
 	defer s.mu.RUnlock()
 	result := make([]*SessionState, 0, len(s.sessions))
 	for _, st := range s.sessions {
-		copy := *st
-		result = append(result, &copy)
+		result = append(result, st.Clone())
 	}
 	return result
 }
@@ -77,8 +75,7 @@ func (s *Store) updateLocked(state *SessionState) {
 		state.Lane = s.nextLane
 		s.nextLane++
 	}
-	copy := *state
-	s.sessions[state.ID] = &copy
+	s.sessions[state.ID] = state.Clone()
 }
 
 func (s *Store) Remove(id string) {

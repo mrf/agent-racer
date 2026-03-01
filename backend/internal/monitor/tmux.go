@@ -2,7 +2,6 @@ package monitor
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -36,9 +35,9 @@ func NewTmuxResolver() *TmuxResolver {
 	return &TmuxResolver{targetByPID: targetByPID}
 }
 
-// Resolve walks the process tree from pid upward (via /proc/<pid>/stat ppid)
-// to find a PID that matches a tmux pane's shell PID. Returns the pane target
-// string and true, or ("", false) if no match.
+// Resolve walks the process tree from pid upward to find a PID that matches
+// a tmux pane's shell PID. Returns the pane target string and true, or
+// ("", false) if no match. Stops after 10 ancestors to avoid runaway loops.
 func (r *TmuxResolver) Resolve(pid int) (string, bool) {
 	if r == nil {
 		return "", false
@@ -101,30 +100,21 @@ func parseTmuxPanes(output string) []TmuxPane {
 			continue
 		}
 
-		sessionName := fields[1]
 		panes = append(panes, TmuxPane{
-			SessionName: sessionName,
+			SessionName: fields[1],
 			WindowIndex: winIdx,
 			PaneIndex:   paneIdx,
 			PanePID:     pid,
-			Target:      fmt.Sprintf("%s:%d.%d", sessionName, winIdx, paneIdx),
+			Target:      fmt.Sprintf("%s:%d.%d", fields[1], winIdx, paneIdx),
 		})
 	}
 	return panes
 }
 
-// getParentPID reads /proc/<pid>/stat to extract the parent PID (field 4).
-func getParentPID(pid int) int {
-	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
-	if err != nil {
-		return 0
-	}
-	return parseParentPID(string(data))
-}
-
 // parseParentPID extracts the ppid from /proc/<pid>/stat content.
-// The comm field (field 2) is enclosed in parens and may contain spaces,
-// so we find the closing paren first. PPID is the first field after comm.
+// Format: "pid (comm) state ppid ..." where comm may contain spaces or
+// parens, so we find the last closing paren first. PPID is at index 1
+// in the remaining fields (state=0, ppid=1).
 func parseParentPID(stat string) int {
 	idx := strings.LastIndex(stat, ")")
 	if idx < 0 || idx+2 >= len(stat) {

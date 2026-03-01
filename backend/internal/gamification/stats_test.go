@@ -80,7 +80,7 @@ func TestStatsTracker_EventNew_IncrementsTotalSessions(t *testing.T) {
 		ActiveCount: 1,
 	}
 
-	time.Sleep(100 * time.Millisecond)
+	tracker.Flush()
 
 	stats := tracker.Stats()
 	if stats.TotalSessions != 1 {
@@ -116,7 +116,7 @@ func TestStatsTracker_EventNew_CountsSessionsPerSource(t *testing.T) {
 		ActiveCount: 3,
 	}
 
-	time.Sleep(100 * time.Millisecond)
+	tracker.Flush()
 
 	stats := tracker.Stats()
 	if stats.TotalSessions != 3 {
@@ -152,7 +152,7 @@ func TestStatsTracker_EventNew_TracksMaxConcurrentActive(t *testing.T) {
 		ActiveCount: 8,
 	}
 
-	time.Sleep(100 * time.Millisecond)
+	tracker.Flush()
 
 	stats := tracker.Stats()
 	if stats.MaxConcurrentActive != 12 {
@@ -183,7 +183,7 @@ func TestStatsTracker_EventTerminal_Complete_IncrementsCompletions(t *testing.T)
 		ActiveCount: 0,
 	}
 
-	time.Sleep(100 * time.Millisecond)
+	tracker.Flush()
 
 	stats := tracker.Stats()
 	if stats.TotalCompletions != 1 {
@@ -206,7 +206,7 @@ func TestStatsTracker_EventTerminal_Error_ResetsStreak(t *testing.T) {
 			ActiveCount: 1,
 		}
 	}
-	time.Sleep(50 * time.Millisecond)
+	tracker.Flush()
 
 	for i := 0; i < 3; i++ {
 		eventCh <- session.Event{
@@ -220,7 +220,7 @@ func TestStatsTracker_EventTerminal_Error_ResetsStreak(t *testing.T) {
 			ActiveCount: 0,
 		}
 	}
-	time.Sleep(50 * time.Millisecond)
+	tracker.Flush()
 
 	stats := tracker.Stats()
 	if stats.ConsecutiveCompletions != 3 {
@@ -237,7 +237,7 @@ func TestStatsTracker_EventTerminal_Error_ResetsStreak(t *testing.T) {
 		},
 		ActiveCount: 0,
 	}
-	time.Sleep(50 * time.Millisecond)
+	tracker.Flush()
 
 	stats = tracker.Stats()
 	if stats.ConsecutiveCompletions != 0 {
@@ -262,7 +262,7 @@ func TestStatsTracker_EventTerminal_Lost_ResetsStreak(t *testing.T) {
 		},
 		ActiveCount: 0,
 	}
-	time.Sleep(50 * time.Millisecond)
+	tracker.Flush()
 
 	// Lost resets streak without incrementing errors
 	eventCh <- session.Event{
@@ -273,7 +273,7 @@ func TestStatsTracker_EventTerminal_Lost_ResetsStreak(t *testing.T) {
 		},
 		ActiveCount: 0,
 	}
-	time.Sleep(50 * time.Millisecond)
+	tracker.Flush()
 
 	stats := tracker.Stats()
 	if stats.ConsecutiveCompletions != 0 {
@@ -304,7 +304,7 @@ func TestStatsTracker_EventTerminal_IncrementsErrors(t *testing.T) {
 		ActiveCount: 0,
 	}
 
-	time.Sleep(100 * time.Millisecond)
+	tracker.Flush()
 
 	stats := tracker.Stats()
 	if stats.TotalErrors != 2 {
@@ -325,7 +325,7 @@ func TestStatsTracker_PeakMetrics_OnlyIncrease(t *testing.T) {
 		},
 		ActiveCount: 1,
 	}
-	time.Sleep(50 * time.Millisecond)
+	tracker.Flush()
 
 	stats := tracker.Stats()
 	if stats.MaxContextUtilization != 0.95 {
@@ -345,7 +345,7 @@ func TestStatsTracker_PeakMetrics_OnlyIncrease(t *testing.T) {
 		},
 		ActiveCount: 2,
 	}
-	time.Sleep(50 * time.Millisecond)
+	tracker.Flush()
 
 	stats = tracker.Stats()
 	if stats.MaxContextUtilization != 0.95 {
@@ -376,7 +376,7 @@ func TestStatsTracker_EventTerminal_TracksPeakMetrics(t *testing.T) {
 		ActiveCount: 0,
 	}
 
-	time.Sleep(100 * time.Millisecond)
+	tracker.Flush()
 
 	stats := tracker.Stats()
 	if stats.SessionsPerModel["claude-opus-4"] != 1 {
@@ -408,7 +408,7 @@ func TestStatsTracker_DeduplicatesSessions(t *testing.T) {
 		}
 	}
 
-	time.Sleep(100 * time.Millisecond)
+	tracker.Flush()
 
 	stats := tracker.Stats()
 	if stats.TotalSessions != 1 {
@@ -424,7 +424,7 @@ func TestStatsTracker_Stats_ReturnsCopy(t *testing.T) {
 		State:       &session.SessionState{ID: "s1", Source: "test"},
 		ActiveCount: 1,
 	}
-	time.Sleep(50 * time.Millisecond)
+	tracker.Flush()
 
 	stats1 := tracker.Stats()
 	// Modify the returned copy
@@ -466,7 +466,7 @@ func TestStatsTracker_DebouncedSave(t *testing.T) {
 	}
 
 	// Stats should be updated immediately in memory
-	time.Sleep(50 * time.Millisecond)
+	tracker.Flush()
 	stats := tracker.Stats()
 	if stats.TotalSessions != 10 {
 		t.Errorf("TotalSessions in memory = %d, want 10", stats.TotalSessions)
@@ -507,7 +507,7 @@ func TestStatsTracker_SavesOnContextCancel(t *testing.T) {
 		ActiveCount: 1,
 	}
 
-	time.Sleep(50 * time.Millisecond)
+	tracker.Flush()
 
 	// Cancel context - should trigger final save
 	cancel()
@@ -558,10 +558,99 @@ func TestStatsTracker_ThreadSafety(t *testing.T) {
 	}()
 
 	wg.Wait()
+	tracker.Flush()
 
 	stats := tracker.Stats()
 	if stats.TotalSessions != numGoroutines*eventsPerGoroutine {
 		t.Errorf("TotalSessions = %d, want %d", stats.TotalSessions, numGoroutines*eventsPerGoroutine)
+	}
+}
+
+func TestStatsTracker_PhotoFinish_TwoRapidCompletions(t *testing.T) {
+	tracker, eventCh := startTracker(t)
+
+	// Register two sessions.
+	eventCh <- session.Event{
+		Type:        session.EventNew,
+		State:       &session.SessionState{ID: "s1", Source: "test"},
+		ActiveCount: 2,
+	}
+	eventCh <- session.Event{
+		Type:        session.EventNew,
+		State:       &session.SessionState{ID: "s2", Source: "test"},
+		ActiveCount: 2,
+	}
+	tracker.Flush()
+
+	// Complete both sessions in quick succession (well within 10s).
+	completedAt := time.Now()
+	eventCh <- session.Event{
+		Type: session.EventTerminal,
+		State: &session.SessionState{
+			ID: "s1", Source: "test",
+			Activity:    session.Complete,
+			CompletedAt: &completedAt,
+		},
+		ActiveCount: 1,
+	}
+	eventCh <- session.Event{
+		Type: session.EventTerminal,
+		State: &session.SessionState{
+			ID: "s2", Source: "test",
+			Activity:    session.Complete,
+			CompletedAt: &completedAt,
+		},
+		ActiveCount: 0,
+	}
+
+	tracker.Flush()
+
+	stats := tracker.Stats()
+	if !stats.PhotoFinishSeen {
+		t.Error("PhotoFinishSeen should be true after two rapid completions")
+	}
+}
+
+func TestStatsTracker_PhotoFinish_NotTriggeredByErrors(t *testing.T) {
+	tracker, eventCh := startTracker(t)
+
+	eventCh <- session.Event{
+		Type:        session.EventNew,
+		State:       &session.SessionState{ID: "s1", Source: "test"},
+		ActiveCount: 2,
+	}
+	eventCh <- session.Event{
+		Type:        session.EventNew,
+		State:       &session.SessionState{ID: "s2", Source: "test"},
+		ActiveCount: 2,
+	}
+	tracker.Flush()
+
+	// First: error, then complete — error should not set lastCompletionAt.
+	eventCh <- session.Event{
+		Type: session.EventTerminal,
+		State: &session.SessionState{
+			ID: "s1", Source: "test",
+			Activity: session.Errored,
+		},
+		ActiveCount: 1,
+	}
+	completedAt := time.Now()
+	eventCh <- session.Event{
+		Type: session.EventTerminal,
+		State: &session.SessionState{
+			ID: "s2", Source: "test",
+			Activity:    session.Complete,
+			CompletedAt: &completedAt,
+		},
+		ActiveCount: 0,
+	}
+
+	tracker.Flush()
+
+	stats := tracker.Stats()
+	if stats.PhotoFinishSeen {
+		t.Error("PhotoFinishSeen should be false — error + complete is not a photo finish")
 	}
 }
 
@@ -708,6 +797,212 @@ func TestSeasonRotation_EmptyOldSeasonNotArchived(t *testing.T) {
 	}
 	if len(stats.ArchivedSeasons) != 0 {
 		t.Errorf("empty old season should not be archived, got %d entries", len(stats.ArchivedSeasons))
+	}
+}
+
+func TestStatsTracker_MaxHighUtilizationSimultaneous(t *testing.T) {
+	tracker, eventCh := startTracker(t)
+
+	// Register 3 sessions.
+	for i := 1; i <= 3; i++ {
+		eventCh <- session.Event{
+			Type:        session.EventNew,
+			State:       &session.SessionState{ID: fmt.Sprintf("s%d", i), Source: "test"},
+			ActiveCount: i,
+		}
+	}
+
+	// s1 and s2 above 50%; s3 not yet updated.
+	eventCh <- session.Event{
+		Type:        session.EventUpdate,
+		State:       &session.SessionState{ID: "s1", ContextUtilization: 0.60},
+		ActiveCount: 3,
+	}
+	eventCh <- session.Event{
+		Type:        session.EventUpdate,
+		State:       &session.SessionState{ID: "s2", ContextUtilization: 0.70},
+		ActiveCount: 3,
+	}
+	tracker.Flush()
+
+	stats := tracker.Stats()
+	if stats.MaxHighUtilizationSimultaneous != 2 {
+		t.Errorf("MaxHighUtilizationSimultaneous = %d, want 2 (only s1 and s2 above 50%%)", stats.MaxHighUtilizationSimultaneous)
+	}
+
+	// s3 joins — all 3 above 50%.
+	eventCh <- session.Event{
+		Type:        session.EventUpdate,
+		State:       &session.SessionState{ID: "s3", ContextUtilization: 0.80},
+		ActiveCount: 3,
+	}
+	tracker.Flush()
+
+	stats = tracker.Stats()
+	if stats.MaxHighUtilizationSimultaneous != 3 {
+		t.Errorf("MaxHighUtilizationSimultaneous = %d, want 3 (all three above 50%%)", stats.MaxHighUtilizationSimultaneous)
+	}
+
+	// s1 drops below 50% — peak should remain 3.
+	eventCh <- session.Event{
+		Type:        session.EventUpdate,
+		State:       &session.SessionState{ID: "s1", ContextUtilization: 0.30},
+		ActiveCount: 3,
+	}
+	tracker.Flush()
+
+	stats = tracker.Stats()
+	if stats.MaxHighUtilizationSimultaneous != 3 {
+		t.Errorf("MaxHighUtilizationSimultaneous should not decrease: got %d, want 3", stats.MaxHighUtilizationSimultaneous)
+	}
+
+	// Terminate s2 — session removed from tracking; current count is 1 (s3 only).
+	completedAt := time.Now()
+	eventCh <- session.Event{
+		Type: session.EventTerminal,
+		State: &session.SessionState{
+			ID:          "s2",
+			Activity:    session.Complete,
+			CompletedAt: &completedAt,
+		},
+		ActiveCount: 2,
+	}
+	// s3 update — only s3 is above 50% now, but peak stays 3.
+	eventCh <- session.Event{
+		Type:        session.EventUpdate,
+		State:       &session.SessionState{ID: "s3", ContextUtilization: 0.90},
+		ActiveCount: 2,
+	}
+	tracker.Flush()
+
+	stats = tracker.Stats()
+	if stats.MaxHighUtilizationSimultaneous != 3 {
+		t.Errorf("MaxHighUtilizationSimultaneous after terminal: got %d, want 3 (peak preserved)", stats.MaxHighUtilizationSimultaneous)
+	}
+}
+
+func TestStatsTracker_TokensBurned_UsesDelta(t *testing.T) {
+	tracker, eventCh := startTracker(t)
+
+	// Register session.
+	eventCh <- session.Event{
+		Type:        session.EventNew,
+		State:       &session.SessionState{ID: "s1", Source: "test"},
+		ActiveCount: 1,
+	}
+
+	// Three updates with cumulative token counts: 10k, 25k, 40k.
+	// Deltas: 10k, 15k, 15k — should sum to 40k total.
+	for _, tokens := range []int{10_000, 25_000, 40_000} {
+		eventCh <- session.Event{
+			Type:        session.EventUpdate,
+			State:       &session.SessionState{ID: "s1", TokensUsed: tokens},
+			ActiveCount: 1,
+		}
+	}
+
+	tracker.Flush()
+
+	stats := tracker.Stats()
+	// Total burned should be 40,000 (the final cumulative value), NOT 75,000 (10k+25k+40k).
+	if stats.WeeklyChallenges.Snapshot.TokensBurned != 40_000 {
+		t.Errorf("TokensBurned = %d, want 40000 (delta tracking)", stats.WeeklyChallenges.Snapshot.TokensBurned)
+	}
+}
+
+func TestStatsTracker_TokensBurned_MultipleSessions(t *testing.T) {
+	tracker, eventCh := startTracker(t)
+
+	// Register two sessions.
+	eventCh <- session.Event{
+		Type:        session.EventNew,
+		State:       &session.SessionState{ID: "s1", Source: "test"},
+		ActiveCount: 1,
+	}
+	eventCh <- session.Event{
+		Type:        session.EventNew,
+		State:       &session.SessionState{ID: "s2", Source: "test"},
+		ActiveCount: 2,
+	}
+
+	// Session 1: two updates, cumulative 5k then 12k.
+	eventCh <- session.Event{
+		Type:        session.EventUpdate,
+		State:       &session.SessionState{ID: "s1", TokensUsed: 5_000},
+		ActiveCount: 2,
+	}
+	eventCh <- session.Event{
+		Type:        session.EventUpdate,
+		State:       &session.SessionState{ID: "s1", TokensUsed: 12_000},
+		ActiveCount: 2,
+	}
+
+	// Session 2: two updates, cumulative 8k then 20k.
+	eventCh <- session.Event{
+		Type:        session.EventUpdate,
+		State:       &session.SessionState{ID: "s2", TokensUsed: 8_000},
+		ActiveCount: 2,
+	}
+	eventCh <- session.Event{
+		Type:        session.EventUpdate,
+		State:       &session.SessionState{ID: "s2", TokensUsed: 20_000},
+		ActiveCount: 2,
+	}
+
+	tracker.Flush()
+
+	stats := tracker.Stats()
+	// Expected: 12,000 (s1 final) + 20,000 (s2 final) = 32,000.
+	if stats.WeeklyChallenges.Snapshot.TokensBurned != 32_000 {
+		t.Errorf("TokensBurned = %d, want 32000", stats.WeeklyChallenges.Snapshot.TokensBurned)
+	}
+}
+
+func TestStatsTracker_TokensBurned_CleanupOnTerminal(t *testing.T) {
+	tracker, eventCh := startTracker(t)
+
+	// Register and update session.
+	eventCh <- session.Event{
+		Type:        session.EventNew,
+		State:       &session.SessionState{ID: "s1", Source: "test"},
+		ActiveCount: 1,
+	}
+	eventCh <- session.Event{
+		Type:        session.EventUpdate,
+		State:       &session.SessionState{ID: "s1", TokensUsed: 50_000},
+		ActiveCount: 1,
+	}
+
+	// Terminate session.
+	completedAt := time.Now()
+	eventCh <- session.Event{
+		Type: session.EventTerminal,
+		State: &session.SessionState{
+			ID:          "s1",
+			Activity:    session.Complete,
+			CompletedAt: &completedAt,
+		},
+		ActiveCount: 0,
+	}
+
+	// Re-register same session ID (simulating reuse after cleanup).
+	eventCh <- session.Event{
+		Type:        session.EventNew,
+		State:       &session.SessionState{ID: "s1", Source: "test"},
+		ActiveCount: 1,
+	}
+	eventCh <- session.Event{
+		Type:        session.EventUpdate,
+		State:       &session.SessionState{ID: "s1", TokensUsed: 30_000},
+		ActiveCount: 1,
+	}
+
+	tracker.Flush()
+
+	stats := tracker.Stats()
+	// First session: 50k. Second session (same ID): 30k. Total: 80k.
+	if stats.WeeklyChallenges.Snapshot.TokensBurned != 80_000 {
+		t.Errorf("TokensBurned = %d, want 80000 (lastTokens should be cleaned on terminal)", stats.WeeklyChallenges.Snapshot.TokensBurned)
 	}
 }
 

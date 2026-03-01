@@ -30,36 +30,200 @@ func TestEncodeProjectPath(t *testing.T) {
 func TestDecodeProjectPath(t *testing.T) {
 	// Create temp directories for testing
 	tmpBase := t.TempDir()
-	testDirs := []string{
-		filepath.Join(tmpBase, "simple-project"),
-		filepath.Join(tmpBase, "multi-dash-project"),
-		filepath.Join(tmpBase, "no-dashes"),
+
+	// Simple directories (no hyphens in components)
+	simpleDirs := []string{
+		filepath.Join(tmpBase, "simple"),
+		filepath.Join(tmpBase, "nested", "deep"),
 	}
-	for _, dir := range testDirs {
+
+	// Directories with hyphens in components (the ambiguous case)
+	hyphenDirs := []string{
+		filepath.Join(tmpBase, "my-project"),
+		filepath.Join(tmpBase, "a-b", "c-d"),
+	}
+
+	for _, dir := range append(simpleDirs, hyphenDirs...) {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			t.Fatal(err)
 		}
 	}
 
+	t.Run("round-trip simple paths", func(t *testing.T) {
+		for _, dir := range simpleDirs {
+			encoded := encodeProjectPath(dir)
+			got := DecodeProjectPath(encoded)
+			if got != dir {
+				t.Errorf("round-trip %q: encoded=%q, decoded=%q", dir, encoded, got)
+			}
+		}
+	})
+
+	t.Run("round-trip hyphenated paths", func(t *testing.T) {
+		for _, dir := range hyphenDirs {
+			encoded := encodeProjectPath(dir)
+			got := DecodeProjectPath(encoded)
+			if got != dir {
+				t.Errorf("round-trip %q: encoded=%q, decoded=%q", dir, encoded, got)
+			}
+		}
+	})
+
+	t.Run("non-existent falls back to all slashes", func(t *testing.T) {
+		got := DecodeProjectPath("-nonexistent-path-my-project")
+		if got != "/nonexistent/path/my/project" {
+			t.Errorf("fallback = %q, want /nonexistent/path/my/project", got)
+		}
+	})
+
+	t.Run("single segment", func(t *testing.T) {
+		got := DecodeProjectPath("-foo")
+		if got != "/foo" {
+			t.Errorf("got %q, want /foo", got)
+		}
+	})
+
+	t.Run("no leading dash passthrough", func(t *testing.T) {
+		got := DecodeProjectPath("noleadingdash")
+		if got != "noleadingdash" {
+			t.Errorf("got %q, want noleadingdash", got)
+		}
+	})
+}
+
+// TestDecodeProjectPathWithHyphensInComponentNames tests decoding of paths
+// where directory components themselves contain hyphens. These are ambiguous
+// cases where the same encoded path could map to multiple directory structures.
+// The decoder must try all possibilities and find the one that exists.
+func TestDecodeProjectPathWithHyphensInComponentNames(t *testing.T) {
+	tmpBase := t.TempDir()
+
 	tests := []struct {
 		name     string
-		encoded  string
-		expected string
+		origPath string
 	}{
-		// Paths that exist on filesystem - should return full decoded path
-		{"existing simple-project", encodeProjectPath(testDirs[0]), testDirs[0]},
-		{"existing multi-dash-project", encodeProjectPath(testDirs[1]), testDirs[1]},
-		{"existing no-dashes", encodeProjectPath(testDirs[2]), testDirs[2]},
-		// Paths that don't exist - should return basename as fallback
-		{"non-existent with dashes", "-nonexistent-path-my-project", "my-project"},
-		{"non-existent single segment", "-foo", "foo"},
+		{
+			name:     "single component with hyphens",
+			origPath: filepath.Join(tmpBase, "my-cool-app"),
+		},
+		{
+			name:     "multiple components with single hyphens each",
+			origPath: filepath.Join(tmpBase, "my-project", "src-code"),
+		},
+		{
+			name:     "deeply nested with hyphens",
+			origPath: filepath.Join(tmpBase, "my-company", "my-team", "my-project"),
+		},
+		{
+			name:     "mixed: some with hyphens some without",
+			origPath: filepath.Join(tmpBase, "project", "my-build", "output"),
+		},
+		{
+			name:     "component with multiple hyphens",
+			origPath: filepath.Join(tmpBase, "my-cool-app-v2"),
+		},
+		{
+			name:     "leading component with hyphens followed by plain",
+			origPath: filepath.Join(tmpBase, "user-name", "projects"),
+		},
 	}
 
+	// Create all test directories
 	for _, tt := range tests {
+		if err := os.MkdirAll(tt.origPath, 0755); err != nil {
+			t.Fatalf("failed to create test directory %q: %v", tt.origPath, err)
+		}
+	}
+
+	// Use traditional for loop as per requirements
+	for i := 0; i < len(tests); i++ {
+		tt := tests[i]
 		t.Run(tt.name, func(t *testing.T) {
-			got := DecodeProjectPath(tt.encoded)
-			if got != tt.expected {
-				t.Errorf("DecodeProjectPath(%q) = %q, want %q", tt.encoded, got, tt.expected)
+			encoded := encodeProjectPath(tt.origPath)
+			decoded := DecodeProjectPath(encoded)
+
+			if decoded != tt.origPath {
+				t.Errorf("failed to decode path with hyphens in component names:\n  original: %q\n  encoded:  %q\n  decoded:  %q",
+					tt.origPath, encoded, decoded)
+			}
+		})
+	}
+}
+
+// TestDecodeProjectPathAmbiguousPaths verifies that when multiple valid
+// interpretations of an encoded path exist on the filesystem, the decoder
+// returns one of them (filesystem walk picks the first match).
+func TestDecodeProjectPathAmbiguousPaths(t *testing.T) {
+	tmpBase := t.TempDir()
+
+	// Create two different directory structures that could both be valid
+	// interpretations of the same encoded string.
+	// Path 1: /tmp/.../home/user-name/project
+	// Path 2: /tmp/.../home-user/name/project (if it existed)
+	// When we encode Path 1, we get: -home-user-name-project
+	// Path 1 exists, so DecodeProjectPath should find it.
+
+	path1 := filepath.Join(tmpBase, "home", "user-name", "project")
+	if err := os.MkdirAll(path1, 0755); err != nil {
+		t.Fatalf("failed to create path1: %v", err)
+	}
+
+	encoded := encodeProjectPath(path1)
+	decoded := DecodeProjectPath(encoded)
+
+	if decoded != path1 {
+		t.Errorf("ambiguous path resolution failed:\n  expected: %q\n  got:      %q",
+			path1, decoded)
+	}
+}
+
+// TestDecodeProjectPathComponentBoundaries tests paths where hyphens in
+// component names could be confused with path separators during decoding.
+func TestDecodeProjectPathComponentBoundaries(t *testing.T) {
+	tmpBase := t.TempDir()
+
+	// Test case: the encoding is lossy, so we need to verify that
+	// DecodeProjectPath correctly reconstructs when the path exists.
+	tests := []struct {
+		description string
+		pathParts   []string
+	}{
+		{
+			description: "two components with single hyphens",
+			pathParts:   []string{"my-app", "src-code"},
+		},
+		{
+			description: "three components with multiple hyphens",
+			pathParts:   []string{"a-b-c", "d-e-f", "g-h-i"},
+		},
+		{
+			description: "mixed hyphenated and plain components",
+			pathParts:   []string{"my-app", "v1", "build-output"},
+		},
+	}
+
+	// Use traditional for loop as per requirements
+	for i := 0; i < len(tests); i++ {
+		tt := tests[i]
+		t.Run(tt.description, func(t *testing.T) {
+			// Build the full path
+			fullPath := tmpBase
+			for j := 0; j < len(tt.pathParts); j++ {
+				fullPath = filepath.Join(fullPath, tt.pathParts[j])
+			}
+
+			// Create the directory structure
+			if err := os.MkdirAll(fullPath, 0755); err != nil {
+				t.Fatalf("failed to create directory: %v", err)
+			}
+
+			// Encode and decode
+			encoded := encodeProjectPath(fullPath)
+			decoded := DecodeProjectPath(encoded)
+
+			if decoded != fullPath {
+				t.Errorf("component boundary test failed:\n  original: %q\n  encoded:  %q\n  decoded:  %q",
+					fullPath, encoded, decoded)
 			}
 		})
 	}

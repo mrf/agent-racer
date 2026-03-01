@@ -245,7 +245,7 @@ func TestFilterSessions_WithStoreData(t *testing.T) {
 
 func TestNewBroadcaster_DefaultPrivacyFilter(t *testing.T) {
 	b := NewBroadcaster(session.NewStore(), 100*time.Millisecond, time.Hour, 0)
-	defer b.snapshotTicker.Stop()
+	defer b.Stop()
 
 	if b.privacy == nil {
 		t.Fatal("default privacy filter should not be nil")
@@ -263,5 +263,37 @@ func TestNewBroadcaster_DefaultPrivacyFilter(t *testing.T) {
 	}
 	if result[0].PID != 42 {
 		t.Error("default filter should not mask PID")
+	}
+}
+
+func TestBroadcaster_SequenceNumberWrapAround(t *testing.T) {
+	b := newTestBroadcaster(session.NewStore(), nil)
+
+	maxUint64 := ^uint64(0)
+	b.seq.Store(maxUint64 - 3)
+
+	// Verify sequence wraps: max-2, max-1, max, 0, 1
+	expected := []uint64{maxUint64 - 2, maxUint64 - 1, maxUint64, 0, 1}
+	for i := 0; i < len(expected); i++ {
+		got := b.seq.Add(1)
+		if got != expected[i] {
+			t.Errorf("seq[%d]: expected %d, got %d", i, expected[i], got)
+		}
+	}
+}
+
+func TestBroadcaster_SequenceNumberIncrement(t *testing.T) {
+	b := newTestBroadcaster(session.NewStore(), nil)
+
+	if b.seq.Load() != 0 {
+		t.Fatalf("expected initial seq to be 0, got %d", b.seq.Load())
+	}
+
+	for i := 0; i < 5; i++ {
+		expected := uint64(i + 1)
+		got := b.seq.Add(1)
+		if got != expected {
+			t.Errorf("seq[%d]: expected %d, got %d", i, expected, got)
+		}
 	}
 }

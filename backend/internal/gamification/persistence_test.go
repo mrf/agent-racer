@@ -496,3 +496,105 @@ func TestStore_RoundTripWithAllFields(t *testing.T) {
 		t.Error("LastUpdated should be set after Save")
 	}
 }
+
+func TestStats_CloneDeepCopiesWeeklyChallengesCompleted(t *testing.T) {
+	// Create original Stats with populated Completed slice
+	original := newStats()
+	original.WeeklyChallenges.Completed = make([]string, 3)
+	original.WeeklyChallenges.Completed[0] = "challenge_1"
+	original.WeeklyChallenges.Completed[1] = "challenge_2"
+	original.WeeklyChallenges.Completed[2] = "challenge_3"
+
+	// Clone the stats
+	cloned := original.clone()
+
+	// Verify initial equality
+	if len(cloned.WeeklyChallenges.Completed) != 3 {
+		t.Fatalf("cloned Completed length = %d, want 3", len(cloned.WeeklyChallenges.Completed))
+	}
+	for i := 0; i < 3; i++ {
+		if cloned.WeeklyChallenges.Completed[i] != original.WeeklyChallenges.Completed[i] {
+			t.Errorf("cloned Completed[%d] = %q, want %q",
+				i, cloned.WeeklyChallenges.Completed[i], original.WeeklyChallenges.Completed[i])
+		}
+	}
+
+	// Mutate the cloned slice
+	cloned.WeeklyChallenges.Completed[0] = "modified_challenge_1"
+
+	// Verify original is unaffected
+	if original.WeeklyChallenges.Completed[0] != "challenge_1" {
+		t.Errorf("original Completed[0] was mutated: got %q, want %q",
+			original.WeeklyChallenges.Completed[0], "challenge_1")
+	}
+
+	// Verify clone has the mutation
+	if cloned.WeeklyChallenges.Completed[0] != "modified_challenge_1" {
+		t.Errorf("cloned Completed[0] = %q, want %q",
+			cloned.WeeklyChallenges.Completed[0], "modified_challenge_1")
+	}
+}
+
+func TestStats_CloneDeepCopiesEmptyCompleted(t *testing.T) {
+	// Test with empty Completed slice
+	original := newStats()
+	original.WeeklyChallenges.Completed = []string{}
+
+	cloned := original.clone()
+
+	if len(cloned.WeeklyChallenges.Completed) != 0 {
+		t.Fatalf("cloned Completed length = %d, want 0", len(cloned.WeeklyChallenges.Completed))
+	}
+
+	// Append to cloned slice should not affect original
+	cloned.WeeklyChallenges.Completed = append(cloned.WeeklyChallenges.Completed, "challenge_1")
+
+	if len(original.WeeklyChallenges.Completed) != 0 {
+		t.Errorf("original Completed was affected: got length %d, want 0", len(original.WeeklyChallenges.Completed))
+	}
+}
+
+func TestStats_CloneDeepCopiesAllWeeklyChallengeFields(t *testing.T) {
+	// Comprehensive test for all WeeklyChallenges fields
+	original := newStats()
+	now := time.Now().UTC()
+	original.WeeklyChallenges.WeekStart = now
+	original.WeeklyChallenges.ActiveIDs = []string{"challenge_a", "challenge_b"}
+	original.WeeklyChallenges.Completed = []string{"challenge_1", "challenge_2"}
+	original.WeeklyChallenges.Snapshot.SessionsPerModel = map[string]int{"opus": 5, "haiku": 3}
+	original.WeeklyChallenges.Snapshot.SessionsPerSource = map[string]int{"claude": 8}
+	original.WeeklyChallenges.XPAwarded = map[string]bool{"challenge_1": true}
+
+	cloned := original.clone()
+
+	// Verify deep copies by mutating each field
+	cloned.WeeklyChallenges.Completed[0] = "mutated"
+	if original.WeeklyChallenges.Completed[0] != "challenge_1" {
+		t.Error("Completed slice not properly cloned")
+	}
+
+	cloned.WeeklyChallenges.ActiveIDs[0] = "mutated"
+	if original.WeeklyChallenges.ActiveIDs[0] != "challenge_a" {
+		t.Error("ActiveIDs slice not properly cloned")
+	}
+
+	cloned.WeeklyChallenges.Snapshot.SessionsPerModel["new_model"] = 99
+	if _, ok := original.WeeklyChallenges.Snapshot.SessionsPerModel["new_model"]; ok {
+		t.Error("Snapshot.SessionsPerModel map not properly cloned")
+	}
+
+	cloned.WeeklyChallenges.Snapshot.SessionsPerSource["new_source"] = 99
+	if _, ok := original.WeeklyChallenges.Snapshot.SessionsPerSource["new_source"]; ok {
+		t.Error("Snapshot.SessionsPerSource map not properly cloned")
+	}
+
+	cloned.WeeklyChallenges.XPAwarded["new_challenge"] = true
+	if _, ok := original.WeeklyChallenges.XPAwarded["new_challenge"]; ok {
+		t.Error("XPAwarded map not properly cloned")
+	}
+
+	// Verify WeekStart is the same value (not shared)
+	if !cloned.WeeklyChallenges.WeekStart.Equal(original.WeeklyChallenges.WeekStart) {
+		t.Error("WeekStart not properly cloned")
+	}
+}

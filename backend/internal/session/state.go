@@ -2,6 +2,7 @@ package session
 
 import (
 	"encoding/json"
+	"reflect"
 	"time"
 )
 
@@ -56,9 +57,14 @@ func (a *Activity) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &s); err != nil {
 		return err
 	}
-	if v, ok := activityFromName[s]; ok {
-		*a = v
+	v, ok := activityFromName[s]
+	if !ok {
+		return &json.UnmarshalTypeError{
+			Value: "string " + s,
+			Type:  reflect.TypeOf(*a),
+		}
 	}
+	*a = v
 	return nil
 }
 
@@ -108,6 +114,33 @@ type SubagentState struct {
 	StartedAt       time.Time  `json:"startedAt"`
 	LastActivityAt  time.Time  `json:"lastActivityAt"`
 	CompletedAt     *time.Time `json:"completedAt,omitempty"`
+}
+
+// clone returns a deep copy of the SubagentState, duplicating pointer fields
+// so the copy can be mutated independently of the original.
+func (sa SubagentState) clone() SubagentState {
+	if sa.CompletedAt != nil {
+		t := *sa.CompletedAt
+		sa.CompletedAt = &t
+	}
+	return sa
+}
+
+// Clone returns a deep copy of the SessionState, duplicating pointer and
+// slice fields so the copy can be mutated independently of the original.
+func (s *SessionState) Clone() *SessionState {
+	c := *s
+	if s.CompletedAt != nil {
+		t := *s.CompletedAt
+		c.CompletedAt = &t
+	}
+	if len(s.Subagents) > 0 {
+		c.Subagents = make([]SubagentState, len(s.Subagents))
+		for i, sa := range s.Subagents {
+			c.Subagents[i] = sa.clone()
+		}
+	}
+	return &c
 }
 
 func (s *SessionState) UpdateUtilization() {

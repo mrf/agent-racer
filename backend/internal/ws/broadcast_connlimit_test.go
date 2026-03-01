@@ -52,7 +52,7 @@ func TestAddClient_MaxConnections(t *testing.T) {
 	const maxConns = 2
 	store := session.NewStore()
 	b := NewBroadcaster(store, 100*time.Millisecond, time.Hour, maxConns)
-	defer b.snapshotTicker.Stop()
+	defer b.Stop()
 
 	// Fill up to the limit.
 	var clients []*client
@@ -109,7 +109,7 @@ func TestAddClient_MaxConnections(t *testing.T) {
 func TestAddClient_ZeroMaxConnections_Unlimited(t *testing.T) {
 	store := session.NewStore()
 	b := NewBroadcaster(store, 100*time.Millisecond, time.Hour, 0)
-	defer b.snapshotTicker.Stop()
+	defer b.Stop()
 
 	// Should be able to add many connections without rejection.
 	var servers []*httptest.Server
