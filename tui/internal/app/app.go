@@ -6,6 +6,7 @@ import (
 	"github.com/agent-racer/tui/internal/client"
 	"github.com/agent-racer/tui/internal/theme"
 	"github.com/agent-racer/tui/internal/views/achievements"
+	"github.com/agent-racer/tui/internal/views/battlepass"
 	"github.com/agent-racer/tui/internal/views/dashboard"
 	"github.com/agent-racer/tui/internal/views/detail"
 	"github.com/agent-racer/tui/internal/views/status"
@@ -26,6 +27,13 @@ const (
 	OverlayDebug
 	OverlayBattlePass
 )
+
+// httpBattlePassMsg carries the result of the initial HTTP battle pass fetch.
+type httpBattlePassMsg struct {
+	stats      *client.Stats
+	challenges []client.ChallengeProgress
+	err        error
+}
 
 // Model is the root Bubble Tea model.
 type Model struct {
@@ -50,6 +58,7 @@ type Model struct {
 	dashboard    dashboard.Model
 	detailView   detail.Model
 	achievements achievements.Model
+	battlePass   battlepass.Model
 
 	// Connection state.
 	connected bool
@@ -72,12 +81,25 @@ func New(ws *client.WSClient, http *client.HTTPClient) Model {
 		trackView:    track.New(),
 		dashboard:    dashboard.New(),
 		achievements: achievements.New(),
+		battlePass:   battlepass.New(),
 	}
 }
 
-// Init starts the WebSocket connection.
+// Init starts the WebSocket connection and fetches initial battle pass data.
 func (m Model) Init() tea.Cmd {
-	return m.ws.Listen(m.ctx)
+	return tea.Batch(m.ws.Listen(m.ctx), m.loadBattlePassCmd())
+}
+
+// loadBattlePassCmd fetches stats and challenges from the HTTP API.
+func (m Model) loadBattlePassCmd() tea.Cmd {
+	return func() tea.Msg {
+		stats, err := m.http.GetStats()
+		if err != nil {
+			return httpBattlePassMsg{err: err}
+		}
+		challenges, _ := m.http.GetChallenges()
+		return httpBattlePassMsg{stats: stats, challenges: challenges}
+	}
 }
 
 // Update handles messages.
@@ -90,10 +112,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.trackView.Width = msg.Width
 		m.trackView.Height = msg.Height
 		m.dashboard.Width = msg.Width
+		m.battlePass.Width = msg.Width
 		return m, nil
 
 	case tea.KeyMsg:
 		return m.handleKey(msg)
+
+	case httpBattlePassMsg:
+		if msg.stats != nil {
+			bp := msg.stats.BattlePass
+			m.battlePass.SetFromStats(bp.Season, bp.Tier, bp.XP)
+		}
+		if msg.challenges != nil {
+			m.battlePass.SetChallenges(msg.challenges)
+		}
+		return m, nil
 
 	case client.WSConnectedMsg:
 		m.connected = true
@@ -149,6 +182,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.ws.ReadLoop(m.ctx)
 
 	case client.WSBattlePassMsg:
+		m.battlePass.SetProgress(msg.Payload)
 		return m, m.ws.ReadLoop(m.ctx)
 
 	case client.WSErrorMsg:
@@ -262,12 +296,16 @@ func (m Model) View() string {
 	if m.overlay == OverlayAchievements {
 		return m.achievements.ViewOverlay(m.width, m.height)
 	}
+	if m.overlay == OverlayBattlePass {
+		return m.battlePass.View()
+	}
 
 	var sections []string
 
 	sections = append(sections, m.statusBar.View())
 	sections = append(sections, m.dashboard.View())
 	sections = append(sections, m.trackView.View())
+	sections = append(sections, m.battlePass.CollapsedBar())
 
 	help := theme.StyleDimmed.Render("  j/k:navigate  tab:zone  1-3:jump  enter:detail  f:focus  a:achievements  g:garage  b:battlepass  d:debug  r:resync  q:quit")
 	sections = append(sections, help)
