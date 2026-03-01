@@ -68,6 +68,22 @@ jobs:
           name: playwright-results
           path: e2e/test-results/
 
+  tui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: tui/go.mod
+          cache-dependency-path: tui/go.sum
+
+      - name: Run tests
+        run: cd tui && go test ./...
+
+      - name: Vet
+        run: cd tui && go vet ./...
+
   build:
     runs-on: ubuntu-latest
     steps:

@@ -6,19 +6,25 @@ CONFIG_ROOT="${XDG_CONFIG_HOME:-$HOME/.config}"
 STATE_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}"
 CONFIG_DIR="${CONFIG_ROOT}/agent-racer"
 STATE_DIR="${STATE_ROOT}/agent-racer"
-BINARY_NAME="agent-racer"
+SERVER_BINARY="agent-racer-server"
+TUI_BINARY="agent-racer"
 
-echo "Building agent-racer..."
+echo "Building agent-racer-server..."
 
 cd "$(dirname "$0")/.."
 make build
 
+echo "Building agent-racer (TUI)..."
+make tui
+
 echo "Installing to ${INSTALL_DIR}..."
 
 if [ -w "$INSTALL_DIR" ]; then
-  cp "${BINARY_NAME}" "${INSTALL_DIR}/${BINARY_NAME}"
+  cp "${SERVER_BINARY}" "${INSTALL_DIR}/${SERVER_BINARY}"
+  cp "${TUI_BINARY}" "${INSTALL_DIR}/${TUI_BINARY}"
 else
-  sudo cp "${BINARY_NAME}" "${INSTALL_DIR}/${BINARY_NAME}"
+  sudo cp "${SERVER_BINARY}" "${INSTALL_DIR}/${SERVER_BINARY}"
+  sudo cp "${TUI_BINARY}" "${INSTALL_DIR}/${TUI_BINARY}"
 fi
 
 # Install default config
@@ -72,16 +78,20 @@ PY
 
 echo ""
 echo "Installation complete!"
-echo "  Binary: ${INSTALL_DIR}/${BINARY_NAME}"
+echo "  Server: ${INSTALL_DIR}/${SERVER_BINARY}"
+echo "  TUI:    ${INSTALL_DIR}/${TUI_BINARY}"
 echo "  Config: ${CONFIG_DIR}/config.yaml"
 echo "  SessionEnd hook: ${HOOK_SCRIPT}"
 echo ""
 echo "Claude Code may require hook approval. Run /hooks in Claude Code to review."
 echo ""
 echo "Usage:"
-echo "  agent-racer                    # Real mode - monitors actual Claude sessions"
-echo "  agent-racer --mock             # Mock mode - demo with simulated sessions"
-echo "  agent-racer --config path.yaml # Custom config"
-echo "  agent-racer --port 9090        # Custom port"
+echo "  agent-racer-server                    # Real mode - monitors actual Claude sessions"
+echo "  agent-racer-server --mock             # Mock mode - demo with simulated sessions"
+echo "  agent-racer-server --config path.yaml # Custom config"
+echo "  agent-racer-server --port 9090        # Custom port"
 echo ""
-echo "Open http://localhost:8080 in your browser"
+echo "  agent-racer                           # Terminal dashboard (no browser needed)"
+echo "  agent-racer -token <token>            # Connect with auth token"
+echo ""
+echo "Open http://localhost:8080 in your browser (or use agent-racer for terminal)"

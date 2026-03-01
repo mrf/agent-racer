@@ -1,5 +1,6 @@
 # Build artifacts
 agent-racer
+agent-racer-server
 backend/server
 backend/cmd/server/server
 dist/

@@ -25,9 +25,11 @@ type WSClient struct {
 	url   string
 	token string
 
-	mu   sync.Mutex
-	conn *websocket.Conn
-	seq  uint64
+	mu      sync.Mutex
+	writeMu sync.Mutex // serialises all conn writes (ping, resync, auth)
+	conn    *websocket.Conn
+	seq     uint64
+	pingCtx context.CancelFunc // cancels the active ping goroutine
 }
 
 // NewWSClient creates a client that connects to the given WebSocket URL.
@@ -87,7 +89,8 @@ func (c *WSClient) Listen(ctx context.Context) tea.Cmd {
 				continue
 			}
 
-			// Authenticate if token is set.
+			// Authenticate if token is set. No write mutex needed here
+			// because the connection isn't shared yet (not stored in c.conn).
 			if c.token != "" {
 				auth := map[string]string{"type": "auth", "token": c.token}
 				if err := conn.WriteJSON(auth); err != nil {
@@ -96,10 +99,19 @@ func (c *WSClient) Listen(ctx context.Context) tea.Cmd {
 				}
 			}
 
+			// Cancel any previous ping goroutine.
 			c.mu.Lock()
+			if c.pingCtx != nil {
+				c.pingCtx()
+			}
+			pingCtx, pingCancel := context.WithCancel(ctx)
 			c.conn = conn
 			c.seq = 0
+			c.pingCtx = pingCancel
 			c.mu.Unlock()
+
+			// Start a single ping ticker for this connection.
+			go c.pingLoop(pingCtx, conn)
 
 			return WSConnectedMsg{}
 		}
@@ -122,29 +134,6 @@ func (c *WSClient) ReadLoop(ctx context.Context) tea.Cmd {
 			return nil
 		})
 		conn.SetReadDeadline(time.Now().Add(pongTimeout))
-
-		// Start ping ticker in background.
-		go func() {
-			ticker := time.NewTicker(pingInterval)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-ticker.C:
-					c.mu.Lock()
-					cc := c.conn
-					c.mu.Unlock()
-					if cc != conn {
-						return
-					}
-					cc.SetWriteDeadline(time.Now().Add(writeTimeout))
-					if err := cc.WriteMessage(websocket.PingMessage, nil); err != nil {
-						return
-					}
-				}
-			}
-		}()
 
 		for {
 			_, data, err := conn.ReadMessage()
@@ -175,6 +164,33 @@ func (c *WSClient) ReadLoop(ctx context.Context) tea.Cmd {
 	}
 }
 
+// pingLoop sends periodic pings on the given connection. It exits when the
+// context is cancelled or the connection changes.
+func (c *WSClient) pingLoop(ctx context.Context, conn *websocket.Conn) {
+	ticker := time.NewTicker(pingInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			c.mu.Lock()
+			cc := c.conn
+			c.mu.Unlock()
+			if cc != conn {
+				return
+			}
+			c.writeMu.Lock()
+			conn.SetWriteDeadline(time.Now().Add(writeTimeout))
+			err := conn.WriteMessage(websocket.PingMessage, nil)
+			c.writeMu.Unlock()
+			if err != nil {
+				return
+			}
+		}
+	}
+}
+
 // Resync sends a resync request to the server.
 func (c *WSClient) Resync() error {
 	c.mu.Lock()
@@ -183,6 +199,8 @@ func (c *WSClient) Resync() error {
 	if conn == nil {
 		return fmt.Errorf("not connected")
 	}
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
 	return conn.WriteJSON(map[string]string{"type": "resync"})
 }
 
