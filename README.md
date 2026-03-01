@@ -85,16 +85,19 @@ To connect to a backend on a different host or port:
 
 | Key | Action |
 |-----|--------|
-| `j` / `k` | Navigate up/down in lists |
-| `Tab` | Cycle through views |
-| `1`-`3` | Switch to track / dashboard / detail |
-| `Enter` | Select session for detail view |
-| `f` | Toggle fullscreen |
-| `a` | Achievements view |
-| `g` | Garage view |
-| `b` | Battle pass view |
-| `d` | Debug view |
-| `r` | Refresh |
+| `j` / `k` | Navigate sessions up/down |
+| `Tab` | Cycle zone (Racing → Pit → Parked) |
+| `1` | Jump to Racing zone |
+| `2` | Jump to Pit zone |
+| `3` | Jump to Parked zone |
+| `Enter` | Open session detail overlay |
+| `f` | Focus session in tmux (requires tmux target) |
+| `a` | Achievements overlay |
+| `g` | Garage overlay |
+| `b` | Battle pass overlay |
+| `d` | Debug log overlay |
+| `r` | Resync sessions from backend |
+| `Esc` | Close overlay |
 | `q` | Quit |
 
 ## Mock Mode
@@ -420,6 +423,7 @@ agent-racer/
 | `make run` | Run real mode with filesystem frontend fallback |
 | `make build` | Embed frontend into Go binary, produce `./agent-racer-server` |
 | `make tui` | Build TUI binary, produce `./agent-racer` |
+| `make tui-build` | Alias for `make tui` |
 | `make dist` | Cross-compile server + TUI for linux/darwin amd64/arm64 |
 | `make test` | Run backend Go tests |
 | `make tui-test` | Run TUI Go tests |

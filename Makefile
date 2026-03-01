@@ -1,4 +1,4 @@
-.PHONY: dev run build test test-race test-frontend test-e2e lint ci deps clean embed build-frontend validate-embed dist tui tui-deps tui-test tui-lint
+.PHONY: dev run build test test-race test-frontend test-e2e lint ci deps clean embed build-frontend validate-embed dist tui tui-build tui-deps tui-test tui-lint
 
 SERVER_BINARY := agent-racer-server
 BINARY := agent-racer
@@ -40,6 +40,8 @@ validate-embed: embed
 
 tui: tui-deps
 	cd $(TUI) && go build -o ../$(BINARY) ./cmd/racer-tui
+
+tui-build: tui
 
 test:
 	cd $(BACKEND) && go test ./...
