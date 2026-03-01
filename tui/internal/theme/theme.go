@@ -165,6 +165,30 @@ var (
 		Foreground(ColorBright)
 )
 
+// ActivityGlyph returns a Unicode glyph representing an activity state.
+func ActivityGlyph(activity string) string {
+	switch activity {
+	case "thinking":
+		return "●>"
+	case "tool_use":
+		return "⚙>"
+	case "idle":
+		return "○"
+	case "waiting":
+		return "◌"
+	case "starting":
+		return "◎"
+	case "complete":
+		return "✓"
+	case "errored":
+		return "✗"
+	case "lost":
+		return "?"
+	default:
+		return "·"
+	}
+}
+
 func contains(s, substr string) bool {
 	for i := 0; i <= len(s)-len(substr); i++ {
 		if s[i:i+len(substr)] == substr {

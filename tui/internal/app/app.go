@@ -6,6 +6,7 @@ import (
 	"github.com/agent-racer/tui/internal/client"
 	"github.com/agent-racer/tui/internal/theme"
 	"github.com/agent-racer/tui/internal/views/dashboard"
+	"github.com/agent-racer/tui/internal/views/detail"
 	"github.com/agent-racer/tui/internal/views/status"
 	"github.com/agent-racer/tui/internal/views/track"
 	"github.com/charmbracelet/bubbles/key"
@@ -43,13 +44,17 @@ type Model struct {
 	overlay Overlay
 
 	// Sub-views.
-	statusBar status.Model
-	trackView track.Model
-	dashboard dashboard.Model
+	statusBar  status.Model
+	trackView  track.Model
+	dashboard  dashboard.Model
+	detailView detail.Model
 
 	// Connection state.
 	connected bool
 }
+
+// focusResultMsg carries the result of a FocusSession HTTP call.
+type focusResultMsg struct{ err error }
 
 // New creates the root model.
 func New(ws *client.WSClient, http *client.HTTPClient) Model {
@@ -140,12 +145,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case client.WSErrorMsg:
 		return m, m.ws.ReadLoop(m.ctx)
+
+	case focusResultMsg:
+		if msg.err != nil {
+			m.detailView.FocusError = msg.err.Error()
+		} else {
+			m.detailView.FocusError = ""
+		}
+		return m, nil
 	}
 
 	return m, nil
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.overlay == OverlayDetail {
+		switch {
+		case key.Matches(msg, m.keys.Escape):
+			m.overlay = OverlayNone
+			m.detailView.FocusError = ""
+			return m, nil
+		case key.Matches(msg, m.keys.Focus):
+			if s := m.detailView.Session; s != nil && s.TmuxTarget != "" {
+				return m, m.cmdFocusSession(s.ID)
+			}
+		}
+		return m, nil
+	}
+
 	if m.overlay != OverlayNone {
 		if key.Matches(msg, m.keys.Escape) {
 			m.overlay = OverlayNone
@@ -204,7 +231,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case key.Matches(msg, m.keys.Enter):
-		m.overlay = OverlayDetail
+		if s := m.trackView.SelectedSession(); s != nil {
+			m.detailView = detail.New(s)
+			m.overlay = OverlayDetail
+		}
 		return m, nil
 	}
 
@@ -223,10 +253,20 @@ func (m Model) View() string {
 	sections = append(sections, m.dashboard.View())
 	sections = append(sections, m.trackView.View())
 
-	help := theme.StyleDimmed.Render("  j/k:navigate  tab:zone  1-3:jump  a:achievements  g:garage  b:battlepass  d:debug  r:resync  q:quit")
+	help := theme.StyleDimmed.Render("  j/k:navigate  tab:zone  1-3:jump  enter:detail  f:focus  a:achievements  g:garage  b:battlepass  d:debug  r:resync  q:quit")
 	sections = append(sections, help)
 
-	return lipgloss.JoinVertical(lipgloss.Left, sections...)
+	base := lipgloss.JoinVertical(lipgloss.Left, sections...)
+
+	if m.overlay == OverlayDetail {
+		panel := m.detailView.View()
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, panel,
+			lipgloss.WithWhitespaceChars(" "),
+			lipgloss.WithWhitespaceForeground(theme.ColorBg),
+		)
+	}
+
+	return base
 }
 
 // refreshTrack rebuilds the track view, dashboard, and updates status bar counts.
@@ -235,4 +275,12 @@ func (m *Model) refreshTrack() {
 	racing, pit, parked := m.trackView.Counts()
 	m.statusBar.SetCounts(racing, pit, parked)
 	m.dashboard.SetSessions(m.sessions)
+}
+
+// cmdFocusSession returns a Cmd that calls POST /api/sessions/{id}/focus.
+func (m Model) cmdFocusSession(sessionID string) tea.Cmd {
+	return func() tea.Msg {
+		err := m.http.FocusSession(sessionID)
+		return focusResultMsg{err: err}
+	}
 }
