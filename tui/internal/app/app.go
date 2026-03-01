@@ -5,6 +5,7 @@ import (
 
 	"github.com/agent-racer/tui/internal/client"
 	"github.com/agent-racer/tui/internal/theme"
+	"github.com/agent-racer/tui/internal/views/achievements"
 	"github.com/agent-racer/tui/internal/views/dashboard"
 	"github.com/agent-racer/tui/internal/views/detail"
 	"github.com/agent-racer/tui/internal/views/status"
@@ -44,10 +45,11 @@ type Model struct {
 	overlay Overlay
 
 	// Sub-views.
-	statusBar  status.Model
-	trackView  track.Model
-	dashboard  dashboard.Model
-	detailView detail.Model
+	statusBar    status.Model
+	trackView    track.Model
+	dashboard    dashboard.Model
+	detailView   detail.Model
+	achievements achievements.Model
 
 	// Connection state.
 	connected bool
@@ -60,15 +62,16 @@ type focusResultMsg struct{ err error }
 func New(ws *client.WSClient, http *client.HTTPClient) Model {
 	ctx, cancel := context.WithCancel(context.Background())
 	return Model{
-		ws:        ws,
-		http:      http,
-		ctx:       ctx,
-		cancel:    cancel,
-		keys:      DefaultKeyMap(),
-		sessions:  make(map[string]*client.SessionState),
-		statusBar: status.New(),
-		trackView: track.New(),
-		dashboard: dashboard.New(),
+		ws:           ws,
+		http:         http,
+		ctx:          ctx,
+		cancel:       cancel,
+		keys:         DefaultKeyMap(),
+		sessions:     make(map[string]*client.SessionState),
+		statusBar:    status.New(),
+		trackView:    track.New(),
+		dashboard:    dashboard.New(),
+		achievements: achievements.New(),
 	}
 }
 
@@ -137,7 +140,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case client.WSEquippedMsg:
 		return m, m.ws.ReadLoop(m.ctx)
 
+	case achievements.LoadedMsg:
+		m.achievements.ApplyLoaded(msg)
+		return m, nil
+
 	case client.WSAchievementMsg:
+		m.achievements.ApplyUnlock(msg.Payload.ID)
 		return m, m.ws.ReadLoop(m.ctx)
 
 	case client.WSBattlePassMsg:
@@ -178,6 +186,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.overlay = OverlayNone
 			return m, nil
 		}
+		if m.overlay == OverlayAchievements {
+			m.achievements = m.achievements.Update(msg)
+		}
 		return m, nil
 	}
 
@@ -212,7 +223,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case key.Matches(msg, m.keys.Achievements):
 		m.overlay = OverlayAchievements
-		return m, nil
+		m.achievements = achievements.New()
+		return m, achievements.FetchCmd(m.http)
 
 	case key.Matches(msg, m.keys.Garage):
 		m.overlay = OverlayGarage
@@ -245,6 +257,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) View() string {
 	if m.width == 0 || m.height == 0 {
 		return "Initializing..."
+	}
+
+	if m.overlay == OverlayAchievements {
+		return m.achievements.ViewOverlay(m.width, m.height)
 	}
 
 	var sections []string
