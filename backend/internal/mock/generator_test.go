@@ -9,6 +9,29 @@ import (
 	"github.com/agent-racer/backend/internal/ws"
 )
 
+// newTestGen creates a minimal MockGenerator suitable for unit tests.
+func newTestGen() *MockGenerator {
+	store := session.NewStore()
+	broadcaster := ws.NewBroadcaster(store, time.Hour, time.Hour, 0)
+	return NewGenerator(store, broadcaster)
+}
+
+// newTestMS builds a mockSession with the given pattern, tokensPerTick and maxTokens.
+// tools is set to three entries so ToolUse paths always have a valid tool to cycle through.
+func newTestMS(pattern string, tokensPerTick, maxTokens int) *mockSession {
+	return &mockSession{
+		state: &session.SessionState{
+			ID:               "test-" + pattern,
+			MaxContextTokens: 200000,
+			Activity:         session.Starting,
+		},
+		tokensPerTick: tokensPerTick,
+		pattern:       pattern,
+		maxTokens:     maxTokens,
+		tools:         []string{"Read", "Write", "Bash"},
+	}
+}
+
 // drainEvents collects all events currently in ch without blocking.
 func drainEvents(ch <-chan session.Event) []session.Event {
 	var events []session.Event

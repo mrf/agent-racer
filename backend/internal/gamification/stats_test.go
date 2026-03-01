@@ -1006,6 +1006,74 @@ func TestStatsTracker_TokensBurned_CleanupOnTerminal(t *testing.T) {
 	}
 }
 
+func TestStatsTracker_EquipConcurrentWithProcessEvent(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStore(dir)
+
+	// Pre-load stats with an achievement so Equip() will succeed.
+	initial := newStats()
+	initial.AchievementsUnlocked["first_lap"] = time.Now()
+	if err := store.Save(initial); err != nil {
+		t.Fatalf("Save error: %v", err)
+	}
+
+	tracker, eventCh, err := NewStatsTracker(store, 0, nil)
+	if err != nil {
+		t.Fatalf("NewStatsTracker error: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		tracker.Run(ctx)
+		close(done)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		<-done
+	})
+
+	const iterations = 100
+	reg := NewRewardRegistry()
+
+	var wg sync.WaitGroup
+
+	// Send EventNew events to drive processEvent concurrently.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			eventCh <- session.Event{
+				Type:        session.EventNew,
+				State:       &session.SessionState{ID: fmt.Sprintf("equip-conc-%d", i), Source: "test"},
+				ActiveCount: 1,
+			}
+		}
+	}()
+
+	// Call Equip() repeatedly while events are being processed.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			if _, err := tracker.Equip(reg, "rookie_paint"); err != nil {
+				t.Errorf("Equip error (iteration %d): %v", i, err)
+			}
+		}
+	}()
+
+	wg.Wait()
+	tracker.Flush()
+
+	stats := tracker.Stats()
+	if stats.Equipped.Paint != "rookie_paint" {
+		t.Errorf("Equipped.Paint = %q, want %q", stats.Equipped.Paint, "rookie_paint")
+	}
+	if stats.TotalSessions != iterations {
+		t.Errorf("TotalSessions = %d, want %d", stats.TotalSessions, iterations)
+	}
+}
+
 func TestSeasonRotation_PersistsToDisk(t *testing.T) {
 	dir := t.TempDir()
 	store := NewStore(dir)
