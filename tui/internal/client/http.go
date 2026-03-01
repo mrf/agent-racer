@@ -71,6 +71,16 @@ func (c *HTTPClient) Equip(rewardID, slot string) (*Equipped, error) {
 	return &out, nil
 }
 
+// Unequip sends POST /api/unequip.
+func (c *HTTPClient) Unequip(slot string) (*Equipped, error) {
+	body := map[string]string{"slot": slot}
+	var out Equipped
+	if err := c.post("/api/unequip", body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // FocusSession sends POST /api/sessions/{id}/focus.
 func (c *HTTPClient) FocusSession(sessionID string) error {
 	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/api/sessions/"+sessionID+"/focus", nil)

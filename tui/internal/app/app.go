@@ -9,6 +9,7 @@ import (
 	"github.com/agent-racer/tui/internal/views/battlepass"
 	"github.com/agent-racer/tui/internal/views/dashboard"
 	"github.com/agent-racer/tui/internal/views/detail"
+	"github.com/agent-racer/tui/internal/views/garage"
 	"github.com/agent-racer/tui/internal/views/status"
 	"github.com/agent-racer/tui/internal/views/track"
 	"github.com/charmbracelet/bubbles/key"
@@ -59,6 +60,7 @@ type Model struct {
 	detailView   detail.Model
 	achievements achievements.Model
 	battlePass   battlepass.Model
+	garageView   garage.Model
 
 	// Connection state.
 	connected bool
@@ -82,6 +84,7 @@ func New(ws *client.WSClient, http *client.HTTPClient) Model {
 		dashboard:    dashboard.New(),
 		achievements: achievements.New(),
 		battlePass:   battlepass.New(),
+		garageView:   garage.New(http),
 	}
 }
 
@@ -113,6 +116,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.trackView.Height = msg.Height
 		m.dashboard.Width = msg.Width
 		m.battlePass.Width = msg.Width
+		m.garageView.SetSize(msg.Width, msg.Height)
 		return m, nil
 
 	case tea.KeyMsg:
@@ -127,6 +131,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.battlePass.SetChallenges(msg.challenges)
 		}
 		return m, nil
+
+	case garage.StatsLoadedMsg, garage.EquipResultMsg:
+		var cmd tea.Cmd
+		m.garageView, cmd = m.garageView.Update(msg)
+		return m, cmd
 
 	case client.WSConnectedMsg:
 		m.connected = true
@@ -171,6 +180,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.ws.ReadLoop(m.ctx)
 
 	case client.WSEquippedMsg:
+		m.garageView.SetEquipped(msg.Payload.Loadout)
 		return m, m.ws.ReadLoop(m.ctx)
 
 	case achievements.LoadedMsg:
@@ -223,6 +233,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.overlay == OverlayAchievements {
 			m.achievements = m.achievements.Update(msg)
 		}
+		if m.overlay == OverlayGarage {
+			var cmd tea.Cmd
+			m.garageView, cmd = m.garageView.Update(msg)
+			return m, cmd
+		}
 		return m, nil
 	}
 
@@ -262,7 +277,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case key.Matches(msg, m.keys.Garage):
 		m.overlay = OverlayGarage
-		return m, nil
+		m.garageView = garage.New(m.http)
+		return m, m.garageView.Init()
 
 	case key.Matches(msg, m.keys.Debug):
 		m.overlay = OverlayDebug
@@ -298,6 +314,13 @@ func (m Model) View() string {
 	}
 	if m.overlay == OverlayBattlePass {
 		return m.battlePass.View()
+	}
+	if m.overlay == OverlayGarage {
+		return lipgloss.JoinVertical(lipgloss.Left,
+			m.statusBar.View(),
+			m.garageView.View(),
+			theme.StyleDimmed.Render("  esc: close garage"),
+		)
 	}
 
 	var sections []string

@@ -358,8 +358,25 @@ func (t *StatsTracker) Challenges() []ChallengeProgress {
 // the change immediately, and returns the updated loadout. It is safe for
 // concurrent use.
 func (t *StatsTracker) Equip(reg *RewardRegistry, rewardID string) (Equipped, error) {
+	return t.mutateLoadout(func() error {
+		return reg.Equip(rewardID, t.stats)
+	})
+}
+
+// Unequip clears the given slot, persists the change, and returns the updated
+// loadout. It is a no-op when the slot is already empty. It is safe for
+// concurrent use.
+func (t *StatsTracker) Unequip(reg *RewardRegistry, slot RewardType) (Equipped, error) {
+	return t.mutateLoadout(func() error {
+		return reg.Unequip(slot, t.stats)
+	})
+}
+
+// mutateLoadout applies fn under the stats lock, persists the result, and
+// returns the updated loadout. fn must only modify t.stats.Equipped.
+func (t *StatsTracker) mutateLoadout(fn func() error) (Equipped, error) {
 	t.mu.Lock()
-	if err := reg.Equip(rewardID, t.stats); err != nil {
+	if err := fn(); err != nil {
 		t.mu.Unlock()
 		return Equipped{}, err
 	}
@@ -368,7 +385,7 @@ func (t *StatsTracker) Equip(reg *RewardRegistry, rewardID string) (Equipped, er
 	t.mu.Unlock()
 
 	if err := t.persist.Save(stats); err != nil {
-		log.Printf("Failed to save stats after equip: %v", err)
+		log.Printf("Failed to save stats after loadout change: %v", err)
 	}
 	return equipped, nil
 }
