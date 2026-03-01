@@ -1,0 +1,12 @@
+# golangci-lint v2 configuration
+# gosimple checks are included in staticcheck (merged in golangci-lint v2)
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - staticcheck
+    - ineffassign
+    - unused
+    - govet

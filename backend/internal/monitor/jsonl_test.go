@@ -405,8 +405,8 @@ func TestParseSessionJSONLNoFinalNewline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.WriteString("\n")
-	f.Close()
+	_, _ = f.WriteString("\n")
+	_ = f.Close()
 
 	// Re-read from offset - should now parse the previously incomplete line
 	result2, offset2, err := ParseSessionJSONL(path, offset, "", nil)
@@ -504,8 +504,8 @@ func TestParseSessionJSONLPartialWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.WriteString(content2)
-	f.Close()
+	_, _ = f.WriteString(content2)
+	_ = f.Close()
 
 	// Re-read from offset - should not parse incomplete line
 	result2, offset2, err := ParseSessionJSONL(path, offset1, "", nil)
@@ -518,8 +518,8 @@ func TestParseSessionJSONLPartialWrite(t *testing.T) {
 
 	// Complete the line with newline
 	f, _ = os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0644)
-	f.WriteString("\n")
-	f.Close()
+	_, _ = f.WriteString("\n")
+	_ = f.Close()
 
 	// Re-read from offset - should now parse the completed line
 	result3, offset3, err := ParseSessionJSONL(path, offset2, "", nil)
@@ -768,8 +768,8 @@ func TestMultipleSubagentsIncrementalParsing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.WriteString(`{"type":"progress","toolUseID":"sub-2","parentToolUseID":"sub-2","sessionId":"sess-1","slug":"sub2","timestamp":"2026-01-30T10:00:02.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":[{"type":"text","text":"also working"}]}}}}` + "\n")
-	f.Close()
+	_, _ = f.WriteString(`{"type":"progress","toolUseID":"sub-2","parentToolUseID":"sub-2","sessionId":"sess-1","slug":"sub2","timestamp":"2026-01-30T10:00:02.000Z","data":{"message":{"type":"assistant","message":{"model":"claude-opus-4-5-20251101","role":"assistant","content":[{"type":"text","text":"also working"}]}}}}` + "\n")
+	_ = f.Close()
 
 	result2, offset2, err := ParseSessionJSONL(path, offset1, "", nil)
 	if err != nil {
@@ -851,8 +851,8 @@ func TestCompactBoundaryDetection(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		f.WriteString(`{"type":"system","subtype":"compact_boundary","content":"Conversation compacted","sessionId":"test-inc","slug":"my-session","timestamp":"2026-01-30T10:00:05.000Z","uuid":"abc-5","level":"info","compactMetadata":{"trigger":"auto","preTokens":167000}}` + "\n")
-		f.Close()
+		_, _ = f.WriteString(`{"type":"system","subtype":"compact_boundary","content":"Conversation compacted","sessionId":"test-inc","slug":"my-session","timestamp":"2026-01-30T10:00:05.000Z","uuid":"abc-5","level":"info","compactMetadata":{"trigger":"auto","preTokens":167000}}` + "\n")
+		_ = f.Close()
 
 		result, _, err := ParseSessionJSONL(path, offset, "", nil)
 		if err != nil {

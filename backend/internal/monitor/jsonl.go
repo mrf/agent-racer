@@ -162,7 +162,7 @@ func ParseSessionJSONL(path string, offset int64, knownSlug string, knownParents
 	if err != nil {
 		return nil, offset, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	// Check file size before parsing to avoid OOM on huge files.
 	info, err := f.Stat()

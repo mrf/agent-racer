@@ -336,7 +336,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case key.Matches(msg, m.keys.Resync):
-		m.ws.Resync()
+		_ = m.ws.Resync()
 		m.debugLog.Add("nav", "resync requested")
 		return m, nil
 

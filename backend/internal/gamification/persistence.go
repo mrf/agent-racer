@@ -179,12 +179,12 @@ func (s *Store) Save(st *Stats) error {
 	committed := false
 	defer func() {
 		if !committed {
-			os.Remove(tmpPath)
+			_ = os.Remove(tmpPath)
 		}
 	}()
 
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return fmt.Errorf("writing temp file: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
@@ -239,21 +239,15 @@ func (st *Stats) clone() *Stats {
 	}
 	if len(st.ArchivedSeasons) > 0 {
 		cp.ArchivedSeasons = make([]ArchivedSeason, len(st.ArchivedSeasons))
-		for i := 0; i < len(st.ArchivedSeasons); i++ {
-			cp.ArchivedSeasons[i] = st.ArchivedSeasons[i]
-		}
+		copy(cp.ArchivedSeasons, st.ArchivedSeasons)
 	}
 	if len(st.WeeklyChallenges.ActiveIDs) > 0 {
 		cp.WeeklyChallenges.ActiveIDs = make([]string, len(st.WeeklyChallenges.ActiveIDs))
-		for i := 0; i < len(st.WeeklyChallenges.ActiveIDs); i++ {
-			cp.WeeklyChallenges.ActiveIDs[i] = st.WeeklyChallenges.ActiveIDs[i]
-		}
+		copy(cp.WeeklyChallenges.ActiveIDs, st.WeeklyChallenges.ActiveIDs)
 	}
 	if len(st.WeeklyChallenges.Completed) > 0 {
 		cp.WeeklyChallenges.Completed = make([]string, len(st.WeeklyChallenges.Completed))
-		for i := 0; i < len(st.WeeklyChallenges.Completed); i++ {
-			cp.WeeklyChallenges.Completed[i] = st.WeeklyChallenges.Completed[i]
-		}
+		copy(cp.WeeklyChallenges.Completed, st.WeeklyChallenges.Completed)
 	}
 	cp.WeeklyChallenges.Snapshot.SessionsPerModel = make(map[string]int, len(st.WeeklyChallenges.Snapshot.SessionsPerModel))
 	for k, v := range st.WeeklyChallenges.Snapshot.SessionsPerModel {

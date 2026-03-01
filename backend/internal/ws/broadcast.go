@@ -33,7 +33,7 @@ func newClient(conn *websocket.Conn, b *Broadcaster) *client {
 }
 
 func (c *client) writePump() {
-	defer c.conn.Close()
+	defer func() { _ = c.conn.Close() }()
 	for msg := range c.send {
 		if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
 			c.b.RemoveClient(c)
@@ -113,9 +113,9 @@ func (b *Broadcaster) AddClient(conn *websocket.Conn) (*client, error) {
 	b.mu.Lock()
 	if b.maxConns > 0 && len(b.clients) >= b.maxConns {
 		b.mu.Unlock()
-		conn.WriteMessage(websocket.CloseMessage,
+		_ = conn.WriteMessage(websocket.CloseMessage,
 			websocket.FormatCloseMessage(websocket.CloseTryAgainLater, "too many connections"))
-		conn.Close()
+		_ = conn.Close()
 		return nil, ErrTooManyConnections
 	}
 

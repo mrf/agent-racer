@@ -120,18 +120,18 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.authToken != "" {
-		conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+		_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 		_, msg, err := conn.ReadMessage()
-		conn.SetReadDeadline(time.Time{})
+		_ = conn.SetReadDeadline(time.Time{})
 		if err != nil {
-			conn.Close()
+			_ = conn.Close()
 			return
 		}
 		var auth wsAuthMessage
 		if err := json.Unmarshal(msg, &auth); err != nil || auth.Type != "auth" || auth.Token != s.authToken {
-			conn.WriteMessage(websocket.CloseMessage,
+			_ = conn.WriteMessage(websocket.CloseMessage,
 				websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "unauthorized"))
-			conn.Close()
+			_ = conn.Close()
 			return
 		}
 	}
@@ -171,7 +171,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	sessions := s.broadcaster.FilterSessions(s.store.GetAll())
-	json.NewEncoder(w).Encode(sessions)
+	_ = json.NewEncoder(w).Encode(sessions)
 }
 
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
@@ -181,7 +181,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.config.Sound)
+	_ = json.NewEncoder(w).Encode(s.config.Sound)
 }
 
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
@@ -196,7 +196,7 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.tracker.Stats())
+	_ = json.NewEncoder(w).Encode(s.tracker.Stats())
 }
 
 // achievementResponse is the JSON shape returned by /api/achievements.
@@ -240,7 +240,7 @@ func (s *Server) handleAchievements(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(out)
+	_ = json.NewEncoder(w).Encode(out)
 }
 
 func (s *Server) handleChallenges(w http.ResponseWriter, r *http.Request) {
@@ -254,7 +254,7 @@ func (s *Server) handleChallenges(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.tracker.Challenges())
+	_ = json.NewEncoder(w).Encode(s.tracker.Challenges())
 }
 
 type equipRequest struct {
@@ -328,7 +328,7 @@ func (s *Server) handleEquip(w http.ResponseWriter, r *http.Request) {
 	})
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(loadout)
+	_ = json.NewEncoder(w).Encode(loadout)
 }
 
 type unequipRequest struct {
@@ -377,7 +377,7 @@ func (s *Server) handleUnequip(w http.ResponseWriter, r *http.Request) {
 	})
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(loadout)
+	_ = json.NewEncoder(w).Encode(loadout)
 }
 
 func (s *Server) handleSessionRoutes(w http.ResponseWriter, r *http.Request) {
