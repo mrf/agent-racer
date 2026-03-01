@@ -13,6 +13,8 @@ node_modules/
 # Test artifacts
 test-results/
 backend/test-results/
+backend/coverage.out
+frontend/coverage/
 
 # Local config (use config.example.yaml as template)
 config.yaml

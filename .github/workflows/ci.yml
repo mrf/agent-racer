@@ -56,7 +56,7 @@ jobs:
         run: cd e2e && npm ci
 
       - name: Install Playwright browsers
-        run: cd e2e && npx playwright install --with-deps chromium
+        run: cd e2e && npx playwright install --with-deps chromium firefox
 
       - name: Run E2E tests
         run: cd e2e && npx playwright test

@@ -1,4 +1,4 @@
-.PHONY: dev run build test test-race test-frontend test-e2e lint ci deps clean embed build-frontend validate-embed dist tui tui-deps tui-test tui-lint
+.PHONY: dev run build test test-race test-frontend test-e2e lint ci deps clean embed build-frontend validate-embed dist tui tui-deps tui-test tui-lint coverage coverage-frontend
 
 SERVER_BINARY := agent-racer-server
 BINARY := agent-racer
@@ -43,6 +43,12 @@ tui: tui-deps
 
 test:
 	cd $(BACKEND) && go test ./...
+
+coverage:
+	cd $(BACKEND) && go test -coverprofile=coverage.out ./...
+
+coverage-frontend:
+	cd $(FRONTEND) && npm run test:coverage
 
 tui-test:
 	cd $(TUI) && go test ./...
