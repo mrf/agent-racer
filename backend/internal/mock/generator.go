@@ -14,7 +14,6 @@ type mockSession struct {
 	state         *session.SessionState
 	tokensPerTick int
 	pattern       string
-	stageTime     int
 	maxTokens     int
 	errorAt       float64
 	tools         []string
@@ -32,8 +31,6 @@ type mockSubagentDef struct {
 	endTick   int    // tick when subagent completes (0 = lives until parent completes)
 	tools     []string
 }
-
-var commonTools = []string{"Read", "Write", "Edit", "Bash", "Grep", "Glob", "Task", "LSP"}
 
 func NewGenerator(store *session.Store, broadcaster *ws.Broadcaster) *MockGenerator {
 	return &MockGenerator{

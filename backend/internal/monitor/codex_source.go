@@ -99,7 +99,7 @@ func (c *CodexSource) Parse(handle SessionHandle, offset int64) (SourceUpdate, i
 	if err != nil {
 		return SourceUpdate{}, offset, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	info, err := f.Stat()
 	if err != nil {

@@ -416,14 +416,14 @@ func TestCodexSourceParseRejectsOversizedFile(t *testing.T) {
 	}
 	line := `{"type":"session_meta","payload":{"session_id":"huge-test","model":"o3"}}` + "\n"
 	if _, err := f.WriteString(line); err != nil {
-		f.Close()
+		_ = f.Close()
 		t.Fatal(err)
 	}
 	if err := f.Truncate(maxFileSize + 1); err != nil {
-		f.Close()
+		_ = f.Close()
 		t.Fatal(err)
 	}
-	f.Close()
+	_ = f.Close()
 
 	src := NewCodexSource(10 * time.Minute)
 	handle := SessionHandle{SessionID: "huge-test", LogPath: path, Source: "codex"}

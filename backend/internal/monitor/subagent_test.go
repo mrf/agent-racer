@@ -275,10 +275,10 @@ func TestSubagentIncrementalParsingAccumulates(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := f.WriteString(chunk2); err != nil {
-		f.Close()
+		_ = f.Close()
 		t.Fatal(err)
 	}
-	f.Close()
+	_ = f.Close()
 
 	result2, offset2, err := ParseSessionJSONL(path, offset1, "", nil)
 	if err != nil {
@@ -935,8 +935,8 @@ func TestIncrementalBashProgressFiltered(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.WriteString(chunk2)
-	f.Close()
+	_, _ = f.WriteString(chunk2)
+	_ = f.Close()
 
 	// Pass knownSlug from batch 1 to seed the incremental parse.
 	result2, _, err := ParseSessionJSONL(path, offset1, result1.Slug, nil)
@@ -985,8 +985,8 @@ func TestCrossBatchCompletionDetection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.WriteString(chunk2)
-	f.Close()
+	_, _ = f.WriteString(chunk2)
+	_ = f.Close()
 
 	// Pass knownParents from batch 1's results.
 	knownParents := map[string]string{

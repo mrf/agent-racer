@@ -33,7 +33,7 @@ func TestWritePump_RemovesClientOnWriteError(t *testing.T) {
 	}
 
 	// Close the connection so any write attempt will immediately fail.
-	serverConn.Close()
+	_ = serverConn.Close()
 
 	// Queue a message (buffered channel, non-blocking).
 	c.send <- []byte(`{"type":"test"}`)

@@ -112,7 +112,7 @@ func appendJSONL(t *testing.T, path, content string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	if _, err := f.WriteString(content); err != nil {
 		t.Fatal(err)
 	}

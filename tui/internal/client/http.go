@@ -92,7 +92,7 @@ func (c *HTTPClient) FocusSession(sessionID string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("focus failed (%d): %s", resp.StatusCode, string(body))
@@ -110,7 +110,7 @@ func (c *HTTPClient) get(path string, out interface{}) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("GET %s: %d %s", path, resp.StatusCode, string(body))
@@ -133,7 +133,7 @@ func (c *HTTPClient) post(path string, body interface{}, out interface{}) error 
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 300 {
 		respBody, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("POST %s: %d %s", path, resp.StatusCode, string(respBody))

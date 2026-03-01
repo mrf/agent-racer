@@ -597,11 +597,6 @@ func (m *Monitor) markTerminal(cfg *config.Config, state *session.SessionState, 
 	m.scheduleRemoval(cfg, state.ID, completedAt)
 }
 
-// markComplete marks a session as successfully completed.
-func (m *Monitor) markComplete(cfg *config.Config, state *session.SessionState, completedAt time.Time) {
-	m.markTerminal(cfg, state, session.Complete, completedAt)
-}
-
 // scheduleRemoval enqueues a session for removal after CompletionRemoveAfter.
 // A zero duration removes immediately; a negative duration disables removal.
 func (m *Monitor) scheduleRemoval(cfg *config.Config, sessionID string, completedAt time.Time) {
@@ -694,7 +689,6 @@ func (m *Monitor) handleSessionEnd(cfg *config.Config, marker sessionEndMarker, 
 		filenameID := SessionIDFromPath(marker.TranscriptPath)
 		altKey := trackingKey("claude", filenameID)
 		if altState, found := m.store.Get(altKey); found {
-			storeKey = altKey
 			state = altState
 			ok = true
 		}

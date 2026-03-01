@@ -94,7 +94,7 @@ func (c *WSClient) Listen(ctx context.Context) tea.Cmd {
 			if c.token != "" {
 				auth := map[string]string{"type": "auth", "token": c.token}
 				if err := conn.WriteJSON(auth); err != nil {
-					conn.Close()
+					_ = conn.Close()
 					continue
 				}
 			}
@@ -130,10 +130,10 @@ func (c *WSClient) ReadLoop(ctx context.Context) tea.Cmd {
 		}
 
 		conn.SetPongHandler(func(string) error {
-			conn.SetReadDeadline(time.Now().Add(pongTimeout))
+			_ = conn.SetReadDeadline(time.Now().Add(pongTimeout))
 			return nil
 		})
-		conn.SetReadDeadline(time.Now().Add(pongTimeout))
+		_ = conn.SetReadDeadline(time.Now().Add(pongTimeout))
 
 		for {
 			_, data, err := conn.ReadMessage()
@@ -143,7 +143,7 @@ func (c *WSClient) ReadLoop(ctx context.Context) tea.Cmd {
 					c.conn = nil
 				}
 				c.mu.Unlock()
-				conn.Close()
+				_ = conn.Close()
 				return WSDisconnectedMsg{Err: err}
 			}
 
@@ -181,7 +181,7 @@ func (c *WSClient) pingLoop(ctx context.Context, conn *websocket.Conn) {
 				return
 			}
 			c.writeMu.Lock()
-			conn.SetWriteDeadline(time.Now().Add(writeTimeout))
+			_ = conn.SetWriteDeadline(time.Now().Add(writeTimeout))
 			err := conn.WriteMessage(websocket.PingMessage, nil)
 			c.writeMu.Unlock()
 			if err != nil {
