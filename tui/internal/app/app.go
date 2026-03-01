@@ -5,6 +5,7 @@ import (
 
 	"github.com/agent-racer/tui/internal/client"
 	"github.com/agent-racer/tui/internal/theme"
+	"github.com/agent-racer/tui/internal/views/dashboard"
 	"github.com/agent-racer/tui/internal/views/status"
 	"github.com/agent-racer/tui/internal/views/track"
 	"github.com/charmbracelet/bubbles/key"
@@ -44,6 +45,7 @@ type Model struct {
 	// Sub-views.
 	statusBar status.Model
 	trackView track.Model
+	dashboard dashboard.Model
 
 	// Connection state.
 	connected bool
@@ -61,6 +63,7 @@ func New(ws *client.WSClient, http *client.HTTPClient) Model {
 		sessions:  make(map[string]*client.SessionState),
 		statusBar: status.New(),
 		trackView: track.New(),
+		dashboard: dashboard.New(),
 	}
 }
 
@@ -78,6 +81,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusBar.Width = msg.Width
 		m.trackView.Width = msg.Width
 		m.trackView.Height = msg.Height
+		m.dashboard.Width = msg.Width
 		return m, nil
 
 	case tea.KeyMsg:
@@ -216,6 +220,7 @@ func (m Model) View() string {
 	var sections []string
 
 	sections = append(sections, m.statusBar.View())
+	sections = append(sections, m.dashboard.View())
 	sections = append(sections, m.trackView.View())
 
 	help := theme.StyleDimmed.Render("  j/k:navigate  tab:zone  1-3:jump  a:achievements  g:garage  b:battlepass  d:debug  r:resync  q:quit")
@@ -224,9 +229,10 @@ func (m Model) View() string {
 	return lipgloss.JoinVertical(lipgloss.Left, sections...)
 }
 
-// refreshTrack rebuilds the track view and updates status bar counts.
+// refreshTrack rebuilds the track view, dashboard, and updates status bar counts.
 func (m *Model) refreshTrack() {
 	m.trackView.SetSessions(m.sessions)
 	racing, pit, parked := m.trackView.Counts()
 	m.statusBar.SetCounts(racing, pit, parked)
+	m.dashboard.SetSessions(m.sessions)
 }
