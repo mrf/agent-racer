@@ -84,6 +84,7 @@ function buildDOM() {
             <tr><td class="help-shortcut-key">D</td><td>Debug log</td></tr>
             <tr><td class="help-shortcut-key">V</td><td>Toggle view mode</td></tr>
             <tr><td class="help-shortcut-key">M</td><td>Mute / unmute sound</td></tr>
+            <tr><td class="help-shortcut-key">V</td><td>Toggle view (Race / Footrace)</td></tr>
             <tr><td class="help-shortcut-key">Shift+F</td><td>Toggle fullscreen</td></tr>
             <tr><td class="help-shortcut-key">Esc</td><td>Close open panel</td></tr>
             <tr><td class="help-shortcut-key">Click</td><td>Car details flyout</td></tr>

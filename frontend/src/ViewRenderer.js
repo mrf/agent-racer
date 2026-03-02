@@ -1,4 +1,5 @@
 import { RaceCanvas } from './canvas/RaceCanvas.js';
+import { FootraceCanvas } from './canvas/FootraceCanvas.js';
 
 const VIEW_TYPES = {};
 
@@ -16,9 +17,14 @@ export function getViewTypes() {
   return Object.keys(VIEW_TYPES);
 }
 
-// Register built-in views
-registerView('race', (canvas, engine) => {
-  const view = new RaceCanvas(canvas);
-  if (engine) view.setEngine(engine);
-  return view;
-});
+function viewFactory(ViewClass) {
+  return function (canvas, engine) {
+    const view = new ViewClass(canvas);
+    if (engine) view.setEngine(engine);
+    return view;
+  };
+}
+
+// Built-in views
+registerView('race', viewFactory(RaceCanvas));
+registerView('footrace', viewFactory(FootraceCanvas));
