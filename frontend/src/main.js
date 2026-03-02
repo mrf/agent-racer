@@ -147,6 +147,7 @@ function handleCompletion(payload) {
 function handleAchievementUnlocked(payload) {
   log(`Achievement unlocked: ${payload.name} (${payload.tier})`, 'info');
   unlockToast.show(payload);
+  achievementPanel.markDirty();
 }
 
 function handleEquipped(payload) {

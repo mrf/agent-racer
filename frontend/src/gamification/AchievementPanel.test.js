@@ -3,8 +3,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AchievementPanel } from './AchievementPanel.js';
 import { authFetch } from '../auth.js';
 
+const MOCK_ACHIEVEMENTS = [
+  { id: 'a1', name: 'First Race', category: 'Session Milestones', tier: 'bronze', unlocked: true, description: 'Start your first session' },
+];
+
 vi.mock('../auth.js', () => ({
-  authFetch: vi.fn(() => Promise.resolve({ ok: false, status: 500 })),
+  authFetch: vi.fn(() => Promise.resolve({
+    ok: true,
+    json: () => Promise.resolve(MOCK_ACHIEVEMENTS),
+  })),
 }));
 
 function mousemoveCalls(spy) {
@@ -290,5 +297,52 @@ describe('AchievementPanel', () => {
 
       expect(events).toEqual(['add', 'remove', 'add', 'remove']);
     });
+  });
+});
+
+describe('AchievementPanel caching', () => {
+  beforeEach(() => {
+    authFetch.mockClear();
+  });
+
+  it('fetches on first hydrate()', async () => {
+    const panel = new AchievementPanel();
+    await panel.hydrate();
+    expect(authFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not re-fetch on second hydrate() when not dirty', async () => {
+    const panel = new AchievementPanel();
+    await panel.hydrate();
+    await panel.hydrate();
+    expect(authFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-fetches after markDirty()', async () => {
+    const panel = new AchievementPanel();
+    await panel.hydrate();
+    panel.markDirty();
+    await panel.hydrate();
+    expect(authFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('clears dirty flag after successful fetch', async () => {
+    const panel = new AchievementPanel();
+    await panel.hydrate();
+    panel.markDirty();
+    await panel.hydrate();
+    await panel.hydrate(); // should use cache
+    expect(authFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('stays dirty on fetch error so next open retries', async () => {
+    authFetch.mockResolvedValueOnce({ ok: false, status: 500 });
+    const panel = new AchievementPanel();
+    await panel.hydrate(); // fails
+    expect(authFetch).toHaveBeenCalledTimes(1);
+    // still dirty, so next hydrate retries
+    authFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(MOCK_ACHIEVEMENTS) });
+    await panel.hydrate();
+    expect(authFetch).toHaveBeenCalledTimes(2);
   });
 });
