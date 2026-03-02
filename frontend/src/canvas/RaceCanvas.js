@@ -1,7 +1,8 @@
 import { ParticleSystem } from './Particles.js';
 import { Track } from './Track.js';
 import { Dashboard } from './Dashboard.js';
-import { Racer, getModelColor, hexToRgb } from '../entities/Racer.js';
+import { Racer } from '../entities/Racer.js';
+import { getModelColor, hexToRgb } from '../session/colors.js';
 import { authFetch } from '../auth.js';
 import { DEFAULT_CONTEXT_WINDOW, TERMINAL_ACTIVITIES } from '../session/constants.js';
 import { isParkingLotRacer, isPitRacer } from '../session/zones.js';
