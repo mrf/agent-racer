@@ -12,6 +12,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// maxBurnSamples is the rolling window size for sparkline history.
+const maxBurnSamples = 10
+
 // Model holds the track view state.
 type Model struct {
 	// Sessions grouped by zone, rebuilt on each SetSessions call.
@@ -26,11 +29,16 @@ type Model struct {
 	// Layout dimensions.
 	Width  int
 	Height int
+
+	// burnHistory holds a rolling window of BurnRatePerMinute samples per session ID.
+	burnHistory map[string][]float64
 }
 
 // New creates a track model.
 func New() Model {
-	return Model{}
+	return Model{
+		burnHistory: make(map[string][]float64),
+	}
 }
 
 // SetSessions updates the session list and rebuilds zone groupings.
@@ -47,6 +55,21 @@ func (m *Model) SetSessions(sessions map[string]*client.SessionState) {
 			m.pit = append(m.pit, s)
 		case ZoneParked:
 			m.parked = append(m.parked, s)
+		}
+
+		// Append current burn rate to the rolling history buffer.
+		hist := m.burnHistory[s.ID]
+		hist = append(hist, s.BurnRatePerMinute)
+		if len(hist) > maxBurnSamples {
+			hist = hist[len(hist)-maxBurnSamples:]
+		}
+		m.burnHistory[s.ID] = hist
+	}
+
+	// Remove history for sessions no longer present.
+	for id := range m.burnHistory {
+		if _, ok := sessions[id]; !ok {
+			delete(m.burnHistory, id)
 		}
 	}
 
@@ -140,7 +163,7 @@ func (m Model) View() string {
 	}
 	for i, s := range m.racing {
 		selected := m.ActiveZone == ZoneRacing && i == m.SelectedIdx
-		sections = append(sections, renderRacingLine(i, s, selected, width))
+		sections = append(sections, renderRacingLine(i, s, selected, width, m.burnHistory[s.ID]))
 		for _, sub := range s.Subagents {
 			sub := sub
 			sections = append(sections, renderSubagentLine(&sub))
@@ -156,7 +179,7 @@ func (m Model) View() string {
 	}
 	for i, s := range m.pit {
 		selected := m.ActiveZone == ZonePit && i == m.SelectedIdx
-		sections = append(sections, renderPitLine(i, s, selected))
+		sections = append(sections, renderPitLine(i, s, selected, m.burnHistory[s.ID]))
 		for _, sub := range s.Subagents {
 			sub := sub
 			sections = append(sections, renderSubagentLine(&sub))
