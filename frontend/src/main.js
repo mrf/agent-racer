@@ -12,6 +12,7 @@ import { createFlyout } from './ui/detailFlyout.js';
 import { createSessionTracker } from './ui/sessionTracker.js';
 import { initAmbientAudio } from './ui/ambientAudio.js';
 import { ShortcutBar } from './ui/ShortcutBar.js';
+import { HelpPopup } from './ui/HelpPopup.js';
 
 const debugPanel = document.getElementById('debug-panel');
 const debugLog = document.getElementById('debug-log');
@@ -40,6 +41,7 @@ const battlePassBar = new BattlePassBar(document.getElementById('battlepass-bar'
 const flyout = createFlyout({ detailFlyout, flyoutContent, canvas });
 const tracker = createSessionTracker(engine);
 const shortcutBar = new ShortcutBar(document.getElementById('shortcut-bar'));
+const helpPopup = new HelpPopup();
 
 initAmbientAudio(engine);
 
@@ -236,12 +238,16 @@ function updateShortcutHighlights() {
   shortcutBar.setActive('debug', debugVisible);
   shortcutBar.setActive('mute', muted);
   shortcutBar.setActive('fullscreen', !!document.fullscreenElement);
+  shortcutBar.setActive('help', helpPopup.isVisible);
 }
 
 document.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
   switch (e.key.toLowerCase()) {
+    case '?':
+      helpPopup.toggle();
+      break;
     case 'a':
       achievementPanel.toggle();
       break;
@@ -266,7 +272,9 @@ document.addEventListener('keydown', (e) => {
       }
       break;
     case 'escape':
-      if (rewardSelector.isVisible) {
+      if (helpPopup.isVisible) {
+        helpPopup.hide();
+      } else if (rewardSelector.isVisible) {
         rewardSelector.hide();
       } else if (achievementPanel.isVisible) {
         achievementPanel.hide();
