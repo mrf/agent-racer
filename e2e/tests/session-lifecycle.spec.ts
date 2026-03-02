@@ -150,10 +150,10 @@ test.describe('Session lifecycle', () => {
   test('idle session moves to pit area after staleness threshold', async ({
     page,
   }) => {
-    // mock-opus-debug enters "waiting" on a repeating 70-tick cycle
-    // (phases 40-69 are waiting). In mock mode, lastDataReceivedAt is
-    // unset (zero), so the freshness check treats it as stale immediately
-    // and the racer moves to pit as soon as activity becomes "waiting".
+    // mock-opus-debug works for 40 ticks then permanently enters "waiting".
+    // In mock mode, lastDataReceivedAt is unset (zero), so the freshness
+    // check treats it as stale immediately and the racer moves to pit as
+    // soon as activity becomes "waiting".
     const debugId = 'mock-opus-debug';
 
     await waitForActivity(page, debugId, ['waiting']);
@@ -162,23 +162,16 @@ test.describe('Session lifecycle', () => {
       path: 'tests/screenshots/lifecycle-waiting.png',
     });
 
-    // With zero lastDataReceivedAt, pit classification is immediate once waiting.
-    // Check inPit + activity atomically — the mock cycles between thinking and
-    // waiting every 70 ticks, so two separate page round-trips can observe
-    // different phases (the original cause of flakiness).
-    await page.waitForFunction(
-      (id) => {
-        const rc = (window as any).raceCanvas;
-        const r = rc?.racers?.get(id);
-        return (
-          r?.inPit === true &&
-          !r?.inParkingLot &&
-          r?.state?.activity === 'waiting'
-        );
-      },
-      debugId,
-      { timeout: TIMEOUT_ZONE_TRANSITION },
-    );
+    // With zero lastDataReceivedAt, pit classification is immediate once waiting
+    await waitForPit(page, debugId);
+
+    // Verify the racer is now in the pit zone
+    const zones = await getAllRacerZones(page);
+    const debugRacer = zones.find((r) => r.id === debugId);
+    expect(debugRacer).toBeDefined();
+    expect(debugRacer!.inPit).toBe(true);
+    expect(debugRacer!.inParkingLot).toBe(false);
+    expect(debugRacer!.activity).toBe('waiting');
 
     await page.screenshot({
       path: 'tests/screenshots/lifecycle-pit.png',

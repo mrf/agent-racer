@@ -372,7 +372,7 @@ func TestAdvanceStall_StallPhaseIsWaiting(t *testing.T) {
 	gen := newTestGen()
 	ms := newTestMS("stall", 800, 120000)
 
-	// Ticks where phase = tick%70 falls in [40, 70).
+	// Ticks at or past stallStart (40) should all be waiting.
 	stallTicks := []int{40, 50, 60, 69}
 	for _, tick := range stallTicks {
 		before := ms.state.TokensUsed
@@ -386,20 +386,20 @@ func TestAdvanceStall_StallPhaseIsWaiting(t *testing.T) {
 	}
 }
 
-func TestAdvanceStall_CyclePeriodIs70(t *testing.T) {
+func TestAdvanceStall_PermanentAfterStallStart(t *testing.T) {
 	gen := newTestGen()
 	ms := newTestMS("stall", 800, 120000)
 
-	// tick 70 → phase=0, should be working again (not stalling).
+	// tick 70 → well past stallStart (40), should still be waiting.
 	gen.advanceStall(ms, 70)
-	if ms.state.Activity == session.Waiting {
-		t.Error("tick 70 (phase 0): should resume work after stall cycle resets")
+	if ms.state.Activity != session.Waiting {
+		t.Errorf("tick 70: Activity = %v, want Waiting (stall is permanent)", ms.state.Activity)
 	}
 
-	// tick 110 → phase=40, should be stalling.
+	// tick 110 → still waiting.
 	gen.advanceStall(ms, 110)
 	if ms.state.Activity != session.Waiting {
-		t.Errorf("tick 110 (phase 40): Activity = %v, want Waiting", ms.state.Activity)
+		t.Errorf("tick 110: Activity = %v, want Waiting", ms.state.Activity)
 	}
 }
 
