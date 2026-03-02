@@ -1251,6 +1251,393 @@ func TestPollRepeatedPanicsAccumulateFailures(t *testing.T) {
 // pollDeadlockTimeout is the deadline for poll-level deadlock tests.
 const pollDeadlockTimeout = 3 * time.Second
 
+// TestPollSessionEndMarkerWithImmediateRemoval verifies that a session-end marker
+// combined with CompletionRemoveAfter=0 terminates AND removes the session in the
+// same poll cycle.
+func TestPollSessionEndMarkerWithImmediateRemoval(t *testing.T) {
+	dir := t.TempDir()
+	sessionEndDir := filepath.Join(dir, "session-end")
+	if err := os.MkdirAll(sessionEndDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	const sid = "session-imm-remove"
+	jsonlPath := filepath.Join(dir, sid+".jsonl")
+	now := time.Now().UTC()
+	ts := now.Format(time.RFC3339Nano)
+	writeJSONL(t, jsonlPath,
+		jsonlLine("user", sid, ts, "", "", "/tmp/imm")+
+			jsonlLine("assistant", sid, ts, "claude-opus-4-5-20251101", "", "/tmp/imm"))
+
+	src := &testSource{
+		handles: []SessionHandle{newTestHandle(sid, jsonlPath, "/tmp/imm", now)},
+	}
+
+	cfg := defaultTestConfig()
+	cfg.Monitor.SessionEndDir = sessionEndDir
+	cfg.Monitor.CompletionRemoveAfter = 0 // immediate removal
+
+	m, store, _ := newPollTestMonitor(src, cfg)
+
+	// Poll 1: discover the session.
+	m.poll()
+	storeKey := trackingKey("claude", sid)
+	if _, ok := store.Get(storeKey); !ok {
+		t.Fatal("session should exist after first poll")
+	}
+
+	// Drop end marker. Use a past timestamp so flushRemovals sees removeAt <= now.
+	markerContent := fmt.Sprintf(
+		`{"session_id":"%s","reason":"done","timestamp":"%s"}`,
+		sid, now.Add(-time.Second).Format(time.RFC3339Nano),
+	)
+	if err := os.WriteFile(filepath.Join(sessionEndDir, "end.json"), []byte(markerContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Poll 2: consume marker → markTerminal → scheduleRemoval(0) → flushRemovals.
+	m.poll()
+
+	// Session should be removed from the store entirely.
+	if _, ok := store.Get(storeKey); ok {
+		t.Error("session should be removed from store with CompletionRemoveAfter=0")
+	}
+}
+
+// TestPollSessionEndMarkerThenResume verifies that new JSONL data arriving after
+// a session-end marker has terminated the session causes it to resume.
+func TestPollSessionEndMarkerThenResume(t *testing.T) {
+	dir := t.TempDir()
+	sessionEndDir := filepath.Join(dir, "session-end")
+	if err := os.MkdirAll(sessionEndDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	const sid = "session-resume-after-end"
+	jsonlPath := filepath.Join(dir, sid+".jsonl")
+	now := time.Now().UTC()
+	ts := now.Format(time.RFC3339Nano)
+	writeJSONL(t, jsonlPath,
+		jsonlLine("user", sid, ts, "", "", "/tmp/resume")+
+			jsonlLine("assistant", sid, ts, "claude-opus-4-5-20251101", "", "/tmp/resume"))
+
+	src := &testSource{
+		handles: []SessionHandle{newTestHandle(sid, jsonlPath, "/tmp/resume", now)},
+	}
+
+	cfg := defaultTestConfig()
+	cfg.Monitor.SessionEndDir = sessionEndDir
+
+	m, store, _ := newPollTestMonitor(src, cfg)
+
+	// Poll 1: discover.
+	m.poll()
+	storeKey := trackingKey("claude", sid)
+	if _, ok := store.Get(storeKey); !ok {
+		t.Fatal("session should exist after first poll")
+	}
+
+	// Drop end marker → terminate.
+	markerContent := fmt.Sprintf(`{"session_id":"%s","reason":"done"}`, sid)
+	if err := os.WriteFile(filepath.Join(sessionEndDir, "end.json"), []byte(markerContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+	m.poll()
+
+	state, ok := store.Get(storeKey)
+	if !ok {
+		t.Fatal("session should be in store after end marker")
+	}
+	if !state.IsTerminal() {
+		t.Fatalf("session should be terminal, got %s", state.Activity)
+	}
+
+	// Append new data to the JSONL file (simulating session resume).
+	ts2 := now.Add(5 * time.Second).Format(time.RFC3339Nano)
+	appendJSONL(t, jsonlPath,
+		jsonlLine("user", sid, ts2, "", "", "/tmp/resume")+
+			jsonlLine("assistant", sid, ts2, "claude-opus-4-5-20251101", "", "/tmp/resume"))
+
+	// Poll 3: new data should resume the session.
+	m.poll()
+
+	state, ok = store.Get(storeKey)
+	if !ok {
+		t.Fatal("session should be in store after resume")
+	}
+	if state.IsTerminal() {
+		t.Errorf("session should no longer be terminal after resume, got %s", state.Activity)
+	}
+	if state.CompletedAt != nil {
+		t.Error("CompletedAt should be cleared on resume")
+	}
+}
+
+// TestPollMultipleSessionEndMarkersOnePoll verifies that multiple session-end
+// markers for different sessions are all processed in a single poll cycle.
+func TestPollMultipleSessionEndMarkersOnePoll(t *testing.T) {
+	dir := t.TempDir()
+	sessionEndDir := filepath.Join(dir, "session-end")
+	if err := os.MkdirAll(sessionEndDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC()
+	ts := now.Format(time.RFC3339Nano)
+
+	sessions := []struct {
+		sid     string
+		reason  string
+		wantAct session.Activity
+	}{
+		{"multi-end-1", "", session.Complete},
+		{"multi-end-2", "process crashed", session.Errored},
+		{"multi-end-3", "user exited", session.Complete},
+	}
+
+	var handles []SessionHandle
+	for _, s := range sessions {
+		jsonlPath := filepath.Join(dir, s.sid+".jsonl")
+		writeJSONL(t, jsonlPath,
+			jsonlLine("user", s.sid, ts, "", "", "/tmp/multi")+
+				jsonlLine("assistant", s.sid, ts, "claude-opus-4-5-20251101", "", "/tmp/multi"))
+		handles = append(handles, newTestHandle(s.sid, jsonlPath, "/tmp/multi", now))
+	}
+
+	src := &testSource{handles: handles}
+	cfg := defaultTestConfig()
+	cfg.Monitor.SessionEndDir = sessionEndDir
+	cfg.Monitor.CompletionRemoveAfter = -1
+
+	m, store, _ := newPollTestMonitor(src, cfg)
+
+	// Poll 1: discover all sessions.
+	m.poll()
+	for _, s := range sessions {
+		key := trackingKey("claude", s.sid)
+		if _, ok := store.Get(key); !ok {
+			t.Fatalf("session %s should exist after first poll", s.sid)
+		}
+	}
+
+	// Drop end markers for all sessions at once.
+	for i, s := range sessions {
+		marker := fmt.Sprintf(`{"session_id":"%s","reason":"%s"}`, s.sid, s.reason)
+		filename := fmt.Sprintf("end-%d.json", i)
+		if err := os.WriteFile(filepath.Join(sessionEndDir, filename), []byte(marker), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Poll 2: all markers consumed.
+	m.poll()
+
+	for _, s := range sessions {
+		key := trackingKey("claude", s.sid)
+		state, ok := store.Get(key)
+		if !ok {
+			t.Fatalf("session %s should still be in store", s.sid)
+		}
+		if state.Activity != s.wantAct {
+			t.Errorf("session %s: activity = %s, want %s", s.sid, state.Activity, s.wantAct)
+		}
+	}
+
+	// All marker files should be deleted.
+	entries, err := os.ReadDir(sessionEndDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("expected 0 marker files remaining, got %d", len(entries))
+	}
+}
+
+// TestPollSessionEndMarkerBeatsStaleDetection verifies that a session-end marker
+// takes priority over stale detection. With SessionStaleAfter=0, any session
+// without new data in a poll would be marked Lost. But if a marker is consumed
+// at the top of the same poll, the session should be Complete, not Lost.
+func TestPollSessionEndMarkerBeatsStaleDetection(t *testing.T) {
+	dir := t.TempDir()
+	sessionEndDir := filepath.Join(dir, "session-end")
+	if err := os.MkdirAll(sessionEndDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	const sid = "session-stale-with-marker"
+	jsonlPath := filepath.Join(dir, sid+".jsonl")
+	now := time.Now().UTC()
+	ts := now.Format(time.RFC3339Nano)
+	writeJSONL(t, jsonlPath,
+		jsonlLine("user", sid, ts, "", "", "/tmp/stale")+
+			jsonlLine("assistant", sid, ts, "claude-opus-4-5-20251101", "", "/tmp/stale"))
+
+	src := &testSource{
+		handles: []SessionHandle{newTestHandle(sid, jsonlPath, "/tmp/stale", now)},
+	}
+
+	cfg := defaultTestConfig()
+	cfg.Monitor.SessionEndDir = sessionEndDir
+	cfg.Monitor.SessionStaleAfter = 0 // any session without new data is immediately stale
+	cfg.Monitor.CompletionRemoveAfter = -1
+
+	m, store, _ := newPollTestMonitor(src, cfg)
+
+	// Poll 1: discover. Session has fresh data so it's tracked.
+	m.poll()
+	storeKey := trackingKey("claude", sid)
+	if _, ok := store.Get(storeKey); !ok {
+		t.Fatal("session should exist after first poll")
+	}
+
+	// Drop an end marker: consumed before stale detection runs.
+	// Without this, SessionStaleAfter=0 would mark the session Lost instead.
+	marker := fmt.Sprintf(`{"session_id":"%s","reason":"graceful exit"}`, sid)
+	if err := os.WriteFile(filepath.Join(sessionEndDir, "end.json"), []byte(marker), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Poll 2: marker → Complete. Stale detection skips already-terminal sessions.
+	m.poll()
+
+	state, ok := store.Get(storeKey)
+	if !ok {
+		t.Fatal("session should still be in store")
+	}
+	if state.Activity != session.Complete {
+		t.Errorf("activity = %s, want Complete (marker should beat stale detection)", state.Activity)
+	}
+}
+
+// TestPollSessionEndMarkerForAlreadyTerminalSession verifies that a session-end
+// marker for a session that is already terminal is handled without error.
+// markTerminal() is called but should be idempotent for the activity state.
+func TestPollSessionEndMarkerForAlreadyTerminalSession(t *testing.T) {
+	dir := t.TempDir()
+	sessionEndDir := filepath.Join(dir, "session-end")
+	if err := os.MkdirAll(sessionEndDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	const sid = "session-already-terminal"
+	jsonlPath := filepath.Join(dir, sid+".jsonl")
+	now := time.Now().UTC()
+	ts := now.Format(time.RFC3339Nano)
+	writeJSONL(t, jsonlPath,
+		jsonlLine("user", sid, ts, "", "", "/tmp/term")+
+			jsonlLine("assistant", sid, ts, "claude-opus-4-5-20251101", "", "/tmp/term"))
+
+	src := &testSource{
+		handles: []SessionHandle{newTestHandle(sid, jsonlPath, "/tmp/term", now)},
+	}
+
+	cfg := defaultTestConfig()
+	cfg.Monitor.SessionEndDir = sessionEndDir
+	cfg.Monitor.CompletionRemoveAfter = -1
+
+	m, store, _ := newPollTestMonitor(src, cfg)
+
+	// Poll 1: discover.
+	m.poll()
+	storeKey := trackingKey("claude", sid)
+
+	// Drop first end marker → Complete.
+	marker1 := fmt.Sprintf(`{"session_id":"%s","reason":"done"}`, sid)
+	if err := os.WriteFile(filepath.Join(sessionEndDir, "end-1.json"), []byte(marker1), 0644); err != nil {
+		t.Fatal(err)
+	}
+	m.poll()
+
+	state, ok := store.Get(storeKey)
+	if !ok {
+		t.Fatal("session should be in store after first marker")
+	}
+	if state.Activity != session.Complete {
+		t.Fatalf("expected Complete after first marker, got %s", state.Activity)
+	}
+
+	// Drop a second end marker for the already-terminal session.
+	marker2 := fmt.Sprintf(`{"session_id":"%s","reason":"error in cleanup"}`, sid)
+	markerPath := filepath.Join(sessionEndDir, "end-2.json")
+	if err := os.WriteFile(markerPath, []byte(marker2), 0644); err != nil {
+		t.Fatal(err)
+	}
+	m.poll() // must not panic
+
+	state, ok = store.Get(storeKey)
+	if !ok {
+		t.Fatal("session should still be in store after second marker")
+	}
+	// The second marker may overwrite the activity — markTerminal accepts it.
+	// The key assertion is that it doesn't crash, and the marker file is deleted.
+	if !state.IsTerminal() {
+		t.Errorf("session should still be terminal, got %s", state.Activity)
+	}
+
+	// Marker file should be deleted regardless.
+	if _, err := os.Stat(markerPath); !os.IsNotExist(err) {
+		t.Error("second marker file should be deleted after processing")
+	}
+}
+
+// TestPollSessionEndMarkerOrderingWithinPoll verifies that session-end markers
+// are consumed BEFORE source polling within the same poll() call. A marker and
+// new JSONL data both exist: the marker terminates the session first, then the
+// new JSONL data causes a resume in the same poll cycle.
+func TestPollSessionEndMarkerOrderingWithinPoll(t *testing.T) {
+	dir := t.TempDir()
+	sessionEndDir := filepath.Join(dir, "session-end")
+	if err := os.MkdirAll(sessionEndDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	const sid = "session-order-test"
+	jsonlPath := filepath.Join(dir, sid+".jsonl")
+	now := time.Now().UTC()
+	ts := now.Format(time.RFC3339Nano)
+	writeJSONL(t, jsonlPath,
+		jsonlLine("user", sid, ts, "", "", "/tmp/order")+
+			jsonlLine("assistant", sid, ts, "claude-opus-4-5-20251101", "", "/tmp/order"))
+
+	src := &testSource{
+		handles: []SessionHandle{newTestHandle(sid, jsonlPath, "/tmp/order", now)},
+	}
+
+	cfg := defaultTestConfig()
+	cfg.Monitor.SessionEndDir = sessionEndDir
+	cfg.Monitor.CompletionRemoveAfter = -1
+
+	m, store, _ := newPollTestMonitor(src, cfg)
+
+	// Poll 1: discover.
+	m.poll()
+	storeKey := trackingKey("claude", sid)
+	if _, ok := store.Get(storeKey); !ok {
+		t.Fatal("session should exist after first poll")
+	}
+
+	// Simultaneously: drop an end marker AND append new JSONL data.
+	marker := fmt.Sprintf(`{"session_id":"%s","reason":"done"}`, sid)
+	if err := os.WriteFile(filepath.Join(sessionEndDir, "end.json"), []byte(marker), 0644); err != nil {
+		t.Fatal(err)
+	}
+	ts2 := now.Add(5 * time.Second).Format(time.RFC3339Nano)
+	appendJSONL(t, jsonlPath,
+		jsonlLine("user", sid, ts2, "", "", "/tmp/order")+
+			jsonlLine("assistant", sid, ts2, "claude-opus-4-5-20251101", "", "/tmp/order"))
+
+	// Poll 2: marker consumed first → terminal. Then source poll finds new data → resume.
+	m.poll()
+
+	state, ok := store.Get(storeKey)
+	if !ok {
+		t.Fatal("session should be in store after combined poll")
+	}
+	if state.IsTerminal() {
+		t.Errorf("session should be resumed (non-terminal) due to new JSONL data, got %s", state.Activity)
+	}
+}
+
 // TestPollMarkTerminalViaSessionEndMarkerDoesNotDeadlock is the integration-level
 // regression test for the markTerminal() deadlock. It reproduces the exact
 // conditions under which the bug manifested in production:
