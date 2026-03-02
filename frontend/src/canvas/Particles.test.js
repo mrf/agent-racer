@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { ParticleSystem } from './Particles.js';
 
 const FRAME = 1 / 60;
@@ -334,6 +334,57 @@ describe('ParticleSystem', () => {
       expect(p.life).toBe(1.0);
       expect(p.layer).toBe('behind');
       expect(p.drawMode).toBe('circle');
+    });
+  });
+
+  describe('footrace particle presets', () => {
+    let ps;
+    beforeEach(() => {
+      ps = new ParticleSystem();
+    });
+
+    it('creates dustCloud particles', () => {
+      ps.emit('dustCloud', 100, 200, 3);
+      expect(ps.particles.length).toBe(3);
+      const p = ps.particles[0];
+      expect(p.color.r).toBe(180);
+      expect(p.colorEnd).not.toBeNull();
+      expect(p.sizeMultiplier).toBe('bloom');
+    });
+
+    it('creates sweatDrops particles with gravity', () => {
+      ps.emit('sweatDrops', 100, 200, 2);
+      expect(ps.particles.length).toBe(2);
+      const p = ps.particles[0];
+      expect(p.gravity).toBe(0.08);
+      expect(p.layer).toBe('front');
+    });
+
+    it('creates celebrationStars particles with rotation', () => {
+      ps.emit('celebrationStars', 100, 200, 5);
+      expect(ps.particles.length).toBe(5);
+      const p = ps.particles[0];
+      expect(p.rotation).toBeDefined();
+      expect(p.layer).toBe('front');
+      expect(p.color.r).toBe(255);
+      expect(p.color.g).toBe(215);
+    });
+
+    it('creates tripSparks particles', () => {
+      ps.emit('tripSparks', 100, 200, 4);
+      expect(ps.particles.length).toBe(4);
+      const p = ps.particles[0];
+      expect(p.gravity).toBe(0.06);
+      expect(p.layer).toBe('front');
+    });
+
+    it('creates footprints particles that stay in place', () => {
+      ps.emit('footprints', 100, 200, 2);
+      expect(ps.particles.length).toBe(2);
+      const p = ps.particles[0];
+      expect(p.vx).toBe(0);
+      expect(p.vy).toBe(0);
+      expect(p.gravity).toBe(0);
     });
   });
 
