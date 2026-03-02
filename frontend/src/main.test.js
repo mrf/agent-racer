@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   engine: null,
-  raceCanvas: null,
+  activeView: null,
   conn: {},
 }));
 
@@ -14,22 +14,32 @@ vi.mock('./websocket.js', () => ({
   }),
 }));
 
-vi.mock('./canvas/RaceCanvas.js', () => ({
-  RaceCanvas: vi.fn(() => {
-    mocks.raceCanvas = {
-      setEngine: vi.fn(),
-      setAllRacers: vi.fn(),
-      updateRacer: vi.fn(),
-      removeRacer: vi.fn(),
-      onComplete: vi.fn(),
-      onError: vi.fn(),
-      setConnected: vi.fn(),
-      racers: new Map(),
-      onRacerClick: null,
-      onAfterDraw: null,
-    };
-    return mocks.raceCanvas;
-  }),
+function createMockView() {
+  const entities = new Map();
+  const view = {
+    setAllRacers: vi.fn(),
+    updateRacer: vi.fn(),
+    removeRacer: vi.fn(),
+    onComplete: vi.fn(),
+    onError: vi.fn(),
+    setConnected: vi.fn(),
+    destroy: vi.fn(),
+    entities,
+    racers: entities,
+    dt: 16,
+    ctx: {},
+    width: 800,
+    onRacerClick: null,
+    onHamsterClick: null,
+    onAfterDraw: null,
+  };
+  mocks.activeView = view;
+  return view;
+}
+
+vi.mock('./ViewRenderer.js', () => ({
+  createView: vi.fn(() => createMockView()),
+  getViewTypes: vi.fn(() => ['race']),
 }));
 
 vi.mock('./audio/SoundEngine.js', () => ({
@@ -106,6 +116,7 @@ function makeSession(overrides = {}) {
 
 beforeEach(async () => {
   vi.resetModules();
+  localStorage.clear();
   setupDOM();
   globalThis.fetch = vi.fn(() => Promise.resolve({ ok: false }));
   Object.defineProperty(window, 'innerWidth', { value: 1024, configurable: true, writable: true });
@@ -376,8 +387,8 @@ describe('SFX debounce (3s cooldown)', () => {
 
 function showFlyout(carX, carY, id = 'flyout-test') {
   const state = makeSession({ id });
-  mocks.raceCanvas.racers.set(id, { displayX: carX, displayY: carY });
-  mocks.raceCanvas.onRacerClick(state);
+  mocks.activeView.entities.set(id, { displayX: carX, displayY: carY });
+  mocks.activeView.onRacerClick(state);
   return document.getElementById('detail-flyout');
 }
 
@@ -434,8 +445,8 @@ describe('flyout anchor selection', () => {
     expect(flyout.className).toContain('arrow-left'); // right anchor
 
     // Move car — right still fits at carVX=500
-    mocks.raceCanvas.racers.set('sticky', { displayX: 500, displayY: 300 });
-    mocks.raceCanvas.onAfterDraw();
+    mocks.activeView.entities.set('sticky', { displayX: 500, displayY: 300 });
+    mocks.activeView.onAfterDraw();
 
     expect(flyout.className).toContain('arrow-left'); // stays right
   });
@@ -446,8 +457,8 @@ describe('flyout anchor selection', () => {
     expect(flyout.className).toContain('arrow-left'); // right anchor
 
     // Move car to right edge — right no longer fits
-    mocks.raceCanvas.racers.set('switch', { displayX: 900, displayY: 300 });
-    mocks.raceCanvas.onAfterDraw();
+    mocks.activeView.entities.set('switch', { displayX: 900, displayY: 300 });
+    mocks.activeView.onAfterDraw();
 
     expect(flyout.className).toContain('arrow-right'); // switched to left
   });
@@ -478,74 +489,80 @@ describe('flyout boundary clamping', () => {
   });
 });
 
-// ── wireViewCallbacks ─────────────────────────────────────────────────
+// ── View switching ────────────────────────────────────────────────────
 
-function isFlyoutVisible() {
-  return !document.getElementById('detail-flyout').classList.contains('hidden');
-}
-
-describe('wireViewCallbacks', () => {
-  it('onRacerClick falls back to view.racers when entities is absent', () => {
-    mocks.raceCanvas.racers.set('rc-1', { displayX: 100, displayY: 200 });
-    mocks.raceCanvas.onRacerClick(makeSession({ id: 'rc-1' }));
-    expect(isFlyoutVisible()).toBe(true);
+describe('view switching', () => {
+  it('V key does nothing when only one view type is registered', async () => {
+    const viewBefore = mocks.activeView;
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'v' }));
+    expect(mocks.activeView).toBe(viewBefore);
+    expect(viewBefore.destroy).not.toHaveBeenCalled();
   });
 
-  it('onRacerClick uses view.entities when available', () => {
-    mocks.raceCanvas.entities = new Map([['ent-1', { displayX: 50, displayY: 75 }]]);
-    mocks.raceCanvas.onRacerClick(makeSession({ id: 'ent-1' }));
-    expect(mocks.raceCanvas.racers.size).toBe(0);
-    expect(isFlyoutVisible()).toBe(true);
-    delete mocks.raceCanvas.entities;
-  });
+  it('V key switches view when multiple types are registered', async () => {
+    const { getViewTypes } = await import('./ViewRenderer.js');
+    getViewTypes.mockReturnValue(['race', 'footrace']);
 
-  it('onRacerClick does not show flyout when entity not found', () => {
-    mocks.raceCanvas.onRacerClick(makeSession({ id: 'missing' }));
-    expect(isFlyoutVisible()).toBe(false);
-  });
-
-  it('onHamsterClick shows hamster flyout when hamster is found', () => {
-    const hamsters = new Map([['h1', { displayX: 30, displayY: 40 }]]);
-    mocks.raceCanvas.racers.set('par-1', { displayX: 100, displayY: 200, hamsters });
-    mocks.raceCanvas.onHamsterClick({
-      hamsterState: makeSession({ id: 'h1' }),
-      parentState: makeSession({ id: 'par-1' }),
+    const firstView = mocks.activeView;
+    mocks.conn.onSnapshot({
+      sessions: [makeSession({ id: 's1' }), makeSession({ id: 's2' })],
     });
-    expect(isFlyoutVisible()).toBe(true);
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'v' }));
+
+    expect(firstView.destroy).toHaveBeenCalled();
+    expect(mocks.activeView).not.toBe(firstView);
+    expect(mocks.activeView.setAllRacers).toHaveBeenCalled();
   });
 
-  it('onHamsterClick does not show flyout when parent racer not found', () => {
-    mocks.raceCanvas.onHamsterClick({
-      hamsterState: makeSession({ id: 'h1' }),
-      parentState: makeSession({ id: 'no-parent' }),
+  it('switchView persists view type to localStorage', async () => {
+    const { getViewTypes } = await import('./ViewRenderer.js');
+    getViewTypes.mockReturnValue(['race', 'footrace']);
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'v' }));
+
+    expect(localStorage.getItem('agent-racer-view')).toBe('footrace');
+  });
+
+  it('switchView replays current sessions into new view', async () => {
+    const { getViewTypes } = await import('./ViewRenderer.js');
+    getViewTypes.mockReturnValue(['race', 'footrace']);
+
+    mocks.conn.onSnapshot({
+      sessions: [
+        makeSession({ id: 's1', activity: 'thinking' }),
+        makeSession({ id: 's2', activity: 'tool_use' }),
+      ],
     });
-    expect(isFlyoutVisible()).toBe(false);
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'v' }));
+
+    const replayCall = mocks.activeView.setAllRacers.mock.calls[0][0];
+    expect(replayCall).toHaveLength(2);
+    expect(replayCall.map(s => s.id).sort()).toEqual(['s1', 's2']);
   });
 
-  it('onHamsterClick does not show flyout when hamster not found on racer', () => {
-    mocks.raceCanvas.racers.set('par-2', { displayX: 100, displayY: 200, hamsters: new Map() });
-    mocks.raceCanvas.onHamsterClick({
-      hamsterState: makeSession({ id: 'h-missing' }),
-      parentState: makeSession({ id: 'par-2' }),
-    });
-    expect(isFlyoutVisible()).toBe(false);
+  it('switchView sets connected state on new view', async () => {
+    const { getViewTypes } = await import('./ViewRenderer.js');
+    getViewTypes.mockReturnValue(['race', 'footrace']);
+
+    mocks.conn.onStatus('connected');
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'v' }));
+
+    expect(mocks.activeView.setConnected).toHaveBeenCalledWith(true);
   });
 
-  it('onAfterDraw updates flyout position to racer location', () => {
-    showFlyout(100, 200, 'move-1');
-    mocks.raceCanvas.racers.set('move-1', { displayX: 300, displayY: 400 });
-    mocks.raceCanvas.onAfterDraw();
-    const flyoutEl = document.getElementById('detail-flyout');
-    expect(flyoutEl.style.left).not.toBe('');
-    expect(flyoutEl.style.top).not.toBe('');
-  });
+  it('V key cycles through view types', async () => {
+    const { getViewTypes, createView } = await import('./ViewRenderer.js');
+    getViewTypes.mockReturnValue(['race', 'footrace']);
 
-  it('onAfterDraw uses view.entities for position tracking when available', () => {
-    showFlyout(100, 200, 'ent-track');
-    mocks.raceCanvas.entities = new Map([['ent-track', { displayX: 500, displayY: 300 }]]);
-    mocks.raceCanvas.racers.delete('ent-track');
-    mocks.raceCanvas.onAfterDraw();
-    expect(isFlyoutVisible()).toBe(true);
-    delete mocks.raceCanvas.entities;
+    // First press: race → footrace
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'v' }));
+    expect(createView).toHaveBeenLastCalledWith('footrace', expect.anything(), expect.anything());
+
+    // Second press: footrace → race
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'v' }));
+    expect(createView).toHaveBeenLastCalledWith('race', expect.anything(), expect.anything());
   });
 });

@@ -1,5 +1,5 @@
 import { RaceConnection } from './websocket.js';
-import { RaceCanvas } from './canvas/RaceCanvas.js';
+import { createView, getViewTypes } from './ViewRenderer.js';
 import { SoundEngine } from './audio/SoundEngine.js';
 import { requestPermission, notifyCompletion } from './notifications.js';
 import { AchievementPanel } from './gamification/AchievementPanel.js';
@@ -29,10 +29,15 @@ let sessions = new Map();
 let debugVisible = false;
 let muted = false;
 
+const VIEW_STORAGE_KEY = 'agent-racer-view';
+
 const engine = new SoundEngine();
-const raceCanvas = new RaceCanvas(canvas);
-raceCanvas.setEngine(engine);
-window.raceCanvas = raceCanvas;
+
+const savedViewType = localStorage.getItem(VIEW_STORAGE_KEY) || 'race';
+let currentViewType = getViewTypes().includes(savedViewType) ? savedViewType : 'race';
+let activeView = createView(currentViewType, canvas, engine);
+window.activeView = activeView;
+window.raceCanvas = activeView;
 
 const achievementPanel = new AchievementPanel();
 const unlockToast = new UnlockToast(engine);
@@ -103,7 +108,7 @@ function handleSnapshot(payload) {
 
   updateSessionCount();
   log(`Snapshot: ${payload.sessions.length} sessions`, 'info');
-  raceCanvas.setAllRacers(payload.sessions);
+  activeView.setAllRacers(payload.sessions);
   engine.updateExcitement(payload.sessions);
   flyout.updateContent(sessions);
 }
@@ -112,13 +117,13 @@ function handleDelta(payload) {
   if (payload.updates) {
     for (const s of payload.updates) {
       sessions.set(s.id, s);
-      raceCanvas.updateRacer(s);
+      activeView.updateRacer(s);
     }
   }
   if (payload.removed) {
     for (const id of payload.removed) {
       sessions.delete(id);
-      raceCanvas.removeRacer(id);
+      activeView.removeRacer(id);
     }
   }
 
@@ -135,11 +140,11 @@ function handleCompletion(payload) {
   notifyCompletion(payload.name, payload.activity);
 
   if (isSuccess) {
-    raceCanvas.onComplete(payload.sessionId);
+    activeView.onComplete(payload.sessionId);
     engine.playVictory();
     engine.recordCompletion();
   } else {
-    raceCanvas.onError(payload.sessionId);
+    activeView.onError(payload.sessionId);
     engine.playCrash();
     engine.recordCrash();
   }
@@ -166,46 +171,40 @@ function handleBattlePassProgress(payload) {
 
 function handleStatus(status) {
   statusDot.className = `status-dot ${status}`;
-  raceCanvas.setConnected(status === 'connected');
+  activeView.setConnected(status === 'connected');
   log(`Connection: ${status}`, status === 'connected' ? 'info' : 'error');
 }
 
 export function wireViewCallbacks(view, flyout, unlockToast) {
-  function getEntities() {
-    return view.entities || view.racers;
-  }
-
   view.onRacerClick = (state) => {
-    const racer = getEntities().get(state.id);
-    if (racer) {
-      flyout.show(state, racer.displayX, racer.displayY);
+    const entity = view.entities.get(state.id);
+    if (entity) {
+      flyout.show(state, entity.displayX, entity.displayY);
     }
   };
 
   view.onHamsterClick = ({ hamsterState, parentState }) => {
-    const racer = getEntities().get(parentState.id);
-    if (!racer) return;
-    const hamster = racer.hamsters && racer.hamsters.get(hamsterState.id);
+    const entity = view.entities.get(parentState.id);
+    if (!entity) return;
+    const hamster = entity.hamsters && entity.hamsters.get(hamsterState.id);
     if (hamster) {
       flyout.showHamster(hamsterState, parentState, hamster.displayX, hamster.displayY);
     }
   };
 
-  // Keep flyout attached to car/hamster as it moves, and draw toast overlays
   view.onAfterDraw = () => {
     unlockToast.update(view.dt);
     unlockToast.draw(view.ctx, view.width);
 
     if (!flyout.isVisible()) return;
 
-    const entities = getEntities();
     const hamsterId = flyout.getSelectedHamsterId();
     const sessionId = flyout.getSelectedSessionId();
 
     if (hamsterId && sessionId) {
-      const racer = entities.get(sessionId);
-      if (racer && racer.hamsters) {
-        const hamster = racer.hamsters.get(hamsterId);
+      const entity = view.entities.get(sessionId);
+      if (entity && entity.hamsters) {
+        const hamster = entity.hamsters.get(hamsterId);
         if (hamster) {
           flyout.updatePosition(hamster.displayX, hamster.displayY);
           return;
@@ -214,15 +213,28 @@ export function wireViewCallbacks(view, flyout, unlockToast) {
     }
 
     if (sessionId) {
-      const racer = entities.get(sessionId);
-      if (racer) {
-        flyout.updatePosition(racer.displayX, racer.displayY);
+      const entity = view.entities.get(sessionId);
+      if (entity) {
+        flyout.updatePosition(entity.displayX, entity.displayY);
       }
     }
   };
 }
 
-wireViewCallbacks(raceCanvas, flyout, unlockToast);
+wireViewCallbacks(activeView, flyout, unlockToast);
+
+function switchView(type) {
+  flyout.hide();
+  activeView.destroy();
+  currentViewType = type;
+  activeView = createView(type, canvas, engine);
+  wireViewCallbacks(activeView, flyout, unlockToast);
+  activeView.setAllRacers([...sessions.values()]);
+  activeView.setConnected(statusDot.className.includes('connected'));
+  window.activeView = activeView;
+  window.raceCanvas = activeView;
+  localStorage.setItem(VIEW_STORAGE_KEY, type);
+}
 
 flyoutClose.addEventListener('click', () => flyout.hide());
 
@@ -267,6 +279,14 @@ document.addEventListener('keydown', (e) => {
       debugVisible = !debugVisible;
       debugPanel.classList.toggle('hidden', !debugVisible);
       break;
+    case 'v': {
+      const types = getViewTypes();
+      if (types.length < 2) break;
+      const idx = types.indexOf(currentViewType);
+      const next = types[(idx + 1) % types.length];
+      switchView(next);
+      break;
+    }
     case 'm':
       muted = !muted;
       engine.setMuted(muted);
