@@ -987,3 +987,134 @@ header {
 .shortcut-item.active .shortcut-label {
   color: #e0e0e0;
 }
+
+/* Help popup */
+.help-popup {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.help-popup.hidden { display: none; }
+
+.help-inner {
+  background: rgba(16, 16, 48, 0.97);
+  border: 1px solid #2d2d6e;
+  border-radius: 10px;
+  box-shadow: 0 16px 64px rgba(0, 0, 0, 0.8);
+  width: min(640px, 92vw);
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.help-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px 10px;
+  border-bottom: 1px solid #2d2d6e;
+}
+
+.help-title {
+  font-family: 'Courier New', monospace;
+  font-size: 15px;
+  font-weight: bold;
+  color: #e0e0e0;
+  letter-spacing: 1px;
+}
+
+.help-close {
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+.help-close:hover { color: #e94560; }
+
+.help-body {
+  padding: 14px 20px 18px;
+  overflow-y: auto;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  color: #ccc;
+  line-height: 1.6;
+}
+
+.help-section {
+  margin-bottom: 16px;
+}
+.help-section:last-child { margin-bottom: 0; }
+
+.help-section-title {
+  font-size: 13px;
+  font-weight: bold;
+  color: #e94560;
+  margin: 0 0 8px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.help-dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+}
+
+.help-dl dt {
+  color: #e0e0e0;
+  font-weight: bold;
+  white-space: nowrap;
+}
+
+.help-dl dd {
+  margin: 0;
+  color: #aaa;
+}
+
+.help-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  vertical-align: middle;
+}
+
+.help-badge {
+  display: inline-block;
+  background: #333;
+  border: 1px solid #555;
+  border-radius: 3px;
+  padding: 0 4px;
+  font-size: 10px;
+  font-weight: bold;
+  color: #ccc;
+  vertical-align: middle;
+}
+
+.help-shortcuts {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.help-shortcuts td {
+  padding: 3px 0;
+}
+
+.help-shortcut-key {
+  color: #e0e0e0;
+  font-weight: bold;
+  width: 80px;
+  padding-right: 12px;
+}
+
+.help-shortcuts td:last-child {
+  color: #aaa;
+}

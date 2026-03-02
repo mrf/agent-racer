@@ -4,6 +4,7 @@ const SHORTCUTS = [
   { key: 'd', label: 'debug', id: 'debug' },
   { key: 'm', label: 'mute', id: 'mute' },
   { key: 'f', label: 'fullscreen', id: 'fullscreen' },
+  { key: '?', label: 'help', id: 'help' },
   { key: 'esc', label: 'close', id: 'close' },
   { key: 'click', label: 'details', id: 'details' },
 ];
