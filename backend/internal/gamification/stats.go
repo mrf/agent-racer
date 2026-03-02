@@ -317,16 +317,16 @@ func (t *StatsTracker) processEvent(ev session.Event) {
 
 	t.dirty = true
 
-	// Capture battlepass progress while still under lock.
-	var bpProgress BattlePassProgress
-	if len(xpEntries) > 0 {
-		bpProgress = getProgress(&t.stats.BattlePass)
-	}
-
 	// Evaluate achievements while still holding the lock so stats are consistent.
 	unlocked := t.achieveEngine.Evaluate(t.stats)
 	for _, a := range unlocked {
 		awardXP(&t.stats.BattlePass, AchievementXP(a.Tier))
+	}
+
+	// Capture battlepass progress AFTER achievement XP is applied, while still under lock.
+	var bpProgress BattlePassProgress
+	if len(xpEntries) > 0 {
+		bpProgress = getProgress(&t.stats.BattlePass)
 	}
 	t.mu.Unlock()
 

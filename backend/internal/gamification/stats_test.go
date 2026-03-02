@@ -1074,6 +1074,37 @@ func TestStatsTracker_EquipConcurrentWithProcessEvent(t *testing.T) {
 	}
 }
 
+func TestStatsTracker_BattlePassCallback_IncludesAchievementXP(t *testing.T) {
+	tracker, eventCh := startTracker(t)
+
+	var mu sync.Mutex
+	var gotProgress BattlePassProgress
+	tracker.OnBattlePassProgress(func(progress BattlePassProgress, _ []XPEntry) {
+		mu.Lock()
+		gotProgress = progress
+		mu.Unlock()
+	})
+
+	// First session from a new source awards XPSessionObserved + XPNewSource
+	// and triggers the first_lap achievement (Bronze tier).
+	// The callback snapshot must include achievement XP in the total.
+	eventCh <- session.Event{
+		Type:        session.EventNew,
+		State:       &session.SessionState{ID: "s1", Source: "test"},
+		ActiveCount: 1,
+	}
+	tracker.Flush()
+
+	mu.Lock()
+	prog := gotProgress
+	mu.Unlock()
+
+	wantXP := XPSessionObserved + XPNewSource + AchievementXP(TierBronze)
+	if prog.XP != wantXP {
+		t.Errorf("BattlePassProgress.XP = %d, want %d (achievement XP missing from callback snapshot)", prog.XP, wantXP)
+	}
+}
+
 func TestSeasonRotation_PersistsToDisk(t *testing.T) {
 	dir := t.TempDir()
 	store := NewStore(dir)
