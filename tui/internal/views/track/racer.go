@@ -12,6 +12,9 @@ import (
 
 const nameWidth = 20
 
+// sparkBlocks maps normalized values to Unicode block characters for sparklines.
+var sparkBlocks = []rune("▁▂▃▄▅▆▇█")
+
 // activityGlyph returns the symbol for a session's current activity.
 func activityGlyph(a client.Activity) string {
 	switch a {
@@ -85,6 +88,38 @@ func formatElapsed(d time.Duration) string {
 	return fmt.Sprintf("%dm", int(d.Minutes()))
 }
 
+// sparkline converts a slice of burn rate samples into a fixed-width string of
+// Unicode block characters (▁▂▃▄▅▆▇█). The output is always maxBurnSamples
+// wide, left-padded with spaces when fewer samples are available.
+func sparkline(samples []float64) string {
+	n := len(sparkBlocks)
+
+	peak := 0.0
+	for i := 0; i < len(samples); i++ {
+		if samples[i] > peak {
+			peak = samples[i]
+		}
+	}
+
+	chars := make([]rune, len(samples))
+	for i := 0; i < len(samples); i++ {
+		idx := 0
+		if peak > 0 {
+			idx = int(samples[i] / peak * float64(n-1))
+			if idx >= n {
+				idx = n - 1
+			}
+		}
+		chars[i] = sparkBlocks[idx]
+	}
+
+	pad := maxBurnSamples - len(chars)
+	if pad < 0 {
+		pad = 0
+	}
+	return strings.Repeat(" ", pad) + string(chars)
+}
+
 // linePrefix writes the common prefix shared by all session lines:
 // selection cursor, number, separator, styled glyph, badge, and padded name.
 func linePrefix(b *strings.Builder, idx int, activity client.Activity, source, model, name string, selected bool) {
@@ -114,18 +149,22 @@ func linePrefix(b *strings.Builder, idx int, activity client.Activity, source, m
 	}
 }
 
-// renderRacingLine renders a session on the racing track with a progress bar.
-func renderRacingLine(idx int, s *client.SessionState, selected bool, width int) string {
+// renderRacingLine renders a session on the racing track with a progress bar
+// and inline sparkline showing burn rate history.
+func renderRacingLine(idx int, s *client.SessionState, selected bool, width int, burnHist []float64) string {
 	name := displayName(s, nameWidth)
 
 	pctStr := fmt.Sprintf("%3d%%", int(s.ContextUtilization*100))
 	tokens := formatTokens(s.TokensUsed)
 	elapsed := formatDuration(s.StartedAt)
-	rightSide := fmt.Sprintf(" %s  %5s  %4s", pctStr, tokens, elapsed)
+	burnStr := fmt.Sprintf("%4.1f", s.BurnRatePerMinute)
+	spark := sparkline(burnHist)
 
-	// Calculate available track width for the progress bar.
-	// Layout: prefix(2) + num(2) + sep(2) + glyph(1-2) + space(1) + badge(3) + space(1) + name(<=20) + space(1) + [track] + rightSide
-	fixedWidth := 2 + 2 + 2 + glyphWidth(s.Activity) + 1 + 3 + 1 + len(name) + 1 + len(rightSide)
+	// rightSide is ASCII-only so len() gives the correct visual width.
+	// The sparkline is tracked separately (maxBurnSamples visual chars).
+	// Layout: prefix(2) + num(2) + sep(2) + glyph(1-2) + space(1) + badge(3) + space(1) + name(<=20) + space(1) + [track] + rightSide + spark
+	rightSide := fmt.Sprintf(" %s  %5s  %4s  %s ", pctStr, tokens, elapsed, burnStr)
+	fixedWidth := 2 + 2 + 2 + glyphWidth(s.Activity) + 1 + 3 + 1 + len(name) + 1 + len(rightSide) + maxBurnSamples
 	trackWidth := width - fixedWidth
 	if trackWidth < 10 {
 		trackWidth = 10
@@ -136,6 +175,7 @@ func renderRacingLine(idx int, s *client.SessionState, selected bool, width int)
 	b.WriteByte(' ')
 	b.WriteString(renderProgressTrack(s.ContextUtilization, trackWidth))
 	b.WriteString(theme.StyleDimmed.Render(rightSide))
+	b.WriteString(theme.StyleDimmed.Render(spark))
 
 	return b.String()
 }
@@ -171,10 +211,12 @@ func renderProgressTrack(pct float64, width int) string {
 }
 
 // renderPitLine renders a session in the pit zone.
-func renderPitLine(idx int, s *client.SessionState, selected bool) string {
+func renderPitLine(idx int, s *client.SessionState, selected bool, burnHist []float64) string {
 	name := displayName(s, nameWidth)
 	tokens := formatTokens(s.TokensUsed)
 	elapsed := formatDuration(s.StartedAt)
+	burnStr := fmt.Sprintf("%4.1f", s.BurnRatePerMinute)
+	spark := sparkline(burnHist)
 
 	glyphStyle := lipgloss.NewStyle().Foreground(theme.ActivityColor(string(s.Activity)))
 
@@ -182,7 +224,8 @@ func renderPitLine(idx int, s *client.SessionState, selected bool) string {
 	linePrefix(&b, idx, s.Activity, s.Source, s.Model, name, selected)
 	b.WriteString("  ")
 	b.WriteString(glyphStyle.Render(string(s.Activity)))
-	b.WriteString(theme.StyleDimmed.Render(fmt.Sprintf("  %5s  %4s", tokens, elapsed)))
+	b.WriteString(theme.StyleDimmed.Render(fmt.Sprintf("  %5s  %4s  %s ", tokens, elapsed, burnStr)))
+	b.WriteString(theme.StyleDimmed.Render(spark))
 
 	return b.String()
 }
