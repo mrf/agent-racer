@@ -5,10 +5,9 @@ vi.mock('../auth.js', () => ({
   authFetch: vi.fn(),
 }));
 
-const mockLoadout = { paint: '', trail: '', body: '', badge: '', sound: '', theme: '', title: '' };
-const changeListeners = new Set();
-
 const DEFAULT_LOADOUT = { paint: '', trail: '', body: '', badge: '', sound: '', theme: '', title: '' };
+const mockLoadout = { ...DEFAULT_LOADOUT };
+const changeListeners = new Set();
 
 vi.mock('./CosmeticRegistry.js', () => ({
   getEquippedLoadout: vi.fn(() => ({ ...mockLoadout })),
@@ -48,7 +47,6 @@ function mockStatsResponse(tier = 1) {
   return { ok: true, json: () => Promise.resolve({ battlePass: { tier } }) };
 }
 
-/** Route /api/achievements and /api/stats to mock responses. */
 function mockEndpoints(achievements = [], tier = 1) {
   authFetch.mockImplementation((url) => {
     if (url === '/api/achievements') return Promise.resolve(mockAchievementsResponse(achievements));
@@ -319,6 +317,197 @@ describe('RewardSelector', () => {
       rs = null;
 
       expect(changeListeners.size).toBe(0);
+    });
+  });
+
+  describe('focus management', () => {
+    it('focuses close button on show()', () => {
+      rs = new RewardSelector();
+      authFetch.mockResolvedValue({ ok: false, status: 500 });
+      rs.show();
+      expect(document.activeElement).toBe(document.querySelector('.rs-close'));
+    });
+
+    it('returns focus to previous element on hide()', () => {
+      const btn = document.createElement('button');
+      document.body.appendChild(btn);
+      btn.focus();
+
+      rs = new RewardSelector();
+      authFetch.mockResolvedValue({ ok: false, status: 500 });
+      rs.show();
+      rs.hide();
+
+      expect(document.activeElement).toBe(btn);
+    });
+
+    it('focus trap: Tab from last focusable wraps to first', async () => {
+      mockEndpoints();
+      rs = new RewardSelector();
+      rs.show();
+
+      await vi.waitFor(() => {
+        expect(document.querySelectorAll('.rs-tile').length).toBeGreaterThan(0);
+      });
+
+      const focusable = rs._getFocusable();
+      expect(focusable.length).toBeGreaterThan(1);
+
+      const last = focusable[focusable.length - 1];
+      last.focus();
+
+      const tabEvent = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true });
+      let defaultPrevented = false;
+      tabEvent.preventDefault = () => { defaultPrevented = true; };
+      rs._overlay.dispatchEvent(tabEvent);
+
+      expect(defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(focusable[0]);
+    });
+
+    it('focus trap: Shift+Tab from first focusable wraps to last', async () => {
+      mockEndpoints();
+      rs = new RewardSelector();
+      rs.show();
+
+      await vi.waitFor(() => {
+        expect(document.querySelectorAll('.rs-tile').length).toBeGreaterThan(0);
+      });
+
+      const focusable = rs._getFocusable();
+      focusable[0].focus();
+
+      const tabEvent = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true });
+      let defaultPrevented = false;
+      tabEvent.preventDefault = () => { defaultPrevented = true; };
+      rs._overlay.dispatchEvent(tabEvent);
+
+      expect(defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(focusable[focusable.length - 1]);
+    });
+  });
+
+  describe('tile accessibility', () => {
+    it('all tiles have role="button" and tabindex="0"', async () => {
+      mockEndpoints();
+      rs = new RewardSelector();
+      rs.show();
+
+      await vi.waitFor(() => {
+        expect(document.querySelectorAll('.rs-tile').length).toBeGreaterThan(0);
+      });
+
+      for (const tile of document.querySelectorAll('.rs-tile')) {
+        expect(tile.getAttribute('role')).toBe('button');
+        expect(tile.getAttribute('tabindex')).toBe('0');
+      }
+    });
+
+    it('equipped tile has aria-pressed="true"', async () => {
+      Object.assign(mockLoadout, { paint: 'rookie_paint' });
+      mockEndpoints([{ id: 'first_lap', name: 'First Lap', unlocked: true }]);
+      rs = new RewardSelector();
+      rs.show();
+
+      await vi.waitFor(() => {
+        const equippedTiles = document.querySelectorAll('.rs-tile.equipped');
+        expect(equippedTiles.length).toBeGreaterThan(0);
+      });
+
+      const equippedTiles = document.querySelectorAll('.rs-tile.equipped');
+      for (const tile of equippedTiles) {
+        expect(tile.getAttribute('aria-pressed')).toBe('true');
+      }
+    });
+
+    it('locked tile has aria-disabled="true" and includes lock reason in aria-label', async () => {
+      mockEndpoints([]);
+      rs = new RewardSelector();
+      rs.show();
+
+      await vi.waitFor(() => {
+        expect(document.querySelectorAll('.rs-tile.locked').length).toBeGreaterThan(0);
+      });
+
+      const lockedTile = document.querySelector('.rs-tile.locked');
+      expect(lockedTile.getAttribute('aria-disabled')).toBe('true');
+      const label = lockedTile.getAttribute('aria-label');
+      expect(label).toBeTruthy();
+      expect(label.toLowerCase()).toContain('locked');
+    });
+
+    it('equippable tile aria-label contains reward name and "equip"', async () => {
+      mockEndpoints([{ id: 'first_lap', name: 'First Lap', unlocked: true }]);
+      rs = new RewardSelector();
+      rs.show();
+
+      await vi.waitFor(() => {
+        expect(document.querySelectorAll('.rs-tile.equippable').length).toBeGreaterThan(0);
+      });
+
+      const equippable = document.querySelector('.rs-tile.equippable');
+      const label = equippable.getAttribute('aria-label');
+      expect(label).toBeTruthy();
+    });
+
+    it('Enter key on equippable tile triggers equip', async () => {
+      authFetch.mockImplementation((url) => {
+        if (url === '/api/achievements') return Promise.resolve(mockAchievementsResponse([
+          { id: 'first_lap', name: 'First Lap', unlocked: true },
+        ]));
+        if (url === '/api/stats') return Promise.resolve(mockStatsResponse(1));
+        if (url === '/api/equip') return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ paint: 'rookie_paint' }),
+        });
+        return Promise.resolve({ ok: false, status: 404 });
+      });
+
+      rs = new RewardSelector();
+      rs.show();
+
+      await vi.waitFor(() => {
+        expect(document.querySelectorAll('.rs-tile.equippable').length).toBeGreaterThan(0);
+      });
+
+      const tile = document.querySelector('.rs-tile.equippable');
+      tile.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+
+      await vi.waitFor(() => {
+        expect(authFetch).toHaveBeenCalledWith('/api/equip', expect.objectContaining({ method: 'POST' }));
+      });
+    });
+
+    it('Space key on equippable tile triggers equip', async () => {
+      authFetch.mockImplementation((url) => {
+        if (url === '/api/achievements') return Promise.resolve(mockAchievementsResponse([
+          { id: 'first_lap', name: 'First Lap', unlocked: true },
+        ]));
+        if (url === '/api/stats') return Promise.resolve(mockStatsResponse(1));
+        if (url === '/api/equip') return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ paint: 'rookie_paint' }),
+        });
+        return Promise.resolve({ ok: false, status: 404 });
+      });
+
+      rs = new RewardSelector();
+      rs.show();
+
+      await vi.waitFor(() => {
+        expect(document.querySelectorAll('.rs-tile.equippable').length).toBeGreaterThan(0);
+      });
+
+      const tile = document.querySelector('.rs-tile.equippable');
+      const spaceEvent = new KeyboardEvent('keydown', { key: ' ', bubbles: true });
+      let defaultPrevented = false;
+      spaceEvent.preventDefault = () => { defaultPrevented = true; };
+      tile.dispatchEvent(spaceEvent);
+
+      expect(defaultPrevented).toBe(true);
+      await vi.waitFor(() => {
+        expect(authFetch).toHaveBeenCalledWith('/api/equip', expect.objectContaining({ method: 'POST' }));
+      });
     });
   });
 });
