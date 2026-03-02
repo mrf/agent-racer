@@ -29,11 +29,18 @@ type Model struct {
 	RecentXP     []client.XPEntry
 	Challenges   []client.ChallengeProgress
 	Width        int
+	SpinnerView  string // animated spinner provided by the root app
+	loading      bool   // true until the initial HTTP fetch completes
 }
 
-// New returns a zero-state Model.
+// New returns a zero-state Model in loading state.
 func New() Model {
-	return Model{Season: "—"}
+	return Model{Season: "—", loading: true}
+}
+
+// SetLoaded marks the initial fetch as complete, hiding the loading spinner.
+func (m *Model) SetLoaded() {
+	m.loading = false
 }
 
 // SetProgress applies a battlepass_progress WS payload.
@@ -70,6 +77,16 @@ func (m Model) CollapsedBar() string {
 	width := m.Width
 	if width < 40 {
 		width = 80
+	}
+
+	if m.loading {
+		content := "  " + theme.StyleDimmed.Render(theme.SpinnerOrFallback(m.SpinnerView)+" Loading battle pass...")
+		return lipgloss.NewStyle().
+			Width(width).
+			BorderStyle(lipgloss.NormalBorder()).
+			BorderTop(true).
+			BorderForeground(theme.ColorBorder).
+			Render(content)
 	}
 
 	tierStr := lipgloss.NewStyle().Foreground(theme.ColorGold).Bold(true).
@@ -109,6 +126,17 @@ func (m Model) View() string {
 		width = 80
 	}
 	inner := width - 6 // subtract border + padding
+
+	if m.loading {
+		body := theme.StyleHeader.Render("BATTLE PASS") + "\n\n" +
+			theme.StyleDimmed.Render(theme.SpinnerOrFallback(m.SpinnerView)+" Loading...")
+		return lipgloss.NewStyle().
+			Width(width).
+			Padding(1, 2).
+			BorderStyle(lipgloss.RoundedBorder()).
+			BorderForeground(theme.ColorBorder).
+			Render(body)
+	}
 
 	var sb strings.Builder
 

@@ -147,6 +147,16 @@ func ContextBarColor(pct float64) lipgloss.Color {
 	}
 }
 
+// SpinnerOrFallback returns the spinner view string if non-empty, otherwise a
+// static fallback glyph. Sub-views use this to display a consistent placeholder
+// before the first spinner tick arrives.
+func SpinnerOrFallback(spinnerView string) string {
+	if spinnerView != "" {
+		return spinnerView
+	}
+	return "○"
+}
+
 // Reusable styles.
 var (
 	StyleBorder = lipgloss.NewStyle().
