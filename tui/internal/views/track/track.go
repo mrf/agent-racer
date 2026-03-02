@@ -9,6 +9,7 @@ import (
 
 	"github.com/agent-racer/tui/internal/client"
 	"github.com/agent-racer/tui/internal/theme"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -26,11 +27,16 @@ type Model struct {
 	// Layout dimensions.
 	Width  int
 	Height int
+
+	// Spring animation state keyed by session ID (racing sessions only).
+	springs map[string]*barSpring
 }
 
 // New creates a track model.
 func New() Model {
-	return Model{}
+	return Model{
+		springs: make(map[string]*barSpring),
+	}
 }
 
 // SetSessions updates the session list and rebuilds zone groupings.
@@ -54,6 +60,23 @@ func (m *Model) SetSessions(sessions map[string]*client.SessionState) {
 	sort.Slice(m.racing, func(i, j int) bool {
 		return m.racing[i].ContextUtilization > m.racing[j].ContextUtilization
 	})
+
+	// Sync spring state for racing sessions.
+	activeIDs := make(map[string]bool)
+	for _, s := range m.racing {
+		activeIDs[s.ID] = true
+		if spr, ok := m.springs[s.ID]; ok {
+			spr.setTarget(s.ContextUtilization)
+		} else {
+			m.springs[s.ID] = newBarSpring(s.ContextUtilization)
+		}
+	}
+	for id := range m.springs {
+		if !activeIDs[id] {
+			delete(m.springs, id)
+		}
+	}
+
 	// Sort pit by last activity (most recent first).
 	sort.Slice(m.pit, func(i, j int) bool {
 		return m.pit[i].LastActivityAt.After(m.pit[j].LastActivityAt)
@@ -115,6 +138,30 @@ func (m Model) SelectedSession() *client.SessionState {
 	return nil
 }
 
+// Tick advances spring physics for all racing session bars.
+// Returns TickCmd if any spring is still animating, nil when all are at rest.
+func (m *Model) Tick() tea.Cmd {
+	needMore := false
+	for _, spr := range m.springs {
+		if !spr.atRest() {
+			spr.step()
+			needMore = true
+		}
+	}
+	if needMore {
+		return TickCmd()
+	}
+	return nil
+}
+
+// animatedPct returns the spring-animated context utilization for a session.
+func (m Model) animatedPct(id string) float64 {
+	if spr, ok := m.springs[id]; ok {
+		return spr.pos
+	}
+	return 0
+}
+
 // View renders the full track view.
 func (m Model) View() string {
 	width := m.Width
@@ -140,9 +187,8 @@ func (m Model) View() string {
 	}
 	for i, s := range m.racing {
 		selected := m.ActiveZone == ZoneRacing && i == m.SelectedIdx
-		sections = append(sections, renderRacingLine(i, s, selected, width))
+		sections = append(sections, renderRacingLine(i, s, selected, width, m.animatedPct(s.ID)))
 		for _, sub := range s.Subagents {
-			sub := sub
 			sections = append(sections, renderSubagentLine(&sub))
 		}
 	}
@@ -158,7 +204,6 @@ func (m Model) View() string {
 		selected := m.ActiveZone == ZonePit && i == m.SelectedIdx
 		sections = append(sections, renderPitLine(i, s, selected))
 		for _, sub := range s.Subagents {
-			sub := sub
 			sections = append(sections, renderSubagentLine(&sub))
 		}
 	}

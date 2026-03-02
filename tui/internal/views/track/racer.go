@@ -115,7 +115,8 @@ func linePrefix(b *strings.Builder, idx int, activity client.Activity, source, m
 }
 
 // renderRacingLine renders a session on the racing track with a progress bar.
-func renderRacingLine(idx int, s *client.SessionState, selected bool, width int) string {
+// animPct is the spring-animated bar position; s.ContextUtilization is shown as text.
+func renderRacingLine(idx int, s *client.SessionState, selected bool, width int, animPct float64) string {
 	name := displayName(s, nameWidth)
 
 	pctStr := fmt.Sprintf("%3d%%", int(s.ContextUtilization*100))
@@ -134,7 +135,7 @@ func renderRacingLine(idx int, s *client.SessionState, selected bool, width int)
 	var b strings.Builder
 	linePrefix(&b, idx, s.Activity, s.Source, s.Model, name, selected)
 	b.WriteByte(' ')
-	b.WriteString(renderProgressTrack(s.ContextUtilization, trackWidth))
+	b.WriteString(renderProgressTrack(animPct, trackWidth))
 	b.WriteString(theme.StyleDimmed.Render(rightSide))
 
 	return b.String()

@@ -166,6 +166,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.debugLog.Add("ws", "disconnected: "+errStr)
 		return m, m.ws.Listen(m.ctx)
 
+	case track.AnimTickMsg:
+		return m, m.trackView.Tick()
+
 	case client.WSSnapshotMsg:
 		m.sessions = make(map[string]*client.SessionState)
 		for _, s := range msg.Payload.Sessions {
@@ -174,9 +177,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for _, h := range msg.Payload.SourceHealth {
 			m.statusBar.SourceHealth[h.Source] = h
 		}
-		m.refreshTrack()
+		animCmd := m.refreshTrack()
 		m.debugLog.Add("ws", fmt.Sprintf("snapshot: %d sessions", len(msg.Payload.Sessions)))
-		return m, m.ws.ReadLoop(m.ctx)
+		return m, tea.Batch(m.ws.ReadLoop(m.ctx), animCmd)
 
 	case client.WSDeltaMsg:
 		for _, s := range msg.Payload.Updates {
@@ -185,17 +188,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for _, id := range msg.Payload.Removed {
 			delete(m.sessions, id)
 		}
-		m.refreshTrack()
+		animCmd := m.refreshTrack()
 		m.debugLog.Add("ws", fmt.Sprintf("delta: +%d -%d", len(msg.Payload.Updates), len(msg.Payload.Removed)))
-		return m, m.ws.ReadLoop(m.ctx)
+		return m, tea.Batch(m.ws.ReadLoop(m.ctx), animCmd)
 
 	case client.WSCompletionMsg:
 		if s, ok := m.sessions[msg.Payload.SessionID]; ok {
 			s.Activity = msg.Payload.Activity
 		}
-		m.refreshTrack()
+		animCmd := m.refreshTrack()
 		m.debugLog.Add("ws", fmt.Sprintf("completion: %s → %s", msg.Payload.Name, string(msg.Payload.Activity)))
-		return m, m.ws.ReadLoop(m.ctx)
+		return m, tea.Batch(m.ws.ReadLoop(m.ctx), animCmd)
 
 	case client.WSSourceHealthMsg:
 		m.statusBar.SourceHealth[msg.Payload.Source] = msg.Payload
@@ -442,11 +445,16 @@ func (m Model) renderHelp() string {
 }
 
 // refreshTrack rebuilds the track view, dashboard, and updates status bar counts.
-func (m *Model) refreshTrack() {
+// Returns a TickCmd to start the spring animation loop if there are racing sessions.
+func (m *Model) refreshTrack() tea.Cmd {
 	m.trackView.SetSessions(m.sessions)
 	racing, pit, parked := m.trackView.Counts()
 	m.statusBar.SetCounts(racing, pit, parked)
 	m.dashboard.SetSessions(m.sessions)
+	if racing > 0 {
+		return track.TickCmd()
+	}
+	return nil
 }
 
 // cmdFocusSession returns a Cmd that calls POST /api/sessions/{id}/focus.
