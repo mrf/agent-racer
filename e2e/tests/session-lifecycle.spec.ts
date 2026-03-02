@@ -162,16 +162,23 @@ test.describe('Session lifecycle', () => {
       path: 'tests/screenshots/lifecycle-waiting.png',
     });
 
-    // With zero lastDataReceivedAt, pit classification is immediate once waiting
-    await waitForPit(page, debugId);
-
-    // Verify the racer is now in the pit zone
-    const zones = await getAllRacerZones(page);
-    const debugRacer = zones.find((r) => r.id === debugId);
-    expect(debugRacer).toBeDefined();
-    expect(debugRacer!.inPit).toBe(true);
-    expect(debugRacer!.inParkingLot).toBe(false);
-    expect(debugRacer!.activity).toBe('waiting');
+    // With zero lastDataReceivedAt, pit classification is immediate once waiting.
+    // Check inPit + activity atomically — the mock cycles between thinking and
+    // waiting every 70 ticks, so two separate page round-trips can observe
+    // different phases (the original cause of flakiness).
+    await page.waitForFunction(
+      (id) => {
+        const rc = (window as any).raceCanvas;
+        const r = rc?.racers?.get(id);
+        return (
+          r?.inPit === true &&
+          !r?.inParkingLot &&
+          r?.state?.activity === 'waiting'
+        );
+      },
+      debugId,
+      { timeout: TIMEOUT_ZONE_TRANSITION },
+    );
 
     await page.screenshot({
       path: 'tests/screenshots/lifecycle-pit.png',
