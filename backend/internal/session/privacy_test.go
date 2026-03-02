@@ -296,6 +296,75 @@ func TestMatchPathOrParent_WindowsPaths(t *testing.T) {
 	}
 }
 
+// TestPrivacyFilter_Apply_MaskSessionIDs_SubagentSessionID documents that
+// MaskSessionIDs should mask the SessionID field on each subagent, not just the
+// top-level session ID. This test currently FAILS because Apply does not iterate
+// over the Subagents slice — it serves as a red test for that missing feature.
+func TestPrivacyFilter_Apply_MaskSessionIDs_SubagentSessionID(t *testing.T) {
+	original := &SessionState{
+		ID: "claude:abc123",
+		Subagents: []SubagentState{
+			{ID: "toolu_01", SessionID: "claude:abc123", Slug: "task-a"},
+			{ID: "toolu_02", SessionID: "claude:abc123", Slug: "task-b"},
+		},
+	}
+
+	f := &PrivacyFilter{MaskSessionIDs: true}
+	result := f.Apply(original)
+
+	if result.ID == original.ID {
+		t.Fatal("parent session ID was not masked")
+	}
+
+	// Each subagent's SessionID references the parent and must also be masked.
+	for i, sub := range result.Subagents {
+		if sub.SessionID == "claude:abc123" {
+			t.Errorf("Subagents[%d].SessionID not masked (got raw value %q)", i, sub.SessionID)
+		}
+		if sub.SessionID == "" {
+			t.Errorf("Subagents[%d].SessionID is empty after masking", i)
+		}
+	}
+
+	// Original must not be modified.
+	for i, sub := range original.Subagents {
+		if sub.SessionID != "claude:abc123" {
+			t.Errorf("original Subagents[%d].SessionID was modified", i)
+		}
+	}
+}
+
+// TestPrivacyFilter_Apply_MaskWorkingDirs_SubagentsUnaffected documents that
+// SubagentState has no WorkingDir field, so MaskWorkingDirs has no effect on
+// subagents. If SubagentState gains a WorkingDir field in the future,
+// PrivacyFilter.Apply must be updated to mask it.
+func TestPrivacyFilter_Apply_MaskWorkingDirs_SubagentsUnaffected(t *testing.T) {
+	original := &SessionState{
+		ID:         "claude:abc123",
+		WorkingDir: "/home/user/secret/project",
+		Subagents: []SubagentState{
+			{ID: "toolu_01", SessionID: "claude:abc123", Slug: "task-a"},
+		},
+	}
+
+	f := &PrivacyFilter{MaskWorkingDirs: true}
+	result := f.Apply(original)
+
+	if result.WorkingDir != "project" {
+		t.Errorf("masked WorkingDir = %q, want %q", result.WorkingDir, "project")
+	}
+
+	// Subagents must be preserved unchanged (SubagentState has no WorkingDir).
+	if len(result.Subagents) != len(original.Subagents) {
+		t.Errorf("subagent count changed: got %d, want %d", len(result.Subagents), len(original.Subagents))
+	}
+
+	// Original must not be modified.
+	if original.WorkingDir != "/home/user/secret/project" {
+		t.Error("original WorkingDir was modified")
+	}
+}
+
 func TestShortHash_Deterministic(t *testing.T) {
 	a := shortHash("claude:abc123")
 	b := shortHash("claude:abc123")

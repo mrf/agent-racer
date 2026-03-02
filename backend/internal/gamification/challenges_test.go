@@ -153,7 +153,7 @@ func TestEvaluateChallenges(t *testing.T) {
 }
 
 func TestChallengePool_AllHaveUniqueIDs(t *testing.T) {
-	pool := challengePool()
+	pool := challengePool
 	seen := map[string]bool{}
 	for _, c := range pool {
 		if c.ID == "" {
@@ -173,7 +173,7 @@ func TestChallengePool_AllHaveUniqueIDs(t *testing.T) {
 }
 
 func TestChallengePool_AllProgressFunctions(t *testing.T) {
-	pool := challengePool()
+	pool := challengePool
 	snap := &WeekSnapshot{
 		SessionsPerModel:  make(map[string]int),
 		SessionsPerSource: make(map[string]int),
