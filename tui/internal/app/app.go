@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/agent-racer/tui/internal/client"
 	"github.com/agent-racer/tui/internal/theme"
@@ -16,6 +17,7 @@ import (
 	"github.com/agent-racer/tui/internal/views/track"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -60,6 +62,10 @@ type Model struct {
 	// Session state.
 	sessions map[string]*client.SessionState
 
+	// Search state.
+	searchMode  bool
+	searchInput textinput.Model
+
 	// Navigation.
 	overlay Overlay
 
@@ -86,6 +92,9 @@ type focusResultMsg struct{ err error }
 // New creates the root model.
 func New(ws *client.WSClient, http *client.HTTPClient) Model {
 	ctx, cancel := context.WithCancel(context.Background())
+	si := textinput.New()
+	si.Placeholder = "search by name, model, or activity..."
+	si.CharLimit = 80
 	m := Model{
 		ws:           ws,
 		http:         http,
@@ -93,6 +102,7 @@ func New(ws *client.WSClient, http *client.HTTPClient) Model {
 		cancel:       cancel,
 		keys:         DefaultKeyMap(),
 		sessions:     make(map[string]*client.SessionState),
+		searchInput:  si,
 		statusBar:    status.New(),
 		trackView:    track.New(),
 		dashboard:    dashboard.New(),
@@ -259,6 +269,21 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 
+	// Search mode: route keystrokes to the text input.
+	if m.searchMode {
+		if key.Matches(msg, m.keys.Escape) {
+			m.searchMode = false
+			m.searchInput.SetValue("")
+			m.searchInput.Blur()
+			m.refreshTrack()
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.searchInput, cmd = m.searchInput.Update(msg)
+		m.refreshTrack()
+		return m, cmd
+	}
+
 	// Detail overlay has focus key.
 	if m.overlay == OverlayDetail {
 		switch {
@@ -361,6 +386,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.overlay = OverlayDetail
 		}
 		return m, nil
+
+	case key.Matches(msg, m.keys.Search):
+		m.searchMode = true
+		return m, m.searchInput.Focus()
 	}
 
 	return m, nil
@@ -396,6 +425,16 @@ func (m Model) View() string {
 
 	sections = append(sections, m.statusBar.View())
 	sections = append(sections, m.dashboard.View())
+
+	// Search bar shown above the track when active.
+	if m.searchMode {
+		bar := lipgloss.NewStyle().
+			Foreground(theme.ColorHealthy).
+			Bold(true).
+			Render("/") + " " + m.searchInput.View() +
+			theme.StyleDimmed.Render("  esc: cancel")
+		sections = append(sections, bar)
+	}
 
 	// Debug overlay replaces the track area.
 	if m.overlay == OverlayDebug {
@@ -451,17 +490,36 @@ func (m Model) renderHelp() string {
 		return theme.StyleDimmed.Render("  j/k tab d q")
 	}
 	if m.width < breakpointNarrow {
-		return theme.StyleDimmed.Render("  j/k:nav  tab:zone  d:debug  r:resync  q:quit")
+		return theme.StyleDimmed.Render("  j/k:nav  tab:zone  /:search  d:debug  r:resync  q:quit")
 	}
-	return theme.StyleDimmed.Render("  j/k:navigate  tab:zone  1-3:jump  enter:detail  f:focus  a:achievements  g:garage  b:battlepass  d:debug  r:resync  q:quit")
+	return theme.StyleDimmed.Render("  j/k:navigate  tab:zone  1-3:jump  enter:detail  f:focus  /:search  a:achievements  g:garage  b:battlepass  d:debug  r:resync  q:quit")
 }
 
 // refreshTrack rebuilds the track view, dashboard, and updates status bar counts.
 func (m *Model) refreshTrack() {
-	m.trackView.SetSessions(m.sessions)
+	sessions := m.filteredSessions()
+	m.trackView.SetSessions(sessions)
 	racing, pit, parked := m.trackView.Counts()
 	m.statusBar.SetCounts(racing, pit, parked)
-	m.dashboard.SetSessions(m.sessions)
+	m.dashboard.SetSessions(sessions)
+}
+
+// filteredSessions returns sessions matching the active search query.
+// When no search is active it returns the full session map unchanged.
+func (m *Model) filteredSessions() map[string]*client.SessionState {
+	query := strings.ToLower(strings.TrimSpace(m.searchInput.Value()))
+	if query == "" {
+		return m.sessions
+	}
+	filtered := make(map[string]*client.SessionState, len(m.sessions))
+	for id, s := range m.sessions {
+		if strings.Contains(strings.ToLower(s.Name), query) ||
+			strings.Contains(strings.ToLower(s.Model), query) ||
+			strings.Contains(strings.ToLower(string(s.Activity)), query) {
+			filtered[id] = s
+		}
+	}
+	return filtered
 }
 
 // cmdFocusSession returns a Cmd that calls POST /api/sessions/{id}/focus.
