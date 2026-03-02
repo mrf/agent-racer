@@ -265,6 +265,67 @@ export class ParticleSystem {
           rotSpeed: (Math.random() - 0.5) * 0.1,
           gravity: 0.02,
         };
+
+      // ── Footrace presets ──────────────────
+      case 'dustCloud':
+        return {
+          ...base,
+          vx: -0.5 + Math.random() * 1.0,
+          vy: -0.3 - Math.random() * 0.5,
+          size: 3 + Math.random() * 4,
+          color: { r: 180, g: 160, b: 120 },
+          colorEnd: { r: 140, g: 125, b: 95 },
+          decay: 0.02 + Math.random() * 0.015,
+          sizeMultiplier: 'bloom',
+        };
+      case 'sweatDrops':
+        return {
+          ...base,
+          vx: -1.5 + Math.random() * 3,
+          vy: -2 - Math.random() * 1.5,
+          size: 1.5 + Math.random() * 1.5,
+          color: { r: 100, g: 180, b: 255 },
+          decay: 0.04 + Math.random() * 0.02,
+          gravity: 0.08,
+          layer: 'front',
+        };
+      case 'celebrationStars':
+        return {
+          ...base,
+          vx: -3 + Math.random() * 6,
+          vy: -4 - Math.random() * 3,
+          size: 4 + Math.random() * 4,
+          color: { r: 255, g: 215, b: 0 },
+          colorEnd: { r: 255, g: 180, b: 50 },
+          decay: 0.008 + Math.random() * 0.005,
+          gravity: 0.04,
+          rotation: Math.random() * Math.PI * 2,
+          rotSpeed: (Math.random() - 0.5) * 0.15,
+          layer: 'front',
+        };
+      case 'tripSparks':
+        return {
+          ...base,
+          vx: -2 + Math.random() * 4,
+          vy: -1 + Math.random() * 2,
+          size: 1.5 + Math.random() * 2,
+          color: { r: 255, g: 100, b: 30 },
+          colorEnd: { r: 200, g: 50, b: 10 },
+          decay: 0.05 + Math.random() * 0.03,
+          gravity: 0.06,
+          layer: 'front',
+        };
+      case 'footprints':
+        return {
+          ...base,
+          vx: 0,
+          vy: 0,
+          size: 2 + Math.random() * 1.5,
+          color: { r: 80, g: 70, b: 50 },
+          decay: 0.003 + Math.random() * 0.002,
+          gravity: 0,
+        };
+
       default:
         return base;
     }
