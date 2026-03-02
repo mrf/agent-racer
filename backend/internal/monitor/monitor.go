@@ -897,17 +897,19 @@ func (m *Monitor) maybeEmitHealthEvents(cfg *config.Config, sources []Source, he
 		if !changed {
 			continue
 		}
-		m.broadcaster.BroadcastMessage(ws.WSMessage{
-			Type: ws.MsgSourceHealth,
-			Payload: ws.SourceHealthPayload{
-				Source:           src.Name(),
-				Status:           status,
-				DiscoverFailures: discoverFailures,
-				ParseFailures:    parseFailures,
-				LastError:        lastErr,
-				Timestamp:        now,
-			},
+		msg, err := ws.NewSourceHealthMessage(ws.SourceHealthPayload{
+			Source:           src.Name(),
+			Status:           status,
+			DiscoverFailures: discoverFailures,
+			ParseFailures:    parseFailures,
+			LastError:        lastErr,
+			Timestamp:        now,
 		})
+		if err != nil {
+			log.Printf("[%s] source health marshal error: %v", src.Name(), err)
+			continue
+		}
+		m.broadcaster.BroadcastMessage(msg)
 		log.Printf("[%s] health status: %s (discover=%d, parseDegraded=%d)",
 			src.Name(), status, discoverFailures, parseFailures)
 	}

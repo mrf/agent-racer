@@ -322,10 +322,11 @@ func (s *Server) handleEquip(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Broadcast the change to all WebSocket clients.
-	s.broadcaster.BroadcastMessage(WSMessage{
-		Type:    MsgEquipped,
-		Payload: EquippedPayload{Loadout: loadout},
-	})
+	if msg, err := NewEquippedMessage(EquippedPayload{Loadout: loadout}); err != nil {
+		log.Printf("equip marshal error: %v", err)
+	} else {
+		s.broadcaster.BroadcastMessage(msg)
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(loadout)
@@ -371,10 +372,11 @@ func (s *Server) handleUnequip(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.broadcaster.BroadcastMessage(WSMessage{
-		Type:    MsgEquipped,
-		Payload: EquippedPayload{Loadout: loadout},
-	})
+	if msg, err := NewEquippedMessage(EquippedPayload{Loadout: loadout}); err != nil {
+		log.Printf("unequip marshal error: %v", err)
+	} else {
+		s.broadcaster.BroadcastMessage(msg)
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(loadout)

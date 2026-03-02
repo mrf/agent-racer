@@ -160,27 +160,32 @@ func (b *Broadcaster) QueueRemoval(ids []string) {
 }
 
 func (b *Broadcaster) BroadcastAchievement(payload AchievementUnlockedPayload) {
-	b.broadcast(WSMessage{
-		Type:    MsgAchievementUnlocked,
-		Payload: payload,
-	})
+	msg, err := NewAchievementUnlockedMessage(payload)
+	if err != nil {
+		log.Printf("BroadcastAchievement marshal error: %v", err)
+		return
+	}
+	b.broadcast(msg)
 }
 
 func (b *Broadcaster) BroadcastBattlePassProgress(payload BattlePassProgressPayload) {
-	b.broadcast(WSMessage{
-		Type:    MsgBattlePassProgress,
-		Payload: payload,
-	})
+	msg, err := NewBattlePassProgressMessage(payload)
+	if err != nil {
+		log.Printf("BroadcastBattlePassProgress marshal error: %v", err)
+		return
+	}
+	b.broadcast(msg)
 }
 
 func (b *Broadcaster) QueueCompletion(sessionID string, activity session.Activity, name string) {
-	msg := WSMessage{
-		Type: MsgCompletion,
-		Payload: CompletionPayload{
-			SessionID: sessionID,
-			Activity:  activity,
-			Name:      name,
-		},
+	msg, err := NewCompletionMessage(CompletionPayload{
+		SessionID: sessionID,
+		Activity:  activity,
+		Name:      name,
+	})
+	if err != nil {
+		log.Printf("QueueCompletion marshal error: %v", err)
+		return
 	}
 	b.broadcast(msg)
 }
@@ -203,12 +208,13 @@ func (b *Broadcaster) flush() {
 		return
 	}
 
-	msg := WSMessage{
-		Type: MsgDelta,
-		Payload: DeltaPayload{
-			Updates: filtered,
-			Removed: removed,
-		},
+	msg, err := NewDeltaMessage(DeltaPayload{
+		Updates: filtered,
+		Removed: removed,
+	})
+	if err != nil {
+		log.Printf("flush marshal error: %v", err)
+		return
 	}
 	b.broadcast(msg)
 }
@@ -256,10 +262,12 @@ func (b *Broadcaster) snapshotMessage() WSMessage {
 	if hook != nil {
 		payload.SourceHealth = hook()
 	}
-	return WSMessage{
-		Type:    MsgSnapshot,
-		Payload: payload,
+	msg, err := NewSnapshotMessage(payload)
+	if err != nil {
+		log.Printf("snapshotMessage marshal error: %v", err)
+		return WSMessage{Type: MsgSnapshot}
 	}
+	return msg
 }
 
 func (b *Broadcaster) broadcast(msg WSMessage) {

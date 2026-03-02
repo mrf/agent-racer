@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/agent-racer/backend/internal/gamification"
@@ -21,9 +22,46 @@ const (
 )
 
 type WSMessage struct {
-	Type    MessageType `json:"type"`
-	Seq     uint64      `json:"seq"`
-	Payload interface{} `json:"payload"`
+	Type    MessageType     `json:"type"`
+	Seq     uint64          `json:"seq"`
+	Payload json.RawMessage `json:"payload"`
+}
+
+// newMessage is a generic helper that marshals payload into a WSMessage.
+func newMessage[T any](msgType MessageType, payload T) (WSMessage, error) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return WSMessage{}, err
+	}
+	return WSMessage{Type: msgType, Payload: data}, nil
+}
+
+func NewSnapshotMessage(payload SnapshotPayload) (WSMessage, error) {
+	return newMessage(MsgSnapshot, payload)
+}
+
+func NewDeltaMessage(payload DeltaPayload) (WSMessage, error) {
+	return newMessage(MsgDelta, payload)
+}
+
+func NewCompletionMessage(payload CompletionPayload) (WSMessage, error) {
+	return newMessage(MsgCompletion, payload)
+}
+
+func NewEquippedMessage(payload EquippedPayload) (WSMessage, error) {
+	return newMessage(MsgEquipped, payload)
+}
+
+func NewAchievementUnlockedMessage(payload AchievementUnlockedPayload) (WSMessage, error) {
+	return newMessage(MsgAchievementUnlocked, payload)
+}
+
+func NewSourceHealthMessage(payload SourceHealthPayload) (WSMessage, error) {
+	return newMessage(MsgSourceHealth, payload)
+}
+
+func NewBattlePassProgressMessage(payload BattlePassProgressPayload) (WSMessage, error) {
+	return newMessage(MsgBattlePassProgress, payload)
 }
 
 type SourceHealthStatus string
