@@ -248,6 +248,7 @@ document.addEventListener('keydown', (e) => {
       log(`Sound ${muted ? 'muted' : 'unmuted'}`, 'info');
       break;
     case 'f':
+      if (!e.shiftKey) break;
       if (!document.fullscreenElement) {
         document.documentElement.requestFullscreen().catch(() => {});
       } else {
@@ -282,4 +283,4 @@ conn.connect();
 requestPermission();
 loadSoundConfig();
 log('Agent Racing Dashboard initialized', 'info');
-log('Shortcuts: A=achievements, G=garage, D=debug, M=mute, F=fullscreen, Click racer=details', 'info');
+log('Shortcuts: A=achievements, G=garage, D=debug, M=mute, Shift+F=fullscreen, Click racer=details', 'info');
