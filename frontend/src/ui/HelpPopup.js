@@ -31,6 +31,8 @@ function buildDOM() {
           <dl class="help-dl">
             <dt>Labels</dt>
             <dd>Each car shows its session name. Click a car for full details.</dd>
+            <dt>Tmux Jump</dt>
+            <dd>Click on a car running in a tmux window to jump to that session (cursor highlights clickable cars).</dd>
             <dt>Colors</dt>
             <dd>
               <span class="help-swatch" style="background:#7c3aed"></span> Opus&ensp;

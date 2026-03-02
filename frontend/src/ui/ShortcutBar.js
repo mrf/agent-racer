@@ -8,6 +8,7 @@ const SHORTCUTS = [
   { key: '?', label: 'help', id: 'help' },
   { key: 'esc', label: 'close', id: 'close' },
   { key: 'click', label: 'details', id: 'details' },
+  { key: 'click*', label: 'jump to tmux', id: 'jump' },
 ];
 
 const BREAKPOINT_NARROW = 720;
