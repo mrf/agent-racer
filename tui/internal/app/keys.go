@@ -90,7 +90,7 @@ func DefaultKeyMap() KeyMap {
 		),
 		Focus: key.NewBinding(
 			key.WithKeys("f"),
-			key.WithHelp("f", "focus tmux"),
+			key.WithHelp("f", "focus/split"),
 		),
 		Search: key.NewBinding(
 			key.WithKeys("/"),

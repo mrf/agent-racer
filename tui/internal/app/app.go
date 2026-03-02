@@ -85,12 +85,21 @@ type Model struct {
 	// Connection state.
 	connected bool
 
+	// Focus choice mode: active after pressing f on a session with a tmux target.
+	focusMode       bool
+	focusSessionID  string
+	focusTmuxTarget string
+	focusCanSplit   bool
+
 	// Spinner drives animated indicators across sub-views.
 	spinner spinner.Model
 }
 
 // focusResultMsg carries the result of a FocusSession HTTP call.
 type focusResultMsg struct{ err error }
+
+// splitResultMsg carries the result of a tmux join-pane split.
+type splitResultMsg struct{ err error }
 
 // New creates the root model.
 func New(ws *client.WSClient, http *client.HTTPClient) Model {
@@ -264,6 +273,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case splitResultMsg:
+		if msg.err != nil {
+			m.debugLog.Add("tmux", "split error: "+msg.err.Error())
+		}
+		return m, nil
+
 	case tail.TailDataMsg:
 		if m.overlay == OverlayTail {
 			var cmd tea.Cmd
@@ -293,6 +308,20 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 
+	// Focus choice mode: f=focus window, s=split side-by-side, anything else=cancel.
+	if m.focusMode {
+		m.clearFocusMode()
+		switch msg.String() {
+		case "f":
+			return m, m.cmdFocusSession(m.focusSessionID)
+		case "s":
+			if m.focusCanSplit {
+				return m, m.cmdSplitSession(m.focusTmuxTarget)
+			}
+		}
+		return m, nil
+	}
+
 	// Search mode: route keystrokes to the text input.
 	if m.searchMode {
 		if key.Matches(msg, m.keys.Escape) {
@@ -317,7 +346,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case key.Matches(msg, m.keys.Focus):
 			if s := m.detailView.Session; s != nil && s.TmuxTarget != "" {
-				return m, m.cmdFocusSession(s.ID)
+				m.enterFocusMode(s.ID, s.TmuxTarget)
+				return m, nil
 			}
 		case key.Matches(msg, m.keys.Watch):
 			if s := m.detailView.Session; s != nil {
@@ -344,7 +374,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case key.Matches(msg, m.keys.Focus):
 			if s, ok := m.sessions[m.tailView.SessionID]; ok && s.TmuxTarget != "" {
-				return m, m.cmdFocusSession(s.ID)
+				m.enterFocusMode(s.ID, s.TmuxTarget)
+				return m, nil
 			}
 		}
 		return m, nil
@@ -548,15 +579,24 @@ func (m Model) renderDisconnectOverlay() string {
 		Render(box)
 }
 
-// renderHelp returns a responsive help bar.
+// renderHelp returns a responsive help bar, or the focus choice prompt when
+// focus mode is active.
 func (m Model) renderHelp() string {
+	if m.focusMode {
+		prompt := "  [f] focus window"
+		if m.focusCanSplit {
+			prompt += "  [s] split side-by-side"
+		}
+		prompt += "  [esc] cancel"
+		return lipgloss.NewStyle().Foreground(theme.ColorBright).Bold(true).Render(prompt)
+	}
 	if m.width < breakpointCompact {
 		return theme.StyleDimmed.Render("  j/k tab d q")
 	}
 	if m.width < breakpointNarrow {
 		return theme.StyleDimmed.Render("  j/k:nav  tab:zone  /:search  d:debug  r:resync  q:quit")
 	}
-	return theme.StyleDimmed.Render("  j/k:navigate  tab:zone  1-3:jump  →:expand  enter:detail  w:watch  f:focus  /:search  a:achievements  g:garage  b:battlepass  d:debug  r:resync  q:quit")
+	return theme.StyleDimmed.Render("  j/k:navigate  tab:zone  1-3:jump  →:expand  enter:detail  w:watch  f:focus/split  /:search  a:achievements  g:garage  b:battlepass  d:debug  r:resync  q:quit")
 }
 
 // refreshTrack rebuilds the track view, dashboard, and updates status bar counts.
@@ -599,10 +639,34 @@ func (m Model) openTail(s *client.SessionState) (tea.Model, tea.Cmd) {
 	return m, tail.FetchCmd(m.http, s.ID, 0)
 }
 
+// enterFocusMode activates focus-choice mode for the given session.
+func (m *Model) enterFocusMode(sessionID, tmuxTarget string) {
+	m.focusMode = true
+	m.focusSessionID = sessionID
+	m.focusTmuxTarget = tmuxTarget
+	m.focusCanSplit = tmuxInSession()
+	m.detailView.FocusMode = true
+	m.detailView.CanSplit = m.focusCanSplit
+}
+
+// clearFocusMode deactivates focus-choice mode.
+func (m *Model) clearFocusMode() {
+	m.focusMode = false
+	m.detailView.FocusMode = false
+}
+
 // cmdFocusSession returns a Cmd that calls POST /api/sessions/{id}/focus.
 func (m Model) cmdFocusSession(sessionID string) tea.Cmd {
 	return func() tea.Msg {
 		err := m.http.FocusSession(sessionID)
 		return focusResultMsg{err: err}
+	}
+}
+
+// cmdSplitSession returns a Cmd that joins the session's tmux pane into the
+// current window as a horizontal split using tmux join-pane.
+func (m Model) cmdSplitSession(tmuxTarget string) tea.Cmd {
+	return func() tea.Msg {
+		return splitResultMsg{err: execTmuxSplit(tmuxTarget)}
 	}
 }
