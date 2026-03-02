@@ -153,9 +153,8 @@ func TestEvaluateChallenges(t *testing.T) {
 }
 
 func TestChallengePool_AllHaveUniqueIDs(t *testing.T) {
-	pool := challengePool()
 	seen := map[string]bool{}
-	for _, c := range pool {
+	for _, c := range challengePool {
 		if c.ID == "" {
 			t.Error("challenge with empty ID")
 		}
@@ -173,12 +172,11 @@ func TestChallengePool_AllHaveUniqueIDs(t *testing.T) {
 }
 
 func TestChallengePool_AllProgressFunctions(t *testing.T) {
-	pool := challengePool()
 	snap := &WeekSnapshot{
 		SessionsPerModel:  make(map[string]int),
 		SessionsPerSource: make(map[string]int),
 	}
-	for _, c := range pool {
+	for _, c := range challengePool {
 		cur, tgt := c.Progress(snap)
 		if tgt <= 0 {
 			t.Errorf("challenge %s has non-positive target: %d", c.ID, tgt)
