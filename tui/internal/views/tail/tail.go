@@ -155,7 +155,7 @@ func (m Model) View(width, height int) string {
 		tailIndicator = lipgloss.NewStyle().Foreground(theme.ColorComplete).Render(" LIVE")
 	}
 	footer := theme.StyleDimmed.Render(fmt.Sprintf(
-		"j/k:scroll  G:bottom  f:focus  esc:close  %d entries%s",
+		"j/k:scroll  G:bottom  f:focus/split  esc:close  %d entries%s",
 		len(m.entries), tailIndicator,
 	))
 

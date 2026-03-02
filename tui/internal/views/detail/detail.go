@@ -77,6 +77,10 @@ func renderMarkdown(md string) string {
 type Model struct {
 	Session    *client.SessionState
 	FocusError string
+	// FocusMode is true when the user has pressed f and is choosing between
+	// focusing the tmux window or splitting the pane side-by-side.
+	FocusMode bool
+	CanSplit  bool
 }
 
 // New creates a detail model for the given session.
@@ -199,9 +203,16 @@ func (m Model) renderInner(s *client.SessionState) string {
 
 	// Footer.
 	b.WriteString("\n")
-	footer := "[f] focus tmux  [esc] close"
-	if s.TmuxTarget == "" {
+	var footer string
+	switch {
+	case m.FocusMode && m.CanSplit:
+		footer = "[f] focus window  [s] split side-by-side  [esc] cancel"
+	case m.FocusMode:
+		footer = "[f] focus window  [esc] cancel"
+	case s.TmuxTarget == "":
 		footer = "[esc] close  (no tmux target)"
+	default:
+		footer = "[f] focus/split  [esc] close"
 	}
 	b.WriteString(styleFooter.Render(footer))
 
