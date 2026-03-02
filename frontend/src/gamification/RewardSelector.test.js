@@ -232,14 +232,17 @@ describe('RewardSelector', () => {
       });
     });
 
-    it('clears achievements on fetch failure', async () => {
+    it('shows error message on fetch failure without overwriting it', async () => {
       authFetch.mockRejectedValue(new Error('network error'));
       rs = new RewardSelector();
       rs.show();
       await vi.waitFor(() => {
-        const columns = document.querySelectorAll('.rs-column');
-        expect(columns.length).toBe(7);
+        const errEl = document.querySelector('.rs-columns p');
+        expect(errEl).toBeTruthy();
+        expect(errEl.textContent).toContain('network error');
       });
+      // _render() must NOT have run — no columns should be present
+      expect(document.querySelectorAll('.rs-column').length).toBe(0);
       expect(rs._achievements).toEqual([]);
     });
   });

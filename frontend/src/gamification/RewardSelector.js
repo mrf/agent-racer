@@ -372,9 +372,11 @@ export class RewardSelector {
         const stats = await statsResp.json();
         this._battlePassTier = stats.battlePass?.tier ?? 0;
       }
+      return true;
     } catch (err) {
       this._achievements = [];
       this._columns.innerHTML = `<p style="color:#e94560;font-size:12px">Failed to load: ${escapeHTML(err.message)}</p>`;
+      return false;
     }
   }
 
@@ -382,7 +384,7 @@ export class RewardSelector {
     if (this._visible) return;
     this._visible = true;
     this._overlay.classList.remove('hidden');
-    this._fetchData().then(() => this._render());
+    this._fetchData().then((ok) => { if (ok) this._render(); });
     this._overlay.querySelector('.rs-close').focus();
   }
 
