@@ -45,14 +45,14 @@ test.describe('Keyboard shortcuts', () => {
       };
     });
 
-    await page.keyboard.press('f');
+    await page.keyboard.press('Shift+f');
     const callsAfterEnter = await page.evaluate(() => (window as any).__fullscreenCalls);
     expect(callsAfterEnter).toContain('enter');
 
-    // If fullscreen actually activated, press F again to test exit path
+    // If fullscreen actually activated, press Shift+F again to test exit path
     const activated = await page.evaluate(() => !!document.fullscreenElement);
     if (activated) {
-      await page.keyboard.press('f');
+      await page.keyboard.press('Shift+f');
       const callsAfterExit = await page.evaluate(() => (window as any).__fullscreenCalls);
       expect(callsAfterExit).toContain('exit');
     }

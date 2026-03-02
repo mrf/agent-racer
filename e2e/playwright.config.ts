@@ -19,11 +19,19 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
+      testIgnore: /connection-status/,
       use: { ...devices['Desktop Chrome'] },
     },
     {
       name: 'firefox',
+      testIgnore: /connection-status/,
       use: { ...devices['Desktop Firefox'] },
+    },
+    {
+      name: 'chromium-connection',
+      testMatch: /connection-status/,
+      dependencies: ['chromium', 'firefox'],
+      use: { ...devices['Desktop Chrome'] },
     },
   ],
 });

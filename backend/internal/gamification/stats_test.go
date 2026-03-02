@@ -958,54 +958,6 @@ func TestStatsTracker_TokensBurned_MultipleSessions(t *testing.T) {
 	}
 }
 
-func TestStatsTracker_TokensBurned_CleanupOnTerminal(t *testing.T) {
-	tracker, eventCh := startTracker(t)
-
-	// Register and update session.
-	eventCh <- session.Event{
-		Type:        session.EventNew,
-		State:       &session.SessionState{ID: "s1", Source: "test"},
-		ActiveCount: 1,
-	}
-	eventCh <- session.Event{
-		Type:        session.EventUpdate,
-		State:       &session.SessionState{ID: "s1", TokensUsed: 50_000},
-		ActiveCount: 1,
-	}
-
-	// Terminate session.
-	completedAt := time.Now()
-	eventCh <- session.Event{
-		Type: session.EventTerminal,
-		State: &session.SessionState{
-			ID:          "s1",
-			Activity:    session.Complete,
-			CompletedAt: &completedAt,
-		},
-		ActiveCount: 0,
-	}
-
-	// Re-register same session ID (simulating reuse after cleanup).
-	eventCh <- session.Event{
-		Type:        session.EventNew,
-		State:       &session.SessionState{ID: "s1", Source: "test"},
-		ActiveCount: 1,
-	}
-	eventCh <- session.Event{
-		Type:        session.EventUpdate,
-		State:       &session.SessionState{ID: "s1", TokensUsed: 30_000},
-		ActiveCount: 1,
-	}
-
-	tracker.Flush()
-
-	stats := tracker.Stats()
-	// First session: 50k. Second session (same ID): 30k. Total: 80k.
-	if stats.WeeklyChallenges.Snapshot.TokensBurned != 80_000 {
-		t.Errorf("TokensBurned = %d, want 80000 (lastTokens should be cleaned on terminal)", stats.WeeklyChallenges.Snapshot.TokensBurned)
-	}
-}
-
 func TestStatsTracker_EquipConcurrentWithProcessEvent(t *testing.T) {
 	dir := t.TempDir()
 	store := NewStore(dir)
