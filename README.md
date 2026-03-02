@@ -60,6 +60,8 @@ make tui
 
 ## Terminal UI (TUI)
 
+![TUI dashboard showing sessions racing in the terminal](docs/screenshot-tui.png)
+
 The TUI is a terminal dashboard built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) that connects to the same backend as the browser frontend. No browser needed -- everything runs in your terminal.
 
 ### Build and Run
@@ -184,6 +186,8 @@ The original view. Each session is rendered as a car with:
 *Note: "Starting" state is used only in mock mode for demo purposes.*
 
 ### Footrace
+
+![Footrace view showing pixel runners on a grass track](docs/screenshot-footrace.png)
 
 An alternate view where sessions are pixel runners on a running track. Press `V` to switch to it.
 
