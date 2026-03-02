@@ -239,6 +239,132 @@ describe('BattlePassBar', () => {
     });
   });
 
+  describe('showXPToast', () => {
+    it('does nothing when entries array is empty', () => {
+      const bar = new BattlePassBar(container);
+      bar.showXPToast([]);
+      expect(bar.toastContainer.children).toHaveLength(0);
+      expect(bar.toastTimer).toBeNull();
+    });
+
+    it('creates a toast with correct text for a single entry', () => {
+      const bar = new BattlePassBar(container);
+      bar.showXPToast([{ amount: 50, reason: 'session_complete' }]);
+      const toasts = bar.toastContainer.querySelectorAll('.bp-xp-toast');
+      expect(toasts).toHaveLength(1);
+      expect(toasts[0].textContent).toBe('+50 XP');
+    });
+
+    it('sums multiple entry amounts into one toast text', () => {
+      const bar = new BattlePassBar(container);
+      bar.showXPToast([
+        { amount: 50, reason: 'session_complete' },
+        { amount: 25, reason: 'tool_use' },
+        { amount: 10, reason: 'streak' },
+      ]);
+      const toast = bar.toastContainer.querySelector('.bp-xp-toast');
+      expect(toast.textContent).toBe('+85 XP');
+    });
+
+    it('adds bp-xp-flash class to xpBarWrap on each call', () => {
+      const bar = new BattlePassBar(container);
+      bar.showXPToast([{ amount: 100, reason: 'task_complete' }]);
+      expect(bar.xpBarWrap.classList.contains('bp-xp-flash')).toBe(true);
+    });
+
+    it('restarts flash animation on successive calls', () => {
+      const bar = new BattlePassBar(container);
+      bar.showXPToast([{ amount: 50, reason: 'a' }]);
+      expect(bar.xpBarWrap.classList.contains('bp-xp-flash')).toBe(true);
+      bar.showXPToast([{ amount: 30, reason: 'b' }]);
+      expect(bar.xpBarWrap.classList.contains('bp-xp-flash')).toBe(true);
+    });
+
+    it('sets toastTimer after a call with entries', () => {
+      const bar = new BattlePassBar(container);
+      expect(bar.toastTimer).toBeNull();
+      bar.showXPToast([{ amount: 50, reason: 'session_complete' }]);
+      expect(bar.toastTimer).not.toBeNull();
+    });
+
+    it('stacks multiple toast elements in toastContainer', () => {
+      const bar = new BattlePassBar(container);
+      bar.showXPToast([{ amount: 50, reason: 'a' }]);
+      bar.showXPToast([{ amount: 30, reason: 'b' }]);
+      bar.showXPToast([{ amount: 20, reason: 'c' }]);
+      const toasts = bar.toastContainer.querySelectorAll('.bp-xp-toast');
+      expect(toasts).toHaveLength(3);
+    });
+
+    it('stacked toasts display their own amounts independently', () => {
+      const bar = new BattlePassBar(container);
+      bar.showXPToast([{ amount: 50, reason: 'a' }]);
+      bar.showXPToast([{ amount: 30, reason: 'b' }]);
+      const toasts = bar.toastContainer.querySelectorAll('.bp-xp-toast');
+      expect(toasts[0].textContent).toBe('+50 XP');
+      expect(toasts[1].textContent).toBe('+30 XP');
+    });
+
+    it('cancels previous timer when a new toast arrives', () => {
+      const bar = new BattlePassBar(container);
+      const clearSpy = vi.spyOn(globalThis, 'clearTimeout');
+
+      bar.showXPToast([{ amount: 50, reason: 'a' }]);
+      const firstTimer = bar.toastTimer;
+
+      bar.showXPToast([{ amount: 30, reason: 'b' }]);
+      expect(clearSpy).toHaveBeenCalledWith(firstTimer);
+      expect(bar.toastTimer).not.toBe(firstTimer);
+    });
+
+    it('toast removes itself from DOM when animationend fires', () => {
+      const bar = new BattlePassBar(container);
+      bar.showXPToast([{ amount: 50, reason: 'session_complete' }]);
+
+      const toast = bar.toastContainer.querySelector('.bp-xp-toast');
+      expect(toast).toBeTruthy();
+
+      toast.dispatchEvent(new Event('animationend'));
+
+      expect(bar.toastContainer.querySelector('.bp-xp-toast')).toBeNull();
+    });
+
+    it('animationend on one stacked toast only removes that toast', () => {
+      const bar = new BattlePassBar(container);
+      bar.showXPToast([{ amount: 50, reason: 'a' }]);
+      bar.showXPToast([{ amount: 30, reason: 'b' }]);
+
+      const toasts = [...bar.toastContainer.querySelectorAll('.bp-xp-toast')];
+      expect(toasts).toHaveLength(2);
+
+      toasts[0].dispatchEvent(new Event('animationend'));
+
+      const remaining = bar.toastContainer.querySelectorAll('.bp-xp-toast');
+      expect(remaining).toHaveLength(1);
+      expect(remaining[0].textContent).toBe('+30 XP');
+    });
+
+    it('each toast independently removes itself on its own animationend', () => {
+      const bar = new BattlePassBar(container);
+      bar.showXPToast([{ amount: 50, reason: 'a' }]);
+      bar.showXPToast([{ amount: 30, reason: 'b' }]);
+
+      const toasts = [...bar.toastContainer.querySelectorAll('.bp-xp-toast')];
+      toasts[0].dispatchEvent(new Event('animationend'));
+      toasts[1].dispatchEvent(new Event('animationend'));
+
+      expect(bar.toastContainer.querySelectorAll('.bp-xp-toast')).toHaveLength(0);
+    });
+
+    it('timer callback throws TypeError due to undefined xpToast reference (known bug)', () => {
+      // The 3-second timer calls this.xpToast.classList.remove('visible'),
+      // but this.xpToast is never assigned — it throws on fire.
+      const bar = new BattlePassBar(container);
+      bar.showXPToast([{ amount: 50, reason: 'session_complete' }]);
+      expect(() => vi.advanceTimersByTime(3000)).toThrow(TypeError);
+    });
+  });
+
   describe('playTierUpCelebration', () => {
     function createBarWithConfettiMock() {
       const bar = new BattlePassBar(container);
