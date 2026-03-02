@@ -553,6 +553,9 @@ func (m *Monitor) pollSource(src Source, cfg *config.Config, sh *sourceHealth, n
 		if update.LastTool != "" {
 			state.CurrentTool = update.LastTool
 		}
+		if update.LastAssistantText != "" {
+			state.LastAssistantText = update.LastAssistantText
+		}
 
 		mergeSubagents(state, update.Subagents)
 

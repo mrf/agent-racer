@@ -75,6 +75,7 @@ type SessionState struct {
 	BurnRatePerMinute  float64         `json:"burnRatePerMinute,omitempty"`
 	CompactionCount    int             `json:"compactionCount,omitempty"`
 	Subagents          []SubagentState `json:"subagents,omitempty"`
+	LastAssistantText  string          `json:"lastAssistantText,omitempty"`
 }
 
 // SubagentState mirrors backend/internal/session.SubagentState.

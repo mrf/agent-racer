@@ -8,6 +8,7 @@ import (
 
 	"github.com/agent-racer/tui/internal/client"
 	"github.com/agent-racer/tui/internal/theme"
+	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -44,6 +45,33 @@ var (
 	styleError = lipgloss.NewStyle().
 			Foreground(theme.ColorDanger)
 )
+
+// markdownRenderer is a glamour renderer initialized at startup, used to
+// style markdown text in the detail panel (error messages, completion summaries).
+var markdownRenderer *glamour.TermRenderer
+
+func init() {
+	r, err := glamour.NewTermRenderer(
+		glamour.WithStandardStyle("dark"),
+		glamour.WithWordWrap(panelWidth-4),
+	)
+	if err == nil {
+		markdownRenderer = r
+	}
+}
+
+// renderMarkdown renders md as styled terminal markdown. Falls back to the
+// plain string if the renderer is unavailable.
+func renderMarkdown(md string) string {
+	if markdownRenderer == nil || md == "" {
+		return md
+	}
+	out, err := markdownRenderer.Render(md)
+	if err != nil {
+		return md
+	}
+	return strings.TrimRight(out, "\n")
+}
 
 // Model holds the state for the detail overlay.
 type Model struct {
@@ -148,6 +176,19 @@ func (m Model) renderInner(s *client.SessionState) string {
 			sa := s.Subagents[i]
 			b.WriteString(renderSubagent(sa) + "\n")
 		}
+	}
+
+	// Last assistant message — rendered as markdown when present.
+	if s.LastAssistantText != "" {
+		b.WriteString("\n")
+		label := "Last Message"
+		if s.Activity == client.ActivityErrored {
+			label = "Error"
+		} else if s.Activity == client.ActivityComplete {
+			label = "Summary"
+		}
+		b.WriteString(styleSectionHeader.Render(label) + "\n")
+		b.WriteString(renderMarkdown(s.LastAssistantText) + "\n")
 	}
 
 	// Error (focus failure).
