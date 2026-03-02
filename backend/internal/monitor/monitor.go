@@ -1083,6 +1083,13 @@ func classifySubagentActivity(pr *SubagentParseResult) session.Activity {
 
 func nameFromPath(path string) string {
 	parts := splitPath(path)
+	// If the path is inside a .claude/worktrees/<slug>/ directory,
+	// use the worktree slug as the display name.
+	for i := 0; i < len(parts)-2; i++ {
+		if parts[i] == ".claude" && parts[i+1] == "worktrees" {
+			return parts[i+2]
+		}
+	}
 	if len(parts) > 0 {
 		return parts[len(parts)-1]
 	}
