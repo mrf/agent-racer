@@ -1,9 +1,9 @@
 import { test, expect, Page } from '@playwright/test';
 import { waitForConnection, gotoApp } from './helpers.js';
-const TIMEOUT_RACERS_APPEAR = 15_000;
-const TIMEOUT_ACTIVITY = 60_000;
-const TIMEOUT_ZONE_TRANSITION = 15_000;
-const TIMEOUT_TEST = 90_000;
+const TIMEOUT_RACERS_APPEAR = 10_000;
+const TIMEOUT_ACTIVITY = 15_000;
+const TIMEOUT_ZONE_TRANSITION = 10_000;
+const TIMEOUT_TEST = 30_000;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -113,8 +113,7 @@ async function waitForParkingLot(
 // ---------------------------------------------------------------------------
 
 test.describe('Session lifecycle', () => {
-  // Mock sessions progress in real time (500ms/tick), so lifecycle
-  // transitions can take 20-40s to occur. Give each test enough headroom.
+  // E2E config uses 100ms/tick so lifecycle transitions happen in ~4-7s.
   test.setTimeout(TIMEOUT_TEST);
 
   test.beforeEach(async ({ page }) => {
@@ -179,9 +178,7 @@ test.describe('Session lifecycle', () => {
   });
 
   test('errored session moves to parking lot', async ({ page }) => {
-    // mock-sonnet-feature errors at 60% context utilization.
-    // With 1800 tokens/tick (500ms), it reaches 60% of 200K (120K tokens)
-    // in roughly 67 ticks (~33s).
+    // mock-sonnet-feature errors at 60% context utilization (~67 ticks).
     const featureId = 'mock-sonnet-feature';
 
     await waitForActivity(page, featureId, ['errored']);
@@ -200,8 +197,7 @@ test.describe('Session lifecycle', () => {
   });
 
   test('completed session moves to parking lot', async ({ page }) => {
-    // mock-sonnet-tests completes at 140K tokens with 3500 tokens/tick burst.
-    // Should complete in roughly 40 ticks (~20s).
+    // mock-sonnet-tests completes at 140K tokens (~40 ticks).
     const testsId = 'mock-sonnet-tests';
 
     await waitForActivity(page, testsId, ['complete']);
@@ -222,11 +218,10 @@ test.describe('Session lifecycle', () => {
   test('zone assignments are consistent with racer activity', async ({
     page,
   }) => {
-    // Wait long enough for the mock to produce some zone diversity.
-    // mock-sonnet-feature errors around tick 67 (~33s), so wait for that.
+    // Wait for the mock to produce zone diversity (feature errors at ~67 ticks).
     await waitForActivity(page, 'mock-sonnet-feature', ['errored']);
     // Give the animation loop a moment to settle zone assignments
-    await page.waitForTimeout(2_000);
+    await page.waitForTimeout(500);
 
     const zones = await getAllRacerZones(page);
 

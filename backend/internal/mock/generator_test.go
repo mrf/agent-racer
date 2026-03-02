@@ -13,7 +13,7 @@ import (
 func newTestGen() *MockGenerator {
 	store := session.NewStore()
 	broadcaster := ws.NewBroadcaster(store, time.Hour, time.Hour, 0)
-	return NewGenerator(store, broadcaster)
+	return NewGenerator(store, broadcaster, 0)
 }
 
 // newTestMS builds a mockSession with the given pattern, tokensPerTick and maxTokens.

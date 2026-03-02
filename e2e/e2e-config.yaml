@@ -15,6 +15,7 @@ monitor:
   session_stale_after: 2m
   completion_remove_after: 90s
   churning_cpu_threshold: 15.0
+  mock_tick_interval: 100ms
 
 models:
   claude-*: 200000

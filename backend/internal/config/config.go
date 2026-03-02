@@ -123,6 +123,7 @@ type MonitorConfig struct {
 	ChurningRequiresNetwork bool          `yaml:"churning_requires_network"`
 	HealthWarningThreshold  int           `yaml:"health_warning_threshold"`
 	StatsEventBuffer        int           `yaml:"stats_event_buffer"`
+	MockTickInterval        time.Duration `yaml:"mock_tick_interval"`
 }
 
 type SoundConfig struct {

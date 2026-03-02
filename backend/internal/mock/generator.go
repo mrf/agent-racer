@@ -32,18 +32,23 @@ type mockSubagentDef struct {
 	tools     []string
 }
 
-func NewGenerator(store *session.Store, broadcaster *ws.Broadcaster) *MockGenerator {
+func NewGenerator(store *session.Store, broadcaster *ws.Broadcaster, tickInterval time.Duration) *MockGenerator {
+	if tickInterval <= 0 {
+		tickInterval = 500 * time.Millisecond
+	}
 	return &MockGenerator{
-		store:       store,
-		broadcaster: broadcaster,
+		store:        store,
+		broadcaster:  broadcaster,
+		tickInterval: tickInterval,
 	}
 }
 
 type MockGenerator struct {
-	store       *session.Store
-	broadcaster *ws.Broadcaster
-	sessions    []*mockSession
-	statsEvents chan<- session.Event
+	store        *session.Store
+	broadcaster  *ws.Broadcaster
+	sessions     []*mockSession
+	statsEvents  chan<- session.Event
+	tickInterval time.Duration
 }
 
 // SetStatsEvents configures a channel for session lifecycle events so that
@@ -166,7 +171,7 @@ func (g *MockGenerator) Start(ctx context.Context) {
 }
 
 func (g *MockGenerator) run(ctx context.Context) {
-	ticker := time.NewTicker(500 * time.Millisecond)
+	ticker := time.NewTicker(g.tickInterval)
 	defer ticker.Stop()
 
 	tick := 0

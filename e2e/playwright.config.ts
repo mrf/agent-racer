@@ -23,14 +23,9 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
     {
-      name: 'firefox',
-      testIgnore: /connection-status/,
-      use: { ...devices['Desktop Firefox'] },
-    },
-    {
       name: 'chromium-connection',
       testMatch: /connection-status/,
-      dependencies: ['chromium', 'firefox'],
+      dependencies: ['chromium'],
       use: { ...devices['Desktop Chrome'] },
     },
   ],

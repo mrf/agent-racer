@@ -157,7 +157,7 @@ func main() {
 	var mon *monitor.Monitor
 	if *mockMode {
 		log.Println("Starting in mock mode")
-		gen := mock.NewGenerator(store, broadcaster)
+		gen := mock.NewGenerator(store, broadcaster, cfg.Monitor.MockTickInterval)
 		gen.SetStatsEvents(statsCh)
 		gen.Start(ctx)
 	} else {
