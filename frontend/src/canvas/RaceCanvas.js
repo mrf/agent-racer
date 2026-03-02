@@ -6,6 +6,7 @@ import { getModelColor, hexToRgb } from '../session/colors.js';
 import { authFetch } from '../auth.js';
 import { DEFAULT_CONTEXT_WINDOW, TERMINAL_ACTIVITIES } from '../session/constants.js';
 import { isParkingLotRacer, isPitRacer } from '../session/zones.js';
+import { syncEngineForEntity } from '../audio/engineSync.js';
 
 // Rectangular hit area matching the limo's elongated shape.
 // Derived from car geometry: CAR_SCALE=2.3, LIMO_STRETCH=35.
@@ -279,16 +280,7 @@ export class RaceCanvas {
         racer.animate(this.particles, dt);
 
         // Sync engine audio
-        if (this.engine) {
-          const activity = racer.state.activity;
-          if (activity === 'thinking' || activity === 'tool_use') {
-            this.engine.startEngine(racer.id, activity);
-          } else if (racer.state.isChurning && (activity === 'idle' || activity === 'starting')) {
-            this.engine.startEngine(racer.id, 'churning');
-          } else {
-            this.engine.stopEngine(racer.id);
-          }
-        }
+        syncEngineForEntity(this.engine, racer.id, racer.state, 'track');
       }
     }
 
@@ -326,9 +318,7 @@ export class RaceCanvas {
         racer.parkingLotDimTarget = 0;
         racer.animate(this.particles, dt);
 
-        if (this.engine) {
-          this.engine.stopEngine(racer.id);
-        }
+        syncEngineForEntity(this.engine, racer.id, racer.state, 'pit');
       }
     }
 
@@ -357,9 +347,7 @@ export class RaceCanvas {
         racer.parkingLotDimTarget = 1;
         racer.animate(this.particles, dt);
 
-        if (this.engine) {
-          this.engine.stopEngine(racer.id);
-        }
+        syncEngineForEntity(this.engine, racer.id, racer.state, 'parkingLot');
       }
     }
 
