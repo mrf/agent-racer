@@ -327,6 +327,44 @@ func TestPrivacyFilter_Apply_MaskWorkingDirs_SubagentsUnaffected(t *testing.T) {
 	}
 }
 
+func TestPrivacyFilter_Apply_MaskSessionIDs_MasksSubagentSessionID(t *testing.T) {
+	original := &SessionState{
+		ID:         "claude:abc123",
+		WorkingDir: "/home/user/project",
+		Subagents: []SubagentState{
+			{ID: "toolu_01", SessionID: "claude:abc123", Slug: "task-a"},
+			{ID: "toolu_02", SessionID: "claude:abc123", Slug: "task-b"},
+		},
+	}
+
+	f := &PrivacyFilter{MaskSessionIDs: true}
+	result := f.Apply(original)
+
+	if result.ID == original.ID {
+		t.Error("parent session ID should have been masked")
+	}
+
+	for _, sa := range result.Subagents {
+		if sa.SessionID == "claude:abc123" {
+			t.Errorf("subagent SessionID should have been masked, got %q", sa.SessionID)
+		}
+		if sa.SessionID == "" {
+			t.Error("masked subagent SessionID should not be empty")
+		}
+		// Subagent SessionID was the same as parent ID, so masked values must match.
+		if sa.SessionID != result.ID {
+			t.Errorf("subagent SessionID %q should match masked parent ID %q", sa.SessionID, result.ID)
+		}
+	}
+
+	// Original must not be modified.
+	for _, sa := range original.Subagents {
+		if sa.SessionID != "claude:abc123" {
+			t.Errorf("original subagent SessionID was modified: got %q", sa.SessionID)
+		}
+	}
+}
+
 func TestShortHash_Deterministic(t *testing.T) {
 	a := shortHash("claude:abc123")
 	b := shortHash("claude:abc123")
