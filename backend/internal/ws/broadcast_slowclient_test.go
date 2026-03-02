@@ -190,9 +190,7 @@ func TestRemoveClient_Idempotent(t *testing.T) {
 }
 
 // TestBroadcast_ConcurrentSendToFastClients verifies that concurrent
-// broadcasts to fast clients don't race or lose messages. Slow-client
-// concurrent eviction has a known race (agent-racer-ygz5) so we only test
-// the non-eviction concurrent path here.
+// broadcasts to fast clients don't race or lose messages.
 func TestBroadcast_ConcurrentSendToFastClients(t *testing.T) {
 	b := newTestBroadcaster(session.NewStore(), nil)
 
@@ -225,5 +223,51 @@ func TestBroadcast_ConcurrentSendToFastClients(t *testing.T) {
 		if count != numBroadcasts {
 			t.Errorf("client[%d]: expected %d messages, got %d", i, numBroadcasts, count)
 		}
+	}
+}
+
+// TestBroadcast_ConcurrentBroadcastEviction fires many concurrent broadcasts
+// at a client with a full send buffer. Before the fix, two goroutines could
+// both see the full buffer, both call RemoveClient, and the second would
+// panic sending on an already-closed channel.
+func TestBroadcast_ConcurrentBroadcastEviction(t *testing.T) {
+	b := newTestBroadcaster(session.NewStore(), nil)
+
+	slow := makeClient(b)
+	fillSendBuffer(slow)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			b.broadcast(WSMessage{Type: MsgDelta})
+		}()
+	}
+	wg.Wait()
+
+	if got := b.ClientCount(); got != 0 {
+		t.Fatalf("expected 0 clients after concurrent eviction, got %d", got)
+	}
+}
+
+// TestBroadcast_ConcurrentRemoveClient calls RemoveClient from many
+// goroutines simultaneously to verify the mutex guard prevents double-close.
+func TestBroadcast_ConcurrentRemoveClient(t *testing.T) {
+	b := newTestBroadcaster(session.NewStore(), nil)
+	c := makeClient(b)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			b.RemoveClient(c)
+		}()
+	}
+	wg.Wait()
+
+	if got := b.ClientCount(); got != 0 {
+		t.Fatalf("expected 0 clients after concurrent removal, got %d", got)
 	}
 }

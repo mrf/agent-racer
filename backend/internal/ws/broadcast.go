@@ -17,9 +17,11 @@ import (
 var ErrTooManyConnections = errors.New("too many WebSocket connections")
 
 type client struct {
-	conn *websocket.Conn
-	send chan []byte
-	b    *Broadcaster
+	conn   *websocket.Conn
+	send   chan []byte
+	b      *Broadcaster
+	mu     sync.Mutex
+	closed bool
 }
 
 func newClient(conn *websocket.Conn, b *Broadcaster) *client {
@@ -43,7 +45,29 @@ func (c *client) writePump() {
 }
 
 func (c *client) close() {
-	close(c.send)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.closed {
+		c.closed = true
+		close(c.send)
+	}
+}
+
+// trySend attempts a non-blocking send on the client's channel.
+// Returns true if the message was sent, false if the buffer was full
+// or the channel was already closed.
+func (c *client) trySend(data []byte) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return false
+	}
+	select {
+	case c.send <- data:
+		return true
+	default:
+		return false
+	}
 }
 
 type Broadcaster struct {
@@ -286,10 +310,8 @@ func (b *Broadcaster) broadcast(msg WSMessage) {
 	b.mu.RUnlock()
 
 	for _, c := range clients {
-		select {
-		case c.send <- data:
-		default:
-			// Client can't keep up, disconnect it
+		if !c.trySend(data) {
+			// Client can't keep up or already closed, disconnect it
 			log.Printf("ws client too slow, disconnecting")
 			b.RemoveClient(c)
 		}
@@ -305,10 +327,7 @@ func (b *Broadcaster) SendSnapshot(c *client) {
 		log.Printf("snapshot marshal error: %v", err)
 		return
 	}
-	select {
-	case c.send <- data:
-	default:
-	}
+	c.trySend(data)
 }
 
 // BroadcastMessage sends an arbitrary WSMessage to all connected clients.
