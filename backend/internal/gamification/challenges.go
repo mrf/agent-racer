@@ -50,91 +50,89 @@ type WeeklyChallengeState struct {
 
 const challengesPerWeek = 3
 
-// challengePool returns the full set of available challenges.
-func challengePool() []Challenge {
-	return []Challenge{
-		{
-			ID:          "run_5_haiku",
-			Description: "Run 5 Haiku sessions this week",
-			Progress: func(snap *WeekSnapshot) (int, int) {
-				return snapModelFamilyCount(snap.SessionsPerModel, "haiku"), 5
-			},
+// challengePool is the full set of available challenges.
+var challengePool = []Challenge{
+	{
+		ID:          "run_5_haiku",
+		Description: "Run 5 Haiku sessions this week",
+		Progress: func(snap *WeekSnapshot) (int, int) {
+			return snapModelFamilyCount(snap.SessionsPerModel, "haiku"), 5
 		},
-		{
-			ID:          "complete_3_no_errors",
-			Description: "Complete 3 sessions without errors",
-			Progress: func(snap *WeekSnapshot) (int, int) {
-				return snap.TotalCompletions, 3
-			},
+	},
+	{
+		ID:          "complete_3_no_errors",
+		Description: "Complete 3 sessions without errors",
+		Progress: func(snap *WeekSnapshot) (int, int) {
+			return snap.TotalCompletions, 3
 		},
-		{
-			ID:          "context_90_twice",
-			Description: "Hit 90% context utilization twice",
-			Progress: func(snap *WeekSnapshot) (int, int) {
-				return snap.Context90PctCount, 2
-			},
+	},
+	{
+		ID:          "context_90_twice",
+		Description: "Hit 90% context utilization twice",
+		Progress: func(snap *WeekSnapshot) (int, int) {
+			return snap.Context90PctCount, 2
 		},
-		{
-			ID:          "3_models_one_week",
-			Description: "Use 3 different models this week",
-			Progress: func(snap *WeekSnapshot) (int, int) {
-				return snap.DistinctModels, 3
-			},
+	},
+	{
+		ID:          "3_models_one_week",
+		Description: "Use 3 different models this week",
+		Progress: func(snap *WeekSnapshot) (int, int) {
+			return snap.DistinctModels, 3
 		},
-		{
-			ID:          "burn_1m_tokens",
-			Description: "Burn 1M total tokens this week",
-			Progress: func(snap *WeekSnapshot) (int, int) {
-				return snap.TokensBurned, 1_000_000
-			},
+	},
+	{
+		ID:          "burn_1m_tokens",
+		Description: "Burn 1M total tokens this week",
+		Progress: func(snap *WeekSnapshot) (int, int) {
+			return snap.TokensBurned, 1_000_000
 		},
-		{
-			ID:          "run_10_sessions",
-			Description: "Run 10 sessions this week",
-			Progress: func(snap *WeekSnapshot) (int, int) {
-				return snap.TotalSessions, 10
-			},
+	},
+	{
+		ID:          "run_10_sessions",
+		Description: "Run 10 sessions this week",
+		Progress: func(snap *WeekSnapshot) (int, int) {
+			return snap.TotalSessions, 10
 		},
-		{
-			ID:          "complete_5_sessions",
-			Description: "Complete 5 sessions this week",
-			Progress: func(snap *WeekSnapshot) (int, int) {
-				return snap.TotalCompletions, 5
-			},
+	},
+	{
+		ID:          "complete_5_sessions",
+		Description: "Complete 5 sessions this week",
+		Progress: func(snap *WeekSnapshot) (int, int) {
+			return snap.TotalCompletions, 5
 		},
-		{
-			ID:          "use_2_sources",
-			Description: "Use 2 different agent sources this week",
-			Progress: func(snap *WeekSnapshot) (int, int) {
-				count := 0
-				for _, n := range snap.SessionsPerSource {
-					if n > 0 {
-						count++
-					}
+	},
+	{
+		ID:          "use_2_sources",
+		Description: "Use 2 different agent sources this week",
+		Progress: func(snap *WeekSnapshot) (int, int) {
+			count := 0
+			for _, n := range snap.SessionsPerSource {
+				if n > 0 {
+					count++
 				}
-				return count, 2
-			},
+			}
+			return count, 2
 		},
-		{
-			ID:          "run_3_opus",
-			Description: "Run 3 Opus sessions this week",
-			Progress: func(snap *WeekSnapshot) (int, int) {
-				return snapModelFamilyCount(snap.SessionsPerModel, "opus"), 3
-			},
+	},
+	{
+		ID:          "run_3_opus",
+		Description: "Run 3 Opus sessions this week",
+		Progress: func(snap *WeekSnapshot) (int, int) {
+			return snapModelFamilyCount(snap.SessionsPerModel, "opus"), 3
 		},
-		{
-			ID:          "burn_500k_tokens",
-			Description: "Burn 500K tokens this week",
-			Progress: func(snap *WeekSnapshot) (int, int) {
-				return snap.TokensBurned, 500_000
-			},
+	},
+	{
+		ID:          "burn_500k_tokens",
+		Description: "Burn 500K tokens this week",
+		Progress: func(snap *WeekSnapshot) (int, int) {
+			return snap.TokensBurned, 500_000
 		},
-	}
+	},
 }
 
 // challengeByID returns the Challenge from the pool with the given ID, or ok=false.
 func challengeByID(id string) (Challenge, bool) {
-	for _, c := range challengePool() {
+	for _, c := range challengePool {
 		if c.ID == id {
 			return c, true
 		}
@@ -160,8 +158,7 @@ func weekStart(t time.Time) time.Time {
 // selectChallenges deterministically picks challengesPerWeek challenges
 // for the given week start time using a hash-based shuffle.
 func selectChallenges(ws time.Time) []string {
-	pool := challengePool()
-	n := len(pool)
+	n := len(challengePool)
 
 	// Seed a deterministic ordering from the week timestamp.
 	h := sha256.Sum256([]byte(ws.Format(time.RFC3339)))
@@ -184,7 +181,7 @@ func selectChallenges(ws time.Time) []string {
 	}
 	ids := make([]string, count)
 	for i := 0; i < count; i++ {
-		ids[i] = pool[indices[i]].ID
+		ids[i] = challengePool[indices[i]].ID
 	}
 	sort.Strings(ids)
 	return ids
