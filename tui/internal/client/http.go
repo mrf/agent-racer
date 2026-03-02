@@ -81,6 +81,16 @@ func (c *HTTPClient) Unequip(slot string) (*Equipped, error) {
 	return &out, nil
 }
 
+// GetTail fetches /api/sessions/{id}/tail?offset=N.
+func (c *HTTPClient) GetTail(sessionID string, offset int64) (*TailResponse, error) {
+	path := fmt.Sprintf("/api/sessions/%s/tail?offset=%d", sessionID, offset)
+	var resp TailResponse
+	if err := c.get(path, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
 // FocusSession sends POST /api/sessions/{id}/focus.
 func (c *HTTPClient) FocusSession(sessionID string) error {
 	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/api/sessions/"+sessionID+"/focus", nil)

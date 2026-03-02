@@ -21,6 +21,8 @@ type KeyMap struct {
 	Resync       key.Binding
 	Focus        key.Binding
 	Search       key.Binding
+	Watch        key.Binding
+	JumpBottom   key.Binding
 }
 
 // DefaultKeyMap returns the default key bindings.
@@ -93,6 +95,14 @@ func DefaultKeyMap() KeyMap {
 		Search: key.NewBinding(
 			key.WithKeys("/"),
 			key.WithHelp("/", "search sessions"),
+		),
+		Watch: key.NewBinding(
+			key.WithKeys("w"),
+			key.WithHelp("w", "watch/tail"),
+		),
+		JumpBottom: key.NewBinding(
+			key.WithKeys("G"),
+			key.WithHelp("G", "jump to bottom"),
 		),
 	}
 }

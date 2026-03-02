@@ -14,6 +14,7 @@ import (
 	"github.com/agent-racer/tui/internal/views/detail"
 	"github.com/agent-racer/tui/internal/views/garage"
 	"github.com/agent-racer/tui/internal/views/status"
+	"github.com/agent-racer/tui/internal/views/tail"
 	"github.com/agent-racer/tui/internal/views/track"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -32,6 +33,7 @@ const (
 	OverlayGarage
 	OverlayDebug
 	OverlayBattlePass
+	OverlayTail
 )
 
 // httpBattlePassMsg carries the result of the initial HTTP battle pass fetch.
@@ -78,6 +80,7 @@ type Model struct {
 	battlePass   battlepass.Model
 	garageView   garage.Model
 	debugLog     debug.Model
+	tailView     tail.Model
 
 	// Connection state.
 	connected bool
@@ -260,6 +263,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.detailView.FocusError = ""
 		}
 		return m, nil
+
+	case tail.TailDataMsg:
+		if m.overlay == OverlayTail {
+			var cmd tea.Cmd
+			m.tailView, cmd = m.tailView.Update(msg)
+			// Update activity from current session state.
+			if s, ok := m.sessions[m.tailView.SessionID]; ok {
+				m.tailView.UpdateActivity(string(s.Activity))
+			}
+			return m, cmd
+		}
+		return m, nil
+
+	case tail.TickMsg:
+		if m.overlay == OverlayTail {
+			return m, tail.FetchCmd(m.http, m.tailView.SessionID, m.tailView.PollOffset())
+		}
+		return m, nil
 	}
 
 	return m, nil
@@ -287,7 +308,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmd, animCmd)
 	}
 
-	// Detail overlay has focus key.
+	// Detail overlay has focus and watch keys.
 	if m.overlay == OverlayDetail {
 		switch {
 		case key.Matches(msg, m.keys.Escape):
@@ -296,6 +317,33 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case key.Matches(msg, m.keys.Focus):
 			if s := m.detailView.Session; s != nil && s.TmuxTarget != "" {
+				return m, m.cmdFocusSession(s.ID)
+			}
+		case key.Matches(msg, m.keys.Watch):
+			if s := m.detailView.Session; s != nil {
+				return m.openTail(s)
+			}
+		}
+		return m, nil
+	}
+
+	// Tail overlay has scroll, jump-to-bottom, focus, and escape.
+	if m.overlay == OverlayTail {
+		switch {
+		case key.Matches(msg, m.keys.Escape):
+			m.overlay = OverlayNone
+			return m, nil
+		case key.Matches(msg, m.keys.Down):
+			m.tailView.ScrollDown(1)
+			return m, nil
+		case key.Matches(msg, m.keys.Up):
+			m.tailView.ScrollUp(1)
+			return m, nil
+		case key.Matches(msg, m.keys.JumpBottom):
+			m.tailView.JumpToBottom()
+			return m, nil
+		case key.Matches(msg, m.keys.Focus):
+			if s, ok := m.sessions[m.tailView.SessionID]; ok && s.TmuxTarget != "" {
 				return m, m.cmdFocusSession(s.ID)
 			}
 		}
@@ -397,6 +445,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Search):
 		m.searchMode = true
 		return m, m.searchInput.Focus()
+
+	case key.Matches(msg, m.keys.Watch):
+		if s := m.trackView.SelectedSession(); s != nil {
+			return m.openTail(s)
+		}
+		return m, nil
 	}
 
 	return m, nil
@@ -443,10 +497,13 @@ func (m Model) View() string {
 		sections = append(sections, bar)
 	}
 
-	// Debug overlay replaces the track area.
-	if m.overlay == OverlayDebug {
+	// Full-area overlays replace the track area.
+	switch m.overlay {
+	case OverlayDebug:
 		sections = append(sections, m.debugLog.View(m.width, m.height-4))
-	} else {
+	case OverlayTail:
+		sections = append(sections, m.tailView.View(m.width, m.height-4))
+	default:
 		sections = append(sections, m.trackView.View())
 	}
 
@@ -499,7 +556,7 @@ func (m Model) renderHelp() string {
 	if m.width < breakpointNarrow {
 		return theme.StyleDimmed.Render("  j/k:nav  tab:zone  /:search  d:debug  r:resync  q:quit")
 	}
-	return theme.StyleDimmed.Render("  j/k:navigate  tab:zone  1-3:jump  →:expand  enter:detail  f:focus  /:search  a:achievements  g:garage  b:battlepass  d:debug  r:resync  q:quit")
+	return theme.StyleDimmed.Render("  j/k:navigate  tab:zone  1-3:jump  →:expand  enter:detail  w:watch  f:focus  /:search  a:achievements  g:garage  b:battlepass  d:debug  r:resync  q:quit")
 }
 
 // refreshTrack rebuilds the track view, dashboard, and updates status bar counts.
@@ -532,6 +589,14 @@ func (m *Model) filteredSessions() map[string]*client.SessionState {
 		}
 	}
 	return filtered
+}
+
+// openTail creates a tail view for the given session and starts polling.
+func (m Model) openTail(s *client.SessionState) (tea.Model, tea.Cmd) {
+	m.tailView = tail.New(s)
+	m.overlay = OverlayTail
+	m.debugLog.Add("nav", fmt.Sprintf("tailing %s", s.ID))
+	return m, tail.FetchCmd(m.http, s.ID, 0)
 }
 
 // cmdFocusSession returns a Cmd that calls POST /api/sessions/{id}/focus.

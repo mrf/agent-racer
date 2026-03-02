@@ -96,6 +96,7 @@ type SessionState struct {
 	CompactionCount    int             `json:"compactionCount,omitempty"`
 	Subagents          []SubagentState `json:"subagents,omitempty"`
 	LastAssistantText  string          `json:"lastAssistantText,omitempty"`
+	LogPath            string          `json:"-"` // internal: path to JSONL file, excluded from wire protocol
 }
 
 // SubagentState tracks a single subagent (Task tool invocation) within a

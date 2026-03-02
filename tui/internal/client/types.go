@@ -234,6 +234,21 @@ type ChallengeProgress struct {
 	Complete    bool   `json:"complete"`
 }
 
+// TailEntry is a single display-ready entry from a session's JSONL log.
+type TailEntry struct {
+	Timestamp time.Time `json:"timestamp"`
+	Type      string    `json:"type"`              // "assistant", "user", "progress", "system"
+	Activity  string    `json:"activity"`           // "thinking", "tool_use", "tool_result", "text", "subagent", etc.
+	Summary   string    `json:"summary"`            // one-line human-readable
+	Detail    string    `json:"detail,omitempty"`    // optional longer content
+}
+
+// TailResponse is the HTTP response for the tail endpoint.
+type TailResponse struct {
+	Entries []TailEntry `json:"entries"`
+	Offset  int64       `json:"offset"`
+}
+
 // SoundConfig is returned by /api/config.
 type SoundConfig struct {
 	Enabled       bool    `json:"enabled"`

@@ -501,7 +501,12 @@ func (m *Monitor) pollSource(src Source, cfg *config.Config, sh *sourceHealth, n
 				StartedAt:  startedAt,
 				WorkingDir: workingDir,
 				Branch:     detectBranch(workingDir),
+				LogPath:    h.LogPath,
 			}
+		}
+
+		if h.LogPath != "" && h.LogPath != state.LogPath {
+			state.LogPath = h.LogPath
 		}
 
 		if update.WorkingDir != "" && update.WorkingDir != state.WorkingDir {

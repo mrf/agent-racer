@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -388,10 +389,10 @@ func (s *Server) handleSessionRoutes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse: /api/sessions/{id}/focus
+	// Parse: /api/sessions/{id}/{action}
 	path := strings.TrimPrefix(r.URL.Path, "/api/sessions/")
 	parts := strings.SplitN(path, "/", 2)
-	if len(parts) != 2 || parts[1] != "focus" {
+	if len(parts) != 2 {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
@@ -401,7 +402,15 @@ func (s *Server) handleSessionRoutes(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid session id", http.StatusBadRequest)
 		return
 	}
-	s.handleFocus(w, r, sessionID)
+
+	switch parts[1] {
+	case "focus":
+		s.handleFocus(w, r, sessionID)
+	case "tail":
+		s.handleTail(w, r, sessionID)
+	default:
+		http.Error(w, "not found", http.StatusNotFound)
+	}
 }
 
 func (s *Server) handleFocus(w http.ResponseWriter, r *http.Request, sessionID string) {
@@ -427,6 +436,50 @@ func (s *Server) handleFocus(w http.ResponseWriter, r *http.Request, sessionID s
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleTail(w http.ResponseWriter, r *http.Request, sessionID string) {
+	state, ok := s.store.Get(sessionID)
+	if !ok {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+	if state.LogPath == "" {
+		http.Error(w, "session has no log file", http.StatusConflict)
+		return
+	}
+
+	var offset int64
+	if v := r.URL.Query().Get("offset"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n >= 0 {
+			offset = n
+		}
+	}
+
+	limit := 200
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 1000 {
+			limit = n
+		}
+	}
+
+	entries, newOffset, err := session.ParseTailEntries(state.LogPath, offset, limit)
+	if err != nil {
+		log.Printf("tail parse error for session %s: %v", sessionID, err)
+		http.Error(w, "failed to read log", http.StatusInternalServerError)
+		return
+	}
+
+	resp := session.TailResponse{
+		Entries: entries,
+		Offset:  newOffset,
+	}
+	if resp.Entries == nil {
+		resp.Entries = []session.TailEntry{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 func (s *Server) authorize(r *http.Request) bool {
