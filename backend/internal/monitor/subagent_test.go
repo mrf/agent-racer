@@ -1037,3 +1037,69 @@ func TestCrossBatchCompletionDoesNotOverrideCurrentBatch(t *testing.T) {
 		t.Errorf("Slug = %s, want same-batch (current batch entry should be preserved)", sub.Slug)
 	}
 }
+
+// TestAgentProgressNotFilteredBySelfSlug verifies that data.type=agent_progress
+// entries are NOT filtered by the self-progress slug check. Real Claude Code
+// subagents carry the parent session's slug (or no slug), so the old slug-based
+// filter incorrectly dropped all subagent progress entries.
+func TestAgentProgressNotFilteredBySelfSlug(t *testing.T) {
+	path := writeJSONLLines(t,
+		// System entry sets the session slug.
+		`{"type":"system","sessionId":"sess-agent","slug":"my-session","timestamp":"2026-02-20T10:00:00.000Z"}`,
+		// Subagent A: agent_progress with parent's slug (would be filtered by old code).
+		`{"type":"progress","toolUseID":"agent_msg_AAA","parentToolUseID":"toolu_parent_A","sessionId":"sess-agent","slug":"my-session","timestamp":"2026-02-20T10:00:01.000Z","data":{"type":"agent_progress","message":{"type":"assistant","message":{"model":"claude-sonnet-4-6-20250514","role":"assistant","content":[{"type":"text","text":"Working on task A"}],"usage":{"input_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":500,"output_tokens":50}}}}}`,
+		// Subagent B: agent_progress with empty slug (would be filtered by old code).
+		`{"type":"progress","toolUseID":"agent_msg_BBB","parentToolUseID":"toolu_parent_B","sessionId":"sess-agent","slug":"","timestamp":"2026-02-20T10:00:01.500Z","data":{"type":"agent_progress","message":{"type":"assistant","message":{"model":"claude-haiku-4-5-20251001","role":"assistant","content":[{"type":"tool_use","name":"Read","id":"r1","input":{}}],"usage":{"input_tokens":80,"cache_creation_input_tokens":0,"cache_read_input_tokens":200,"output_tokens":30}}}}}`,
+		// Subagent C: agent_progress with parent's slug.
+		`{"type":"progress","toolUseID":"agent_msg_CCC","parentToolUseID":"toolu_parent_C","sessionId":"sess-agent","slug":"my-session","timestamp":"2026-02-20T10:00:02.000Z","data":{"type":"agent_progress","message":{"type":"assistant","message":{"model":"claude-sonnet-4-6-20250514","role":"assistant","content":[{"type":"text","text":"Task C"}],"usage":{"input_tokens":60,"cache_creation_input_tokens":0,"cache_read_input_tokens":300,"output_tokens":20}}}}}`,
+	)
+
+	result := parseJSONL(t, path)
+	if result.Slug != "my-session" {
+		t.Fatalf("session Slug = %q, want my-session", result.Slug)
+	}
+	if len(result.Subagents) != 3 {
+		t.Fatalf("expected 3 subagents, got %d", len(result.Subagents))
+	}
+
+	subA := requireSubagent(t, result, "agent_msg_AAA")
+	subB := requireSubagent(t, result, "agent_msg_BBB")
+	subC := requireSubagent(t, result, "agent_msg_CCC")
+
+	if subA.MessageCount != 1 {
+		t.Errorf("A.MessageCount = %d, want 1", subA.MessageCount)
+	}
+	if subA.ParentToolUseID != "toolu_parent_A" {
+		t.Errorf("A.ParentToolUseID = %s, want toolu_parent_A", subA.ParentToolUseID)
+	}
+	if subB.MessageCount != 1 {
+		t.Errorf("B.MessageCount = %d, want 1", subB.MessageCount)
+	}
+	if subB.Model != "claude-haiku-4-5-20251001" {
+		t.Errorf("B.Model = %s, want claude-haiku-4-5-20251001", subB.Model)
+	}
+	if subB.LastTool != "Read" {
+		t.Errorf("B.LastTool = %s, want Read", subB.LastTool)
+	}
+	if subC.MessageCount != 1 {
+		t.Errorf("C.MessageCount = %d, want 1", subC.MessageCount)
+	}
+}
+
+// TestNonAgentProgressStillFiltered verifies that non-agent progress entries
+// (hook_progress, mcp_progress, bash_progress) are still filtered by the
+// self-progress slug check and the slugless-entry gate.
+func TestNonAgentProgressStillFiltered(t *testing.T) {
+	path := writeJSONLLines(t,
+		`{"type":"system","sessionId":"sess-filter","slug":"my-session","timestamp":"2026-02-20T10:00:00.000Z"}`,
+		// hook_progress with session slug — should be filtered.
+		`{"type":"progress","toolUseID":"toolu_hook","parentToolUseID":"toolu_hook","sessionId":"sess-filter","slug":"my-session","timestamp":"2026-02-20T10:00:01.000Z","data":{"type":"hook_progress","hookEvent":"PreToolUse"}}`,
+		// bash_progress with empty slug — should be filtered (no slug, not agent).
+		`{"type":"progress","toolUseID":"bash-progress-0","parentToolUseID":"toolu_bash","sessionId":"sess-filter","slug":"","timestamp":"2026-02-20T10:00:02.000Z","data":{"type":"bash_progress"}}`,
+	)
+
+	result := parseJSONL(t, path)
+	if len(result.Subagents) != 0 {
+		t.Errorf("expected 0 subagents (non-agent entries should be filtered), got %d", len(result.Subagents))
+	}
+}

@@ -61,8 +61,10 @@ type contentBlock struct {
 
 // progressEntry is the top-level structure for type:"progress" JSONL entries
 // emitted by Claude Code. These appear in the parent's JSONL file for both
-// self-progress (assistant turns) and subagent progress (Task tool invocations).
-// In both cases, ToolUseID == ParentToolUseID; the slug field distinguishes them.
+// self-progress (hook/mcp/bash progress) and subagent progress (Agent tool
+// invocations). Subagent entries have data.type=="agent_progress" and
+// toolUseID != parentToolUseID. Self-progress entries have
+// toolUseID == parentToolUseID.
 type progressEntry struct {
 	Type            string          `json:"type"`
 	ToolUseID       string          `json:"toolUseID"`
@@ -71,6 +73,12 @@ type progressEntry struct {
 	Slug            string          `json:"slug"`
 	Timestamp       string          `json:"timestamp"`
 	Data            json.RawMessage `json:"data"`
+}
+
+// progressDataHeader is used for fast pre-parsing of data.type to distinguish
+// agent_progress (subagent) from hook_progress/mcp_progress (self-progress).
+type progressDataHeader struct {
+	Type string `json:"type"`
 }
 
 // progressData wraps the nested data.message structure inside a progress entry.
@@ -325,18 +333,31 @@ func parseProgressEntry(line []byte, result *ParseResult) {
 	if err := json.Unmarshal(line, &entry); err != nil || entry.ToolUseID == "" {
 		return
 	}
-	// Claude Code emits progress entries for every assistant turn,
-	// not just Task tool subagents. Self-progress entries carry the
-	// session's own slug. Skip entries whose slug matches the session slug.
-	if entry.Slug != "" && result.Slug != "" && entry.Slug == result.Slug {
-		return
+
+	// Determine if this is a subagent entry by checking data.type.
+	// agent_progress entries are always subagent progress — they carry the
+	// parent session's slug (or no slug), so slug-based filtering is wrong.
+	isAgent := false
+	if entry.Data != nil {
+		var header progressDataHeader
+		if json.Unmarshal(entry.Data, &header) == nil {
+			isAgent = header.Type == "agent_progress"
+		}
+	}
+
+	// Self-progress filter: skip non-agent entries whose slug matches the
+	// session slug. Agent entries are never self-progress.
+	if !isAgent {
+		if entry.Slug != "" && result.Slug != "" && entry.Slug == result.Slug {
+			return
+		}
 	}
 
 	sub, exists := result.Subagents[entry.ToolUseID]
 	if !exists {
-		// Only create new subagents from entries that carry a slug.
-		// Slugless entries are generic assistant-turn progress, not Task tool invocations.
-		if entry.Slug == "" {
+		// For agent entries, always create a subagent even without a slug.
+		// For non-agent entries, require a slug to avoid creating phantoms.
+		if !isAgent && entry.Slug == "" {
 			return
 		}
 		sub = &SubagentParseResult{
