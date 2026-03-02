@@ -9,6 +9,20 @@ vi.mock('./canvas/RaceCanvas.js', () => ({
   })),
 }));
 
+vi.mock('./canvas/FootraceCanvas.js', () => ({
+  FootraceCanvas: vi.fn(() => ({
+    setEngine: vi.fn(),
+    setAllRacers: vi.fn(),
+    updateRacer: vi.fn(),
+    removeRacer: vi.fn(),
+    onComplete: vi.fn(),
+    onError: vi.fn(),
+    setConnected: vi.fn(),
+    destroy: vi.fn(),
+    entities: new Map(),
+  })),
+}));
+
 let registerView, createView, getViewTypes;
 
 beforeEach(async () => {
@@ -59,5 +73,20 @@ describe('ViewRenderer factory', () => {
     const canvas = document.createElement('canvas');
     const view = createView('race', canvas, null);
     expect(view.setEngine).not.toHaveBeenCalled();
+  });
+
+  it('registers and creates the built-in footrace view', () => {
+    const canvas = document.createElement('canvas');
+    const view = createView('footrace', canvas, null);
+    expect(view).toBeDefined();
+    expect(view.setEngine).toBeDefined();
+    expect(getViewTypes()).toContain('footrace');
+  });
+
+  it('passes engine to setEngine for built-in footrace view', () => {
+    const canvas = document.createElement('canvas');
+    const mockEngine = { fake: true };
+    const view = createView('footrace', canvas, mockEngine);
+    expect(view.setEngine).toHaveBeenCalledWith(mockEngine);
   });
 });

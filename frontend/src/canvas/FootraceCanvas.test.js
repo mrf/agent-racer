@@ -509,6 +509,41 @@ describe('FootraceCanvas', () => {
       fc.flashAlpha = 0.3;
       expect(() => fc.draw()).not.toThrow();
     });
+
+    it('renders empty state message when connected and no characters', () => {
+      fc.setConnected(true);
+      fc.draw();
+      const calls = fc.ctx.fillText.mock.calls.map(c => c[0]);
+      expect(calls).toContain('No active Claude sessions detected');
+      expect(calls).toContain('Start a Claude Code session to see it race');
+    });
+
+    it('does not render empty state message when sessions exist', () => {
+      fc.setConnected(true);
+      fc.setAllRacers([makeState({ id: 'a' })]);
+      fc.draw();
+      const calls = fc.ctx.fillText.mock.calls.map(c => c[0]);
+      expect(calls).not.toContain('No active Claude sessions detected');
+    });
+
+    it('does not render empty state message when disconnected', () => {
+      fc.setConnected(false);
+      fc.draw();
+      const calls = fc.ctx.fillText.mock.calls.map(c => c[0]);
+      expect(calls).not.toContain('No active Claude sessions detected');
+    });
+
+    it('renders dashboard when space is available below track', () => {
+      fc.draw();
+      expect(fc.dashboard.draw).toHaveBeenCalled();
+    });
+
+    it('passes session list to dashboard draw', () => {
+      fc.setAllRacers([makeState({ id: 'a' }), makeState({ id: 'b' })]);
+      fc.draw();
+      const [, , sessions] = fc.dashboard.draw.mock.calls[0];
+      expect(sessions).toHaveLength(2);
+    });
   });
 
   describe('flash and shake decay', () => {
