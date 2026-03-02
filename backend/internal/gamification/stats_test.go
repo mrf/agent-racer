@@ -1120,6 +1120,67 @@ func TestStatsTracker_BattlePassCallback_IncludesAchievementXP(t *testing.T) {
 	}
 }
 
+// TestStatsTracker_WeeklySnapshot_NotResetOnFirstTerminal verifies that snapshot
+// data accumulated during EventNew and EventUpdate is not wiped when the first
+// EventTerminal arrives. Previously, RotateChallengesIfNeeded was called with a
+// zero WeekStart, which always triggered a reset and erased the in-progress data.
+func TestStatsTracker_WeeklySnapshot_NotResetOnFirstTerminal(t *testing.T) {
+	tracker, eventCh := startTracker(t)
+
+	// EventNew: session registered; snapshot should count it.
+	eventCh <- session.Event{
+		Type:        session.EventNew,
+		State:       &session.SessionState{ID: "s1", Source: "claude-code"},
+		ActiveCount: 1,
+	}
+	// EventUpdate: tokens accumulated in snapshot.
+	eventCh <- session.Event{
+		Type:        session.EventUpdate,
+		State:       &session.SessionState{ID: "s1", TokensUsed: 10_000},
+		ActiveCount: 1,
+	}
+	tracker.Flush()
+
+	stats := tracker.Stats()
+	if stats.WeeklyChallenges.Snapshot.TotalSessions != 1 {
+		t.Fatalf("before terminal: Snapshot.TotalSessions = %d, want 1", stats.WeeklyChallenges.Snapshot.TotalSessions)
+	}
+
+	// EventTerminal: first terminal event must NOT wipe the snapshot.
+	completedAt := time.Now()
+	eventCh <- session.Event{
+		Type: session.EventTerminal,
+		State: &session.SessionState{
+			ID:          "s1",
+			Source:      "claude-code",
+			Activity:    session.Complete,
+			Model:       "claude-haiku-4-5",
+			CompletedAt: &completedAt,
+		},
+		ActiveCount: 0,
+	}
+	tracker.Flush()
+
+	stats = tracker.Stats()
+
+	// TotalSessions was counted on EventNew — must survive the terminal event.
+	if stats.WeeklyChallenges.Snapshot.TotalSessions != 1 {
+		t.Errorf("Snapshot.TotalSessions = %d, want 1 (reset by first RotateChallengesIfNeeded)", stats.WeeklyChallenges.Snapshot.TotalSessions)
+	}
+	// TokensBurned was accumulated on EventUpdate — must survive too.
+	if stats.WeeklyChallenges.Snapshot.TokensBurned != 10_000 {
+		t.Errorf("Snapshot.TokensBurned = %d, want 10000 (reset by first RotateChallengesIfNeeded)", stats.WeeklyChallenges.Snapshot.TokensBurned)
+	}
+	// TotalCompletions must be credited from the terminal event.
+	if stats.WeeklyChallenges.Snapshot.TotalCompletions != 1 {
+		t.Errorf("Snapshot.TotalCompletions = %d, want 1", stats.WeeklyChallenges.Snapshot.TotalCompletions)
+	}
+	// Model should be credited from the terminal event.
+	if stats.WeeklyChallenges.Snapshot.SessionsPerModel["claude-haiku-4-5"] != 1 {
+		t.Errorf("Snapshot.SessionsPerModel[claude-haiku-4-5] = %d, want 1", stats.WeeklyChallenges.Snapshot.SessionsPerModel["claude-haiku-4-5"])
+	}
+}
+
 func TestSeasonRotation_PersistsToDisk(t *testing.T) {
 	dir := t.TempDir()
 	store := NewStore(dir)
