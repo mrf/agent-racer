@@ -9,23 +9,58 @@ import (
 
 	"github.com/agent-racer/tui/internal/client"
 	"github.com/agent-racer/tui/internal/theme"
+	"github.com/agent-racer/tui/internal/views/detail"
 	"github.com/agent-racer/tui/internal/views/track"
+	bubbletable "github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/lipgloss"
 )
 
-// leaderboardMaxRows is the maximum number of session rows shown in the
-// leaderboard table. Sessions beyond this limit are summarized as "+N more".
-const leaderboardMaxRows = 5
+// leaderboardMaxVisible caps the number of rows visible at once; sessions
+// beyond this limit are reachable by scrolling the table.
+const leaderboardMaxVisible = 12
+
+var (
+	styleStat = lipgloss.NewStyle().Padding(0, 1)
+
+	styleSeparator = lipgloss.NewStyle().
+			Foreground(theme.ColorBorder)
+
+	styleStatsBox = lipgloss.NewStyle().
+			Padding(0, 1).
+			BorderStyle(lipgloss.RoundedBorder()).
+			BorderForeground(theme.ColorBorder)
+)
 
 // Model holds the dashboard state.
 type Model struct {
 	Width    int
 	sessions []*client.SessionState
+	table    bubbletable.Model
 }
 
 // New creates a dashboard model.
 func New() Model {
-	return Model{}
+	s := bubbletable.DefaultStyles()
+	s.Header = lipgloss.NewStyle().
+		Bold(true).
+		Foreground(theme.ColorDimmed).
+		Padding(0, 1)
+	s.Cell = lipgloss.NewStyle().Padding(0, 1)
+	s.Selected = lipgloss.NewStyle().Bold(true).Foreground(theme.ColorBright)
+
+	t := bubbletable.New(
+		bubbletable.WithColumns([]bubbletable.Column{
+			{Title: "#", Width: 4},
+			{Title: "Name", Width: 22},
+			{Title: "Model", Width: 10},
+			{Title: "Ctx%", Width: 6},
+			{Title: "Tokens", Width: 8},
+			{Title: "Activity", Width: 12},
+		}),
+		bubbletable.WithStyles(s),
+	)
+
+	return Model{table: t}
 }
 
 // SetSessions updates the session list. The dashboard sorts its own copy
@@ -38,6 +73,19 @@ func (m *Model) SetSessions(sessions map[string]*client.SessionState) {
 	sort.Slice(m.sessions, func(i, j int) bool {
 		return m.sessions[i].ContextUtilization > m.sessions[j].ContextUtilization
 	})
+
+	rows := make([]bubbletable.Row, 0, len(m.sessions))
+	for i, s := range m.sessions {
+		rows = append(rows, bubbletable.Row{
+			fmt.Sprintf("%d", i+1),
+			truncateName(detail.DisplayName(s), 22),
+			shortModel(s.Model),
+			fmt.Sprintf("%d%%", int(s.ContextUtilization*100)),
+			formatCount(s.TokensUsed),
+			sessionActivity(s),
+		})
+	}
+	m.table.SetRows(rows)
 }
 
 // View renders the full dashboard: stats row + leaderboard.
@@ -46,12 +94,10 @@ func (m Model) View() string {
 	if width < 40 {
 		width = 40
 	}
-
-	sections := []string{
+	return lipgloss.JoinVertical(lipgloss.Left,
 		m.renderStatsRow(width),
-		m.renderLeaderboard(width),
-	}
-	return lipgloss.JoinVertical(lipgloss.Left, sections...)
+		m.renderLeaderboard(),
+	)
 }
 
 // renderStatsRow shows aggregate counts in a single row.
@@ -73,37 +119,30 @@ func (m Model) renderStatsRow(width int) string {
 		totalMsgs += s.MessageCount
 	}
 
-	statStyle := lipgloss.NewStyle().Padding(0, 1)
-
 	stats := []string{
-		statStyle.Foreground(theme.ColorBright).Render(
+		styleStat.Foreground(theme.ColorBright).Render(
 			fmt.Sprintf("Racing: %d", racing)),
-		statStyle.Foreground(theme.ColorWarning).Render(
+		styleStat.Foreground(theme.ColorWarning).Render(
 			fmt.Sprintf("Pit: %d", pit)),
-		statStyle.Foreground(theme.ColorDimmed).Render(
+		styleStat.Foreground(theme.ColorDimmed).Render(
 			fmt.Sprintf("Parked: %d", parked)),
-		statStyle.Foreground(theme.ColorSonnet4).Render(
+		styleStat.Foreground(theme.ColorSonnet4).Render(
 			fmt.Sprintf("Tokens: %s", formatCount(totalTokens))),
-		statStyle.Foreground(theme.ColorToolUse).Render(
+		styleStat.Foreground(theme.ColorToolUse).Render(
 			fmt.Sprintf("Tools: %d", totalTools)),
-		statStyle.Foreground(theme.ColorThinking).Render(
+		styleStat.Foreground(theme.ColorThinking).Render(
 			fmt.Sprintf("Msgs: %d", totalMsgs)),
 	}
 
-	content := strings.Join(stats, lipgloss.NewStyle().Foreground(theme.ColorBorder).Render(" | "))
+	sep := styleSeparator.Render(" | ")
+	content := strings.Join(stats, sep)
 
-	return lipgloss.NewStyle().
-		Width(width).
-		Padding(0, 1).
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(theme.ColorBorder).
-		Render(content)
+	return styleStatsBox.Width(width).Render(content)
 }
 
-// renderLeaderboard renders a table of sessions sorted by context utilization.
-func (m Model) renderLeaderboard(width int) string {
-	header := lipgloss.NewStyle().Bold(true).Foreground(theme.ColorBright).
-		Render("  Leaderboard")
+// renderLeaderboard renders the bubbles/table leaderboard.
+func (m Model) renderLeaderboard() string {
+	header := theme.StyleHeader.Render("  Leaderboard")
 
 	if len(m.sessions) == 0 {
 		return lipgloss.JoinVertical(lipgloss.Left,
@@ -112,120 +151,36 @@ func (m Model) renderLeaderboard(width int) string {
 		)
 	}
 
-	// Column widths (fixed layout).
-	colRank := 4
-	colName := 24
-	colModel := 14
-	colCtx := 18
-	colTokens := 10
-	colTools := 7
-	colMsgs := 7
-	colActivity := 12
+	// Use a local copy of the table to set height for this render
+	// without mutating the stored model.
+	t := m.table
+	h := len(m.sessions)
+	if h > leaderboardMaxVisible {
+		h = leaderboardMaxVisible
+	}
+	t.SetHeight(h + 1) // +1 accounts for the header row consumed by SetHeight
 
-	dimStyle := lipgloss.NewStyle().Foreground(theme.ColorDimmed)
-	brightStyle := lipgloss.NewStyle().Foreground(theme.ColorBright).Bold(true)
-
-	// Table header row.
-	tableHeader := fmt.Sprintf("  %-*s %-*s %-*s %-*s %*s %*s %*s %-*s",
-		colRank, "#",
-		colName, "Name",
-		colModel, "Model",
-		colCtx, "Context",
-		colTokens, "Tokens",
-		colTools, "Tools",
-		colMsgs, "Msgs",
-		colActivity, "Activity",
-	)
-	lines := []string{
+	return lipgloss.JoinVertical(lipgloss.Left,
 		header,
-		dimStyle.Render(tableHeader),
-		dimStyle.Render("  " + strings.Repeat("─", min(width-4, colRank+colName+colModel+colCtx+colTokens+colTools+colMsgs+colActivity+7))),
-	}
-
-	displaySessions := m.sessions
-	if len(displaySessions) > leaderboardMaxRows {
-		displaySessions = displaySessions[:leaderboardMaxRows]
-	}
-
-	for i, s := range displaySessions {
-		rank := fmt.Sprintf("%-*d", colRank, i+1)
-
-		name := sessionName(s)
-		if len(name) > colName-1 {
-			name = name[:colName-2] + "…"
-		}
-		nameStr := lipgloss.NewStyle().Foreground(theme.ModelColor(s.Model)).
-			Width(colName).Render(name)
-
-		modelStr := dimStyle.Width(colModel).Render(shortModel(s.Model))
-
-		ctxBar := renderContextBar(s.ContextUtilization, colCtx-1)
-		ctxStr := lipgloss.NewStyle().Width(colCtx).Render(ctxBar)
-
-		tokStr := brightStyle.Width(colTokens).Align(lipgloss.Right).
-			Render(formatCount(s.TokensUsed))
-		toolStr := brightStyle.Width(colTools).Align(lipgloss.Right).
-			Render(fmt.Sprintf("%d", s.ToolCallCount))
-		msgStr := brightStyle.Width(colMsgs).Align(lipgloss.Right).
-			Render(fmt.Sprintf("%d", s.MessageCount))
-
-		var actStr string
-		if s.Activity.IsTerminal() {
-			actStr = lipgloss.NewStyle().Width(colActivity).Render("")
-		} else {
-			actColor := theme.ActivityColor(string(s.Activity))
-			actStr = lipgloss.NewStyle().Foreground(actColor).Width(colActivity).
-				Render(string(s.Activity))
-		}
-
-		line := fmt.Sprintf("  %s %s %s %s %s %s %s %s",
-			rank, nameStr, modelStr, ctxStr, tokStr, toolStr, msgStr, actStr)
-		lines = append(lines, line)
-	}
-
-	if extra := len(m.sessions) - leaderboardMaxRows; extra > 0 {
-		lines = append(lines, dimStyle.Render(fmt.Sprintf("  +%d more", extra)))
-	}
-
-	return lipgloss.JoinVertical(lipgloss.Left, lines...)
+		t.View(),
+	)
 }
 
-// renderContextBar draws a small progress bar for context utilization.
-func renderContextBar(pct float64, barWidth int) string {
-	if barWidth < 8 {
-		barWidth = 8
+// sessionActivity returns the activity string for non-terminal sessions.
+func sessionActivity(s *client.SessionState) string {
+	if s.Activity.IsTerminal() {
+		return ""
 	}
-
-	// Reserve space for percentage label (e.g. " 100%").
-	labelWidth := 5
-	fillWidth := barWidth - labelWidth
-	if fillWidth < 3 {
-		fillWidth = 3
-	}
-
-	filled := max(0, min(int(pct*float64(fillWidth)), fillWidth))
-	empty := fillWidth - filled
-
-	color := theme.ContextBarColor(pct)
-	bar := lipgloss.NewStyle().Foreground(color).Render(strings.Repeat("█", filled))
-	bar += lipgloss.NewStyle().Foreground(theme.ColorBorder).Render(strings.Repeat("░", empty))
-	label := fmt.Sprintf(" %3.0f%%", pct*100)
-
-	return bar + lipgloss.NewStyle().Foreground(color).Render(label)
+	return string(s.Activity)
 }
 
-// sessionName returns the best display name for a session.
-func sessionName(s *client.SessionState) string {
-	if s.Name != "" {
-		return s.Name
+// truncateName clips a name to fit within maxLen visual cells, appending
+// "…" when truncated.
+func truncateName(name string, maxLen int) string {
+	if len(name) > maxLen-1 {
+		return name[:maxLen-2] + "…"
 	}
-	if s.Slug != "" {
-		return s.Slug
-	}
-	if len(s.ID) >= 8 {
-		return s.ID[:8]
-	}
-	return s.ID
+	return name
 }
 
 // shortModel returns a compact model label.
