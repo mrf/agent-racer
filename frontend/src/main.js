@@ -1,5 +1,5 @@
 import { RaceConnection } from './websocket.js';
-import { RaceCanvas } from './canvas/RaceCanvas.js';
+import { createView, getViewTypes } from './canvas/ViewRenderer.js';
 import { SoundEngine } from './audio/SoundEngine.js';
 import { requestPermission, notifyCompletion } from './notifications.js';
 import { AchievementPanel } from './gamification/AchievementPanel.js';
@@ -30,9 +30,36 @@ let debugVisible = false;
 let muted = false;
 
 const engine = new SoundEngine();
-const raceCanvas = new RaceCanvas(canvas);
-raceCanvas.setEngine(engine);
-window.raceCanvas = raceCanvas;
+
+// View management — createView registers built-in views via ViewRenderer import
+let activeViewType = 'race';
+let activeView = createView(activeViewType, canvas, engine);
+window.raceCanvas = activeView;
+
+function switchView() {
+  const types = getViewTypes();
+  const idx = types.indexOf(activeViewType);
+  const nextType = types[(idx + 1) % types.length];
+
+  // Capture state before destroying old view
+  const currentSessions = [...sessions.values()];
+  const wasConnected = activeView.connected;
+
+  activeView.destroy();
+
+  activeViewType = nextType;
+  activeView = createView(activeViewType, canvas, engine);
+  window.raceCanvas = activeView;
+
+  // Restore state
+  activeView.setConnected(wasConnected);
+  if (currentSessions.length > 0) {
+    activeView.setAllRacers(currentSessions);
+  }
+
+  wireViewCallbacks(activeView, flyout, unlockToast);
+  log(`Switched to ${activeViewType} view`, 'info');
+}
 
 const achievementPanel = new AchievementPanel();
 const unlockToast = new UnlockToast(engine);
@@ -103,7 +130,7 @@ function handleSnapshot(payload) {
 
   updateSessionCount();
   log(`Snapshot: ${payload.sessions.length} sessions`, 'info');
-  raceCanvas.setAllRacers(payload.sessions);
+  activeView.setAllRacers(payload.sessions);
   engine.updateExcitement(payload.sessions);
   flyout.updateContent(sessions);
 }
@@ -112,13 +139,13 @@ function handleDelta(payload) {
   if (payload.updates) {
     for (const s of payload.updates) {
       sessions.set(s.id, s);
-      raceCanvas.updateRacer(s);
+      activeView.updateRacer(s);
     }
   }
   if (payload.removed) {
     for (const id of payload.removed) {
       sessions.delete(id);
-      raceCanvas.removeRacer(id);
+      activeView.removeRacer(id);
     }
   }
 
@@ -135,11 +162,11 @@ function handleCompletion(payload) {
   notifyCompletion(payload.name, payload.activity);
 
   if (isSuccess) {
-    raceCanvas.onComplete(payload.sessionId);
+    activeView.onComplete(payload.sessionId);
     engine.playVictory();
     engine.recordCompletion();
   } else {
-    raceCanvas.onError(payload.sessionId);
+    activeView.onError(payload.sessionId);
     engine.playCrash();
     engine.recordCrash();
   }
@@ -166,7 +193,7 @@ function handleBattlePassProgress(payload) {
 
 function handleStatus(status) {
   statusDot.className = `status-dot ${status}`;
-  raceCanvas.setConnected(status === 'connected');
+  activeView.setConnected(status === 'connected');
   log(`Connection: ${status}`, status === 'connected' ? 'info' : 'error');
 }
 
@@ -222,7 +249,7 @@ export function wireViewCallbacks(view, flyout, unlockToast) {
   };
 }
 
-wireViewCallbacks(raceCanvas, flyout, unlockToast);
+wireViewCallbacks(activeView, flyout, unlockToast);
 
 flyoutClose.addEventListener('click', () => flyout.hide());
 
@@ -272,6 +299,9 @@ document.addEventListener('keydown', (e) => {
       engine.setMuted(muted);
       log(`Sound ${muted ? 'muted' : 'unmuted'}`, 'info');
       break;
+    case 'v':
+      switchView();
+      break;
     case 'f':
       if (!e.shiftKey) break;
       if (!document.fullscreenElement) {
@@ -313,4 +343,4 @@ conn.connect();
 requestPermission();
 loadSoundConfig();
 log('Agent Racing Dashboard initialized', 'info');
-log('Shortcuts: A=achievements, G=garage, D=debug, M=mute, Shift+F=fullscreen, Click racer=details', 'info');
+log('Shortcuts: A=achievements, G=garage, D=debug, M=mute, V=view, Shift+F=fullscreen, Click racer=details', 'info');
