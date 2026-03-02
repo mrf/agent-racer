@@ -477,3 +477,75 @@ describe('flyout boundary clamping', () => {
     expect(parseInt(flyout.style.left)).toBe(10);
   });
 });
+
+// ── wireViewCallbacks ─────────────────────────────────────────────────
+
+function isFlyoutVisible() {
+  return !document.getElementById('detail-flyout').classList.contains('hidden');
+}
+
+describe('wireViewCallbacks', () => {
+  it('onRacerClick falls back to view.racers when entities is absent', () => {
+    mocks.raceCanvas.racers.set('rc-1', { displayX: 100, displayY: 200 });
+    mocks.raceCanvas.onRacerClick(makeSession({ id: 'rc-1' }));
+    expect(isFlyoutVisible()).toBe(true);
+  });
+
+  it('onRacerClick uses view.entities when available', () => {
+    mocks.raceCanvas.entities = new Map([['ent-1', { displayX: 50, displayY: 75 }]]);
+    mocks.raceCanvas.onRacerClick(makeSession({ id: 'ent-1' }));
+    expect(mocks.raceCanvas.racers.size).toBe(0);
+    expect(isFlyoutVisible()).toBe(true);
+    delete mocks.raceCanvas.entities;
+  });
+
+  it('onRacerClick does not show flyout when entity not found', () => {
+    mocks.raceCanvas.onRacerClick(makeSession({ id: 'missing' }));
+    expect(isFlyoutVisible()).toBe(false);
+  });
+
+  it('onHamsterClick shows hamster flyout when hamster is found', () => {
+    const hamsters = new Map([['h1', { displayX: 30, displayY: 40 }]]);
+    mocks.raceCanvas.racers.set('par-1', { displayX: 100, displayY: 200, hamsters });
+    mocks.raceCanvas.onHamsterClick({
+      hamsterState: makeSession({ id: 'h1' }),
+      parentState: makeSession({ id: 'par-1' }),
+    });
+    expect(isFlyoutVisible()).toBe(true);
+  });
+
+  it('onHamsterClick does not show flyout when parent racer not found', () => {
+    mocks.raceCanvas.onHamsterClick({
+      hamsterState: makeSession({ id: 'h1' }),
+      parentState: makeSession({ id: 'no-parent' }),
+    });
+    expect(isFlyoutVisible()).toBe(false);
+  });
+
+  it('onHamsterClick does not show flyout when hamster not found on racer', () => {
+    mocks.raceCanvas.racers.set('par-2', { displayX: 100, displayY: 200, hamsters: new Map() });
+    mocks.raceCanvas.onHamsterClick({
+      hamsterState: makeSession({ id: 'h-missing' }),
+      parentState: makeSession({ id: 'par-2' }),
+    });
+    expect(isFlyoutVisible()).toBe(false);
+  });
+
+  it('onAfterDraw updates flyout position to racer location', () => {
+    showFlyout(100, 200, 'move-1');
+    mocks.raceCanvas.racers.set('move-1', { displayX: 300, displayY: 400 });
+    mocks.raceCanvas.onAfterDraw();
+    const flyoutEl = document.getElementById('detail-flyout');
+    expect(flyoutEl.style.left).not.toBe('');
+    expect(flyoutEl.style.top).not.toBe('');
+  });
+
+  it('onAfterDraw uses view.entities for position tracking when available', () => {
+    showFlyout(100, 200, 'ent-track');
+    mocks.raceCanvas.entities = new Map([['ent-track', { displayX: 500, displayY: 300 }]]);
+    mocks.raceCanvas.racers.delete('ent-track');
+    mocks.raceCanvas.onAfterDraw();
+    expect(isFlyoutVisible()).toBe(true);
+    delete mocks.raceCanvas.entities;
+  });
+});

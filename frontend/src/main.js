@@ -170,52 +170,59 @@ function handleStatus(status) {
   log(`Connection: ${status}`, status === 'connected' ? 'info' : 'error');
 }
 
-raceCanvas.onRacerClick = (state) => {
-  const racer = raceCanvas.racers.get(state.id);
-  if (racer) {
-    flyout.show(state, racer.displayX, racer.displayY);
+export function wireViewCallbacks(view, flyout, unlockToast) {
+  function getEntities() {
+    return view.entities || view.racers;
   }
-};
 
-raceCanvas.onHamsterClick = ({ hamsterState, parentState }) => {
-  const racer = raceCanvas.racers.get(parentState.id);
-  if (racer) {
+  view.onRacerClick = (state) => {
+    const racer = getEntities().get(state.id);
+    if (racer) {
+      flyout.show(state, racer.displayX, racer.displayY);
+    }
+  };
+
+  view.onHamsterClick = ({ hamsterState, parentState }) => {
+    const racer = getEntities().get(parentState.id);
+    if (!racer) return;
     const hamster = racer.hamsters && racer.hamsters.get(hamsterState.id);
     if (hamster) {
       flyout.showHamster(hamsterState, parentState, hamster.displayX, hamster.displayY);
     }
-  }
-};
+  };
 
-// Keep flyout attached to car/hamster as it moves, and draw toast overlays
-raceCanvas.onAfterDraw = () => {
-  // Update and draw unlock toasts on top of everything
-  unlockToast.update(raceCanvas.dt);
-  unlockToast.draw(raceCanvas.ctx, raceCanvas.width);
+  // Keep flyout attached to car/hamster as it moves, and draw toast overlays
+  view.onAfterDraw = () => {
+    unlockToast.update(view.dt);
+    unlockToast.draw(view.ctx, view.width);
 
-  if (!flyout.isVisible()) return;
+    if (!flyout.isVisible()) return;
 
-  const hamsterId = flyout.getSelectedHamsterId();
-  const sessionId = flyout.getSelectedSessionId();
+    const entities = getEntities();
+    const hamsterId = flyout.getSelectedHamsterId();
+    const sessionId = flyout.getSelectedSessionId();
 
-  if (hamsterId && sessionId) {
-    const racer = raceCanvas.racers.get(sessionId);
-    if (racer && racer.hamsters) {
-      const hamster = racer.hamsters.get(hamsterId);
-      if (hamster) {
-        flyout.updatePosition(hamster.displayX, hamster.displayY);
-        return;
+    if (hamsterId && sessionId) {
+      const racer = entities.get(sessionId);
+      if (racer && racer.hamsters) {
+        const hamster = racer.hamsters.get(hamsterId);
+        if (hamster) {
+          flyout.updatePosition(hamster.displayX, hamster.displayY);
+          return;
+        }
       }
     }
-  }
 
-  if (sessionId) {
-    const racer = raceCanvas.racers.get(sessionId);
-    if (racer) {
-      flyout.updatePosition(racer.displayX, racer.displayY);
+    if (sessionId) {
+      const racer = entities.get(sessionId);
+      if (racer) {
+        flyout.updatePosition(racer.displayX, racer.displayY);
+      }
     }
-  }
-};
+  };
+}
+
+wireViewCallbacks(raceCanvas, flyout, unlockToast);
 
 flyoutClose.addEventListener('click', () => flyout.hide());
 
