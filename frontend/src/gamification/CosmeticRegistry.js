@@ -153,6 +153,16 @@ const BODIES = {
   ],
 };
 
+// ── Character style definitions ────────────────────────────────────────
+// Keys match body cosmetic IDs. Used by the footrace view to set character proportions.
+// Jersey color is derived from the equipped paint (same hex values).
+const CHARACTER_STYLES = {
+  triple_body:      { build: 'athletic', heightScale: 1.0,  widthScale: 1.0  },
+  connoisseur_body: { build: 'tall',     heightScale: 1.15, widthScale: 0.9  },
+  tool_fiend_body:  { build: 'stocky',   heightScale: 0.9,  widthScale: 1.15 },
+  aero_body:        { build: 'lean',     heightScale: 1.05, widthScale: 0.85 },
+};
+
 // ── Badge definitions ──────────────────────────────────────────────────
 // Each badge returns { emoji, label } for rendering next to session names.
 // A future version may add sprite paths.
@@ -224,6 +234,16 @@ export function getEquippedBody(id, L) {
   const limoStretch = typeof id === 'number' ? id : L;
   const factory = BODIES[key];
   return factory ? factory(limoStretch ?? 0) : null;
+}
+
+/**
+ * Returns character style params for the equipped body, or null if no match.
+ * @param {string} [id] - Reward ID. Defaults to currently equipped body slot.
+ * @returns {{ build: string, heightScale: number, widthScale: number } | null}
+ */
+export function getEquippedCharacterStyle(id) {
+  const key = id ?? equipped.body;
+  return CHARACTER_STYLES[key] ?? null;
 }
 
 /**

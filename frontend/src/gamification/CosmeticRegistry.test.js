@@ -10,6 +10,7 @@ import {
   getEquippedPaint,
   getEquippedTrail,
   getEquippedBody,
+  getEquippedCharacterStyle,
   getEquippedBadge,
   getEquippedTitle,
   getEquippedLoadout,
@@ -116,6 +117,47 @@ describe('CosmeticRegistry', () => {
 
     it('returns null for unknown body', () => {
       expect(getEquippedBody('nonexistent_body', 0)).toBeNull();
+    });
+  });
+
+  describe('getEquippedCharacterStyle', () => {
+    it('returns null when no body equipped', () => {
+      expect(getEquippedCharacterStyle()).toBeNull();
+    });
+
+    it('returns null for unknown ID', () => {
+      expect(getEquippedCharacterStyle('nonexistent_body')).toBeNull();
+    });
+
+    it('returns style for triple_body', () => {
+      expect(getEquippedCharacterStyle('triple_body')).toEqual({
+        build: 'athletic', heightScale: 1.0, widthScale: 1.0,
+      });
+    });
+
+    it('returns style for connoisseur_body', () => {
+      expect(getEquippedCharacterStyle('connoisseur_body')).toEqual({
+        build: 'tall', heightScale: 1.15, widthScale: 0.9,
+      });
+    });
+
+    it('returns style for tool_fiend_body', () => {
+      expect(getEquippedCharacterStyle('tool_fiend_body')).toEqual({
+        build: 'stocky', heightScale: 0.9, widthScale: 1.15,
+      });
+    });
+
+    it('returns style for aero_body', () => {
+      expect(getEquippedCharacterStyle('aero_body')).toEqual({
+        build: 'lean', heightScale: 1.05, widthScale: 0.85,
+      });
+    });
+
+    it('defaults to equipped body slot when called without argument', () => {
+      setEquipped({ body: 'aero_body' });
+      expect(getEquippedCharacterStyle()).toEqual({
+        build: 'lean', heightScale: 1.05, widthScale: 0.85,
+      });
     });
   });
 
