@@ -42,6 +42,11 @@ const (
 	ActivityLost     Activity = "lost"
 )
 
+// IsTerminal returns true if the activity represents a terminal state.
+func (a Activity) IsTerminal() bool {
+	return a == ActivityComplete || a == ActivityErrored || a == ActivityLost
+}
+
 // SessionState mirrors backend/internal/session.SessionState.
 type SessionState struct {
 	ID                 string          `json:"id"`

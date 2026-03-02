@@ -140,6 +140,22 @@ func TestActivityConstants(t *testing.T) {
 	}
 }
 
+func TestActivityIsTerminal(t *testing.T) {
+	terminal := []Activity{ActivityComplete, ActivityErrored, ActivityLost}
+	for _, a := range terminal {
+		if !a.IsTerminal() {
+			t.Errorf("Activity %q should be terminal", a)
+		}
+	}
+
+	nonTerminal := []Activity{ActivityStarting, ActivityThinking, ActivityToolUse, ActivityWaiting, ActivityIdle}
+	for _, a := range nonTerminal {
+		if a.IsTerminal() {
+			t.Errorf("Activity %q should not be terminal", a)
+		}
+	}
+}
+
 func TestSourceHealthPayloadDeserialization(t *testing.T) {
 	raw := `{
 		"source":"claude",

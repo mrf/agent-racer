@@ -160,9 +160,14 @@ func (m Model) renderLeaderboard(width int) string {
 		msgStr := brightStyle.Width(colMsgs).Align(lipgloss.Right).
 			Render(fmt.Sprintf("%d", s.MessageCount))
 
-		actColor := theme.ActivityColor(string(s.Activity))
-		actStr := lipgloss.NewStyle().Foreground(actColor).Width(colActivity).
-			Render(string(s.Activity))
+		var actStr string
+		if s.Activity.IsTerminal() {
+			actStr = lipgloss.NewStyle().Width(colActivity).Render("")
+		} else {
+			actColor := theme.ActivityColor(string(s.Activity))
+			actStr = lipgloss.NewStyle().Foreground(actColor).Width(colActivity).
+				Render(string(s.Activity))
+		}
 
 		line := fmt.Sprintf("  %s %s %s %s %s %s %s %s",
 			rank, nameStr, modelStr, ctxStr, tokStr, toolStr, msgStr, actStr)
