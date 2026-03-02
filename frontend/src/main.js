@@ -14,6 +14,7 @@ import { createSessionTracker } from './ui/sessionTracker.js';
 import { initAmbientAudio } from './ui/ambientAudio.js';
 import { ShortcutBar } from './ui/ShortcutBar.js';
 import { HelpPopup } from './ui/HelpPopup.js';
+import { Minimap } from './ui/Minimap.js';
 
 const debugPanel = document.getElementById('debug-panel');
 const debugLog = document.getElementById('debug-log');
@@ -48,6 +49,19 @@ const flyout = createFlyout({ detailFlyout, flyoutContent, canvas });
 const tracker = createSessionTracker(engine);
 const shortcutBar = new ShortcutBar(document.getElementById('shortcut-bar'));
 const helpPopup = new HelpPopup();
+const minimap = new Minimap();
+minimap.raceCanvas = activeView;
+
+function focusRacerFromMinimap(state) {
+  const container = document.getElementById('race-container');
+  const entity = activeView.entities.get(state.id);
+  if (!entity) return;
+  if (container) {
+    container.scrollTo({ top: entity.displayY - container.clientHeight / 2, behavior: 'smooth' });
+  }
+  flyout.show(state, entity.displayX, entity.displayY);
+}
+minimap.onDotClick = focusRacerFromMinimap;
 
 initAmbientAudio(engine);
 
@@ -233,6 +247,8 @@ function switchView(type) {
   activeView.setConnected(statusDot.className.includes('connected'));
   window.activeView = activeView;
   window.raceCanvas = activeView;
+  minimap.raceCanvas = activeView;
+  minimap.onDotClick = focusRacerFromMinimap;
   localStorage.setItem(VIEW_STORAGE_KEY, type);
 }
 
@@ -258,6 +274,7 @@ function updateShortcutHighlights() {
   shortcutBar.setActive('garage', rewardSelector.isVisible);
   shortcutBar.setActive('debug', debugVisible);
   shortcutBar.setActive('mute', muted);
+  shortcutBar.setActive('minimap', minimap.visible);
   shortcutBar.setActive('fullscreen', !!document.fullscreenElement);
   shortcutBar.setActive('help', helpPopup.isVisible);
 }
@@ -291,6 +308,10 @@ document.addEventListener('keydown', (e) => {
       muted = !muted;
       engine.setMuted(muted);
       log(`Sound ${muted ? 'muted' : 'unmuted'}`, 'info');
+      break;
+    case 'n':
+      minimap.toggle();
+      log(`Mini-map ${minimap.visible ? 'shown' : 'hidden'}`, 'info');
       break;
     case 'f':
       if (!e.shiftKey) break;
@@ -333,4 +354,4 @@ conn.connect();
 requestPermission();
 loadSoundConfig();
 log('Agent Racing Dashboard initialized', 'info');
-log('Shortcuts: A=achievements, G=garage, D=debug, M=mute, V=view, Shift+F=fullscreen, Click racer=details', 'info');
+log('Shortcuts: A=achievements, G=garage, D=debug, M=mute, N=minimap, V=view, Shift+F=fullscreen, Click racer=details', 'info');
