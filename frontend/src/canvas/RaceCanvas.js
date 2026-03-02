@@ -76,6 +76,10 @@ export class RaceCanvas {
     this.startLoop();
   }
 
+  get entities() {
+    return this.racers;
+  }
+
   setEngine(engine) {
     this.engine = engine;
   }

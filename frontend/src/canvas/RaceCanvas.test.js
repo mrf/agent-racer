@@ -762,6 +762,19 @@ describe('RaceCanvas', () => {
     });
   });
 
+  describe('entities alias', () => {
+    it('entities returns the same Map as racers', () => {
+      expect(rc.entities).toBe(rc.racers);
+    });
+
+    it('entities reflects racer additions', () => {
+      rc.setAllRacers([makeState({ id: 'a' }), makeState({ id: 'b' })]);
+      expect(rc.entities.size).toBe(2);
+      expect(rc.entities.has('a')).toBe(true);
+      expect(rc.entities.has('b')).toBe(true);
+    });
+  });
+
   describe('setEngine', () => {
     it('sets engine reference', () => {
       const engine = { currentExcitement: 0.5 };
