@@ -13,6 +13,10 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// leaderboardMaxRows is the maximum number of session rows shown in the
+// leaderboard table. Sessions beyond this limit are summarized as "+N more".
+const leaderboardMaxRows = 5
+
 // Model holds the dashboard state.
 type Model struct {
 	Width    int
@@ -138,7 +142,12 @@ func (m Model) renderLeaderboard(width int) string {
 		dimStyle.Render("  " + strings.Repeat("─", min(width-4, colRank+colName+colModel+colCtx+colTokens+colTools+colMsgs+colActivity+7))),
 	}
 
-	for i, s := range m.sessions {
+	displaySessions := m.sessions
+	if len(displaySessions) > leaderboardMaxRows {
+		displaySessions = displaySessions[:leaderboardMaxRows]
+	}
+
+	for i, s := range displaySessions {
 		rank := fmt.Sprintf("%-*d", colRank, i+1)
 
 		name := sessionName(s)
@@ -167,6 +176,10 @@ func (m Model) renderLeaderboard(width int) string {
 		line := fmt.Sprintf("  %s %s %s %s %s %s %s %s",
 			rank, nameStr, modelStr, ctxStr, tokStr, toolStr, msgStr, actStr)
 		lines = append(lines, line)
+	}
+
+	if extra := len(m.sessions) - leaderboardMaxRows; extra > 0 {
+		lines = append(lines, dimStyle.Render(fmt.Sprintf("  +%d more", extra)))
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, lines...)
