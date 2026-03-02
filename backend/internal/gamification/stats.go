@@ -145,7 +145,15 @@ func (t *StatsTracker) Run(ctx context.Context) {
 			t.drainEvents()
 			close(done)
 		case <-ticker.C:
-			if t.dirty {
+			// Check for challenge rotation periodically via the save ticker (outside lock).
+			t.mu.Lock()
+			wc := &t.stats.WeeklyChallenges
+			t.mu.Unlock()
+			RotateChallengesIfNeeded(wc, time.Now())
+			t.mu.Lock()
+			dirty := t.dirty
+			t.mu.Unlock()
+			if dirty {
 				t.save()
 			}
 		}
@@ -190,9 +198,6 @@ func (t *StatsTracker) processEvent(ev session.Event) {
 		awardXP(&t.stats.BattlePass, amount)
 		xpEntries = append(xpEntries, XPEntry{Reason: reason, Amount: amount})
 	}
-
-	// Ensure weekly challenges are rotated before processing.
-	RotateChallengesIfNeeded(&t.stats.WeeklyChallenges, time.Now())
 
 	wc := &t.stats.WeeklyChallenges
 
@@ -259,6 +264,9 @@ func (t *StatsTracker) processEvent(ev session.Event) {
 		}
 
 	case session.EventTerminal:
+		// Check for challenge rotation on terminal events (cheaper than every event).
+		RotateChallengesIfNeeded(&t.stats.WeeklyChallenges, time.Now())
+
 		switch s.Activity {
 		case session.Complete:
 			t.stats.TotalCompletions++
@@ -317,16 +325,16 @@ func (t *StatsTracker) processEvent(ev session.Event) {
 
 	t.dirty = true
 
-	// Capture battlepass progress while still under lock.
-	var bpProgress BattlePassProgress
-	if len(xpEntries) > 0 {
-		bpProgress = getProgress(&t.stats.BattlePass)
-	}
-
 	// Evaluate achievements while still holding the lock so stats are consistent.
 	unlocked := t.achieveEngine.Evaluate(t.stats)
 	for _, a := range unlocked {
 		awardXP(&t.stats.BattlePass, AchievementXP(a.Tier))
+	}
+
+	// Capture battlepass progress AFTER achievement XP is applied, while still under lock.
+	var bpProgress BattlePassProgress
+	if len(xpEntries) > 0 {
+		bpProgress = getProgress(&t.stats.BattlePass)
 	}
 	t.mu.Unlock()
 
