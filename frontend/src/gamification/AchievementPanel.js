@@ -71,6 +71,7 @@ export class AchievementPanel {
     this._visible = false;
     this._achievements = [];
     this._dirty = true; // force fetch on first open
+    this._returnFocus = null;
 
     this._overlay.querySelector('.ap-close').addEventListener('click', () => this.hide());
     // Click on backdrop (outside ap-inner) closes panel
@@ -79,6 +80,32 @@ export class AchievementPanel {
     });
 
     this._onMouseMove = (e) => this._repositionTooltip(e.clientX, e.clientY);
+    this._onKeyDown = (e) => this._handleKeyDown(e);
+  }
+
+  _getFocusable() {
+    return Array.from(
+      this._overlay.querySelectorAll('button:not([disabled]), [tabindex="0"]')
+    );
+  }
+
+  _handleKeyDown(e) {
+    if (e.key !== 'Tab') return;
+    const focusable = this._getFocusable();
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (e.shiftKey) {
+      if (document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      }
+    } else {
+      if (document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
   }
 
   async hydrate() {
@@ -103,9 +130,11 @@ export class AchievementPanel {
 
   show() {
     if (this._visible) return;
+    this._returnFocus = document.activeElement;
     this._visible = true;
     this._overlay.classList.remove('hidden');
     document.addEventListener('mousemove', this._onMouseMove);
+    this._overlay.addEventListener('keydown', this._onKeyDown);
     this.hydrate();
     this._overlay.querySelector('.ap-close').focus();
   }
@@ -116,6 +145,9 @@ export class AchievementPanel {
     this._overlay.classList.add('hidden');
     this._tooltip.classList.add('hidden');
     document.removeEventListener('mousemove', this._onMouseMove);
+    this._overlay.removeEventListener('keydown', this._onKeyDown);
+    this._returnFocus?.focus();
+    this._returnFocus = null;
   }
 
   toggle() {
@@ -178,6 +210,11 @@ export class AchievementPanel {
     const tile = document.createElement('div');
     tile.className = `ap-tile ${achievement.unlocked ? 'unlocked' : 'locked'}`;
     tile.setAttribute('data-id', achievement.id);
+    tile.setAttribute('role', 'button');
+    tile.setAttribute('tabindex', '0');
+
+    const statusText = achievement.unlocked ? 'Unlocked' : 'Locked';
+    tile.setAttribute('aria-label', `${achievement.name}, ${achievement.tier}, ${statusText}`);
 
     const tierIcon = TIER_ICONS[achievement.tier] ?? '';
 
@@ -208,6 +245,11 @@ export class AchievementPanel {
 
     tile.addEventListener('mouseenter', (e) => this._showTooltip(achievement, e.clientX, e.clientY));
     tile.addEventListener('mouseleave', () => this._tooltip.classList.add('hidden'));
+    tile.addEventListener('focus', () => {
+      const rect = tile.getBoundingClientRect();
+      this._showTooltip(achievement, rect.right, rect.top);
+    });
+    tile.addEventListener('blur', () => this._tooltip.classList.add('hidden'));
 
     return tile;
   }
@@ -251,6 +293,7 @@ export class AchievementPanel {
 
   destroy() {
     document.removeEventListener('mousemove', this._onMouseMove);
+    this._overlay.removeEventListener('keydown', this._onKeyDown);
     this._overlay.remove();
   }
 }

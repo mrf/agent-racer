@@ -98,6 +98,15 @@ function escapeHTML(s) {
     .replace(/"/g, '&quot;');
 }
 
+function getLockReason(reward, achievementNames) {
+  if (reward.unlockedBy) {
+    const achName = achievementNames.get(reward.unlockedBy);
+    return `Requires: ${achName || reward.unlockedBy}`;
+  }
+  const tier = BATTLE_PASS_TIERS[reward.id];
+  return tier ? `Battle Pass Tier ${tier}` : 'Battle Pass reward';
+}
+
 // ── Styles ───────────────────────────────────────────────────────────
 
 function injectStyles() {
@@ -348,16 +357,44 @@ export class RewardSelector {
     this._achievements = [];      // from /api/achievements
     this._battlePassTier = 0;     // from /api/stats
     this._equipping = false;      // guard against double-click
+    this._returnFocus = null;
 
     this._overlay.querySelector('.rs-close').addEventListener('click', () => this.hide());
     this._overlay.addEventListener('click', (e) => {
       if (e.target === this._overlay) this.hide();
     });
 
+    this._onKeyDown = (e) => this._handleKeyDown(e);
+
     // Re-render when cosmetic state changes externally (WebSocket broadcast)
     this._unsubscribe = onEquippedChange(() => {
       if (this._visible) this._render();
     });
+  }
+
+  _getFocusable() {
+    return Array.from(
+      this._overlay.querySelectorAll('button:not([disabled]), [tabindex="0"]')
+    );
+  }
+
+  _handleKeyDown(e) {
+    if (e.key !== 'Tab') return;
+    const focusable = this._getFocusable();
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (e.shiftKey) {
+      if (document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      }
+    } else {
+      if (document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
   }
 
   async _fetchData() {
@@ -380,8 +417,10 @@ export class RewardSelector {
 
   show() {
     if (this._visible) return;
+    this._returnFocus = document.activeElement;
     this._visible = true;
     this._overlay.classList.remove('hidden');
+    this._overlay.addEventListener('keydown', this._onKeyDown);
     this._fetchData().then(() => this._render());
     this._overlay.querySelector('.rs-close').focus();
   }
@@ -390,6 +429,9 @@ export class RewardSelector {
     if (!this._visible) return;
     this._visible = false;
     this._overlay.classList.add('hidden');
+    this._overlay.removeEventListener('keydown', this._onKeyDown);
+    this._returnFocus?.focus();
+    this._returnFocus = null;
   }
 
   toggle() {
@@ -458,11 +500,16 @@ export class RewardSelector {
     const tile = document.createElement('div');
     const isActive = !currentlyEquipped;
     tile.className = `rs-tile ${isActive ? 'equipped' : 'equippable'}`;
+    tile.setAttribute('role', 'button');
+    tile.setAttribute('tabindex', '0');
+    tile.setAttribute('aria-label', isActive ? 'None, currently active' : 'None, clear slot');
+    if (isActive) tile.setAttribute('aria-pressed', 'true');
 
     const preview = document.createElement('div');
     preview.className = 'rs-tile-preview';
     preview.textContent = '\u2014'; // em dash
     preview.style.color = '#555';
+    preview.setAttribute('aria-hidden', 'true');
     tile.appendChild(preview);
 
     const name = document.createElement('div');
@@ -477,6 +524,12 @@ export class RewardSelector {
 
     if (!isActive) {
       tile.addEventListener('click', () => this._doUnequip(slotKey));
+      tile.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          this._doUnequip(slotKey);
+        }
+      });
     }
 
     return tile;
@@ -493,8 +546,22 @@ export class RewardSelector {
       tile.className = 'rs-tile locked';
     }
 
+    tile.setAttribute('role', 'button');
+    tile.setAttribute('tabindex', '0');
+    if (isEquipped) {
+      tile.setAttribute('aria-pressed', 'true');
+      tile.setAttribute('aria-label', `${reward.name}, equipped`);
+    } else if (isUnlocked) {
+      tile.setAttribute('aria-label', `${reward.name}, equip`);
+    } else {
+      const lockReason = getLockReason(reward, achievementNames);
+      tile.setAttribute('aria-label', `${reward.name}, locked, ${lockReason}`);
+      tile.setAttribute('aria-disabled', 'true');
+    }
+
     const preview = document.createElement('div');
     preview.className = 'rs-tile-preview';
+    preview.setAttribute('aria-hidden', 'true');
     this._renderPreview(preview, reward);
     tile.appendChild(preview);
 
@@ -516,22 +583,21 @@ export class RewardSelector {
     }
     tile.appendChild(status);
 
-    // Lock requirement text
     if (!isUnlocked) {
       const lockText = document.createElement('div');
       lockText.className = 'rs-tile-lock-text';
-      if (reward.unlockedBy) {
-        const achName = achievementNames.get(reward.unlockedBy);
-        lockText.textContent = `Requires: ${achName || reward.unlockedBy}`;
-      } else {
-        const tier = BATTLE_PASS_TIERS[reward.id];
-        lockText.textContent = tier ? `Battle Pass Tier ${tier}` : 'Battle Pass reward';
-      }
+      lockText.textContent = getLockReason(reward, achievementNames);
       tile.appendChild(lockText);
     }
 
     if (isUnlocked && !isEquipped) {
       tile.addEventListener('click', () => this._doEquip(reward.id, slotKey));
+      tile.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          this._doEquip(reward.id, slotKey);
+        }
+      });
     }
 
     return tile;
@@ -610,6 +676,7 @@ export class RewardSelector {
 
   destroy() {
     this._unsubscribe();
+    this._overlay.removeEventListener('keydown', this._onKeyDown);
     this._overlay.remove();
   }
 }

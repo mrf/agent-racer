@@ -239,6 +239,142 @@ describe('AchievementPanel', () => {
     });
   });
 
+  describe('focus management', () => {
+    it('focuses close button on show()', () => {
+      panel = new AchievementPanel();
+      panel.show();
+      expect(document.activeElement).toBe(document.querySelector('.ap-close'));
+    });
+
+    it('returns focus to previous element on hide()', () => {
+      const btn = document.createElement('button');
+      document.body.appendChild(btn);
+      btn.focus();
+
+      panel = new AchievementPanel();
+      panel.show();
+      panel.hide();
+
+      expect(document.activeElement).toBe(btn);
+    });
+
+    it('focus trap: Tab from last focusable wraps to first', async () => {
+      mockAchievements([
+        { id: 'a1', name: 'First', category: 'Session Milestones', tier: 'bronze', unlocked: true },
+      ]);
+      panel = new AchievementPanel();
+      panel.show();
+      await panel.hydrate();
+
+      const focusable = panel._getFocusable();
+      expect(focusable.length).toBeGreaterThan(0);
+
+      // Focus last element
+      const last = focusable[focusable.length - 1];
+      last.focus();
+
+      const tabEvent = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true });
+      let defaultPrevented = false;
+      tabEvent.preventDefault = () => { defaultPrevented = true; };
+      panel._overlay.dispatchEvent(tabEvent);
+
+      expect(defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(focusable[0]);
+    });
+
+    it('focus trap: Shift+Tab from first focusable wraps to last', async () => {
+      mockAchievements([
+        { id: 'a1', name: 'First', category: 'Session Milestones', tier: 'bronze', unlocked: true },
+      ]);
+      panel = new AchievementPanel();
+      panel.show();
+      await panel.hydrate();
+
+      const focusable = panel._getFocusable();
+      expect(focusable.length).toBeGreaterThan(0);
+
+      // Focus first element
+      focusable[0].focus();
+
+      const tabEvent = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true });
+      let defaultPrevented = false;
+      tabEvent.preventDefault = () => { defaultPrevented = true; };
+      panel._overlay.dispatchEvent(tabEvent);
+
+      expect(defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(focusable[focusable.length - 1]);
+    });
+
+    it('non-Tab keydown does not prevent default', () => {
+      panel = new AchievementPanel();
+      panel.show();
+
+      const escEvent = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true });
+      let defaultPrevented = false;
+      escEvent.preventDefault = () => { defaultPrevented = true; };
+      panel._overlay.dispatchEvent(escEvent);
+
+      expect(defaultPrevented).toBe(false);
+    });
+  });
+
+  describe('tile accessibility', () => {
+    it('tiles have role="button" and tabindex="0"', async () => {
+      mockAchievements([
+        { id: 'a1', name: 'Unlocked', category: 'Streaks', tier: 'bronze', unlocked: true },
+        { id: 'a2', name: 'Locked',   category: 'Streaks', tier: 'silver', unlocked: false },
+      ]);
+      panel = new AchievementPanel();
+      await panel.hydrate();
+
+      const tiles = document.querySelectorAll('.ap-tile');
+      for (const tile of tiles) {
+        expect(tile.getAttribute('role')).toBe('button');
+        expect(tile.getAttribute('tabindex')).toBe('0');
+      }
+    });
+
+    it('unlocked tile aria-label includes name, tier, and "Unlocked"', async () => {
+      mockAchievements([
+        { id: 'a1', name: 'Speed King', category: 'Streaks', tier: 'gold', unlocked: true },
+      ]);
+      panel = new AchievementPanel();
+      await panel.hydrate();
+
+      const tile = document.querySelector('.ap-tile.unlocked');
+      const label = tile.getAttribute('aria-label');
+      expect(label).toContain('Speed King');
+      expect(label).toContain('gold');
+      expect(label).toContain('Unlocked');
+    });
+
+    it('locked tile aria-label includes "Locked"', async () => {
+      mockAchievements([
+        { id: 'a1', name: 'Mystery', category: 'Streaks', tier: 'platinum', unlocked: false },
+      ]);
+      panel = new AchievementPanel();
+      await panel.hydrate();
+
+      const tile = document.querySelector('.ap-tile.locked');
+      const label = tile.getAttribute('aria-label');
+      expect(label).toContain('Mystery');
+      expect(label).toContain('Locked');
+    });
+
+    it('tiles appear in _getFocusable() list when rendered', async () => {
+      mockAchievements([
+        { id: 'a1', name: 'First', category: 'Session Milestones', tier: 'bronze', unlocked: true },
+      ]);
+      panel = new AchievementPanel();
+      panel.show();
+      await panel.hydrate();
+
+      const focusable = panel._getFocusable();
+      const tiles = focusable.filter(el => el.classList.contains('ap-tile'));
+      expect(tiles.length).toBeGreaterThan(0);
+    });
+  });
+
   describe('mousemove listener lifecycle', () => {
     it('does not attach mousemove listener on construction', () => {
       const addSpy = vi.spyOn(document, 'addEventListener');
@@ -306,20 +442,20 @@ describe('AchievementPanel caching', () => {
   });
 
   it('fetches on first hydrate()', async () => {
-    const panel = new AchievementPanel();
+    panel = new AchievementPanel();
     await panel.hydrate();
     expect(authFetch).toHaveBeenCalledTimes(1);
   });
 
   it('does not re-fetch on second hydrate() when not dirty', async () => {
-    const panel = new AchievementPanel();
+    panel = new AchievementPanel();
     await panel.hydrate();
     await panel.hydrate();
     expect(authFetch).toHaveBeenCalledTimes(1);
   });
 
   it('re-fetches after markDirty()', async () => {
-    const panel = new AchievementPanel();
+    panel = new AchievementPanel();
     await panel.hydrate();
     panel.markDirty();
     await panel.hydrate();
@@ -327,7 +463,7 @@ describe('AchievementPanel caching', () => {
   });
 
   it('clears dirty flag after successful fetch', async () => {
-    const panel = new AchievementPanel();
+    panel = new AchievementPanel();
     await panel.hydrate();
     panel.markDirty();
     await panel.hydrate();
@@ -337,7 +473,7 @@ describe('AchievementPanel caching', () => {
 
   it('stays dirty on fetch error so next open retries', async () => {
     authFetch.mockResolvedValueOnce({ ok: false, status: 500 });
-    const panel = new AchievementPanel();
+    panel = new AchievementPanel();
     await panel.hydrate(); // fails
     expect(authFetch).toHaveBeenCalledTimes(1);
     // still dirty, so next hydrate retries
