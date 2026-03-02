@@ -8,6 +8,7 @@ import { RewardSelector } from './gamification/RewardSelector.js';
 import { BattlePassBar } from './gamification/BattlePassBar.js';
 import { setEquipped } from './gamification/CosmeticRegistry.js';
 import { authFetch, getAuthToken } from './auth.js';
+import { isTerminalActivity } from './session/constants.js';
 import { createFlyout } from './ui/detailFlyout.js';
 import { createSessionTracker } from './ui/sessionTracker.js';
 import { initAmbientAudio } from './ui/ambientAudio.js';
@@ -73,7 +74,7 @@ function log(msg, type = '') {
 
 function updateSessionCount() {
   const active = [...sessions.values()].filter(
-    s => !['complete', 'errored', 'lost'].includes(s.activity)
+    s => !isTerminalActivity(s.activity)
   ).length;
   sessionCount.textContent = `${active} active / ${sessions.size} total`;
 }

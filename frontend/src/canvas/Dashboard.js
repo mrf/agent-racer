@@ -1,4 +1,5 @@
 import { getEquippedBadge, getEquippedTitle } from '../gamification/CosmeticRegistry.js';
+import { TERMINAL_ACTIVITIES } from '../session/constants.js';
 
 const DASHBOARD_GAP = 30;
 const DASHBOARD_PADDING = { top: 20, bottom: 20, left: 20, right: 20 };
@@ -19,8 +20,6 @@ const ACTIVITY_COLORS = {
   errored: '#dc2626',
   lost: '#374151',
 };
-
-const TERMINAL_ACTIVITIES = new Set(['complete', 'errored', 'lost']);
 
 function formatTokens(tokens) {
   if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;

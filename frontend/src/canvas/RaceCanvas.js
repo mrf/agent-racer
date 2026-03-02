@@ -3,9 +3,8 @@ import { Track } from './Track.js';
 import { Dashboard } from './Dashboard.js';
 import { Racer, getModelColor, hexToRgb } from '../entities/Racer.js';
 import { authFetch } from '../auth.js';
-
-const DEFAULT_CONTEXT_WINDOW = 200000;
-const TERMINAL_ACTIVITIES = new Set(['complete', 'errored', 'lost']);
+import { DEFAULT_CONTEXT_WINDOW, TERMINAL_ACTIVITIES } from '../session/constants.js';
+import { isParkingLotRacer, isPitRacer } from '../session/zones.js';
 
 // Rectangular hit area matching the limo's elongated shape.
 // Derived from car geometry: CAR_SCALE=2.3, LIMO_STRETCH=35.
@@ -24,30 +23,6 @@ const HAMSTER_HIT_HY = 7.5;
 
 function isInsideHamsterHitbox(dx, dy) {
   return dx >= -HAMSTER_HIT_HX && dx <= HAMSTER_HIT_HX && dy >= -HAMSTER_HIT_HY && dy <= HAMSTER_HIT_HY;
-}
-
-// How long after the last data receipt to keep a session on track.
-// Bridges brief gaps between parsed entries during active agent loops.
-const DATA_FRESHNESS_MS = 30_000;
-
-function isParkingLotRacer(state) {
-  return TERMINAL_ACTIVITIES.has(state.activity);
-}
-
-const PIT_ACTIVITIES = new Set(['idle', 'waiting', 'starting']);
-
-// Determines whether a racer belongs in the pit lane. Uses data freshness
-// as the sole zone determinant — isChurning is reserved for visual effects
-// only, since CPU jitter caused track/pit oscillation.
-function isPitRacer(state) {
-  if (isParkingLotRacer(state)) return false;
-  if (!PIT_ACTIVITIES.has(state.activity)) return false;
-
-  if (state.lastDataReceivedAt) {
-    const age = Date.now() - new Date(state.lastDataReceivedAt).getTime();
-    if (age < DATA_FRESHNESS_MS) return false;
-  }
-  return true;
 }
 
 export class RaceCanvas {

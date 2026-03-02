@@ -1,5 +1,6 @@
 import { Hamster } from './Hamster.js';
 import { getEquippedPaint, getEquippedBody, getEquippedBadge } from '../gamification/CosmeticRegistry.js';
+import { TERMINAL_ACTIVITIES, isTerminalActivity } from '../session/constants.js';
 
 const MODEL_COLORS = {
   'claude-opus-4-5-20251101': { main: '#a855f7', dark: '#7c3aed', light: '#c084fc', name: 'Opus' },
@@ -22,12 +23,6 @@ const DEFAULT_SOURCE = { bg: '#6b7280', label: '?' };
 const CAR_SCALE = 2.3;
 const LIMO_STRETCH = 35;
 const FLAG_COLORS = { bg: '#ffffff', text: '#000', stripe: '#cccccc', pole: '#aaa', cap: '#ccc' };
-const TERMINAL_ACTIVITIES = new Set(['complete', 'errored', 'lost']);
-
-function isTerminalActivity(activity) {
-  return TERMINAL_ACTIVITIES.has(activity);
-}
-
 function shortModelName(model) {
   if (!model) return '?';
   const parts = model.split(/[-_]/).filter(Boolean);
