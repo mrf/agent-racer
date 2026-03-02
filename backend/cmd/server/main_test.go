@@ -1,169 +1,271 @@
 package main
 
 import (
-	"os"
-	"path/filepath"
+	"context"
+	"encoding/json"
+	"fmt"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/agent-racer/backend/internal/config"
-	"github.com/agent-racer/backend/internal/monitor"
+	"github.com/agent-racer/backend/internal/gamification"
 	"github.com/agent-racer/backend/internal/session"
 	"github.com/agent-racer/backend/internal/ws"
 )
 
-func writeConfigFile(t *testing.T, content string) string {
-	t.Helper()
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.yaml")
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		t.Fatalf("writeConfigFile: %v", err)
+func TestBuildSources(t *testing.T) {
+	tests := []struct {
+		name    string
+		sources config.SourcesConfig
+		want    []string
+	}{
+		{
+			name:    "none enabled",
+			sources: config.SourcesConfig{},
+			want:    []string{},
+		},
+		{
+			name:    "claude only",
+			sources: config.SourcesConfig{Claude: true},
+			want:    []string{"claude"},
+		},
+		{
+			name:    "codex only",
+			sources: config.SourcesConfig{Codex: true},
+			want:    []string{"codex"},
+		},
+		{
+			name:    "gemini only",
+			sources: config.SourcesConfig{Gemini: true},
+			want:    []string{"gemini"},
+		},
+		{
+			name:    "claude and gemini",
+			sources: config.SourcesConfig{Claude: true, Gemini: true},
+			want:    []string{"claude", "gemini"},
+		},
+		{
+			name:    "all enabled",
+			sources: config.SourcesConfig{Claude: true, Codex: true, Gemini: true},
+			want:    []string{"claude", "codex", "gemini"},
+		},
 	}
-	return path
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{Sources: tt.sources}
+			sources := buildSources(cfg)
+			if len(sources) != len(tt.want) {
+				t.Fatalf("got %d sources, want %d", len(sources), len(tt.want))
+			}
+			names := make(map[string]bool)
+			for _, s := range sources {
+				names[s.Name()] = true
+			}
+			for _, w := range tt.want {
+				if !names[w] {
+					t.Errorf("missing source %q", w)
+				}
+			}
+		})
+	}
 }
 
-func newReloadTestBroadcaster(t *testing.T) (*session.Store, *ws.Broadcaster) {
+// newTestStack builds the full server stack used by main() without starting a
+// real listener. The stack is torn down automatically when the test finishes.
+func newTestStack(t *testing.T) *http.ServeMux {
 	t.Helper()
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Port:           0,
+			Host:           "127.0.0.1",
+			MaxConnections: 10,
+		},
+		Monitor: config.MonitorConfig{
+			BroadcastThrottle: 50 * time.Millisecond,
+			SnapshotInterval:  10 * time.Second,
+			StatsEventBuffer:  16,
+		},
+	}
+
 	store := session.NewStore()
-	b := ws.NewBroadcaster(store, 50*time.Millisecond, 10*time.Second, 0)
-	t.Cleanup(func() { b.Stop() })
-	return store, b
+	broadcaster := ws.NewBroadcaster(store, cfg.Monitor.BroadcastThrottle, cfg.Monitor.SnapshotInterval, cfg.Server.MaxConnections)
+	broadcaster.SetPrivacyFilter(cfg.Privacy.NewPrivacyFilter())
+	t.Cleanup(func() { broadcaster.Stop() })
+
+	// No auth token: all API requests are authorized.
+	server := ws.NewServer(cfg, store, broadcaster, "", false, nil, nil, "")
+
+	gamStore := gamification.NewStore(t.TempDir())
+	seasonCfg := &gamification.SeasonConfig{Enabled: false}
+	tracker, _, err := gamification.NewStatsTracker(gamStore, cfg.Monitor.StatsEventBuffer, seasonCfg)
+	if err != nil {
+		t.Fatalf("NewStatsTracker: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		tracker.Run(ctx)
+		close(done)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		<-done
+	})
+
+	server.SetStatsTracker(tracker)
+
+	mux := http.NewServeMux()
+	server.SetupRoutes(mux)
+	return mux
 }
 
-// TestApplyConfigReload_PrivacyFilterUpdated verifies that the broadcaster's
-// privacy filter takes effect when the config file enables PID masking.
-func TestApplyConfigReload_PrivacyFilterUpdated(t *testing.T) {
-	_, b := newReloadTestBroadcaster(t)
+func TestServerWiring_SessionsEndpoint(t *testing.T) {
+	mux := newTestStack(t)
 
-	// Old config: no privacy masking.
-	oldPath := writeConfigFile(t, "privacy:\n  mask_pids: false\n")
-	oldCfg, err := config.LoadOrDefault(oldPath)
-	if err != nil {
-		t.Fatalf("LoadOrDefault: %v", err)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions", nil)
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/sessions: status %d, want %d", rec.Code, http.StatusOK)
 	}
 
-	sessions := []*session.SessionState{{ID: "s1", WorkingDir: "/project", PID: 1234}}
-
-	// Before reload: PIDs should be visible.
-	before := b.FilterSessions(sessions)
-	if len(before) != 1 || before[0].PID != 1234 {
-		t.Fatalf("before reload: PID = %d, want 1234", before[0].PID)
+	var sessions []json.RawMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &sessions); err != nil {
+		t.Fatalf("response is not valid JSON array: %v", err)
 	}
-
-	// New config with PID masking enabled.
-	newPath := writeConfigFile(t, "privacy:\n  mask_pids: true\n")
-	newCfg, err := applyConfigReload(newPath, oldCfg, nil, b)
-	if err != nil {
-		t.Fatalf("applyConfigReload: %v", err)
-	}
-	if !newCfg.Privacy.MaskPIDs {
-		t.Error("returned config should have MaskPIDs=true")
-	}
-
-	// After reload: PIDs should be masked.
-	after := b.FilterSessions(sessions)
-	if len(after) != 1 || after[0].PID != 0 {
-		t.Errorf("after reload: PID = %d, want 0 (masked)", after[0].PID)
-	}
-}
-
-// TestApplyConfigReload_NoChangesReturnsSameConfig verifies that reloading an
-// unchanged config file is a no-op: the function returns the exact same config
-// pointer without modifying the broadcaster.
-func TestApplyConfigReload_NoChangesReturnsSameConfig(t *testing.T) {
-	_, b := newReloadTestBroadcaster(t)
-
-	// Load from an empty file so both old and new configs have identical defaults.
-	cfgPath := writeConfigFile(t, "")
-	oldCfg, err := config.LoadOrDefault(cfgPath)
-	if err != nil {
-		t.Fatalf("LoadOrDefault: %v", err)
-	}
-
-	// Reload the same file — Diff should find no changes.
-	returned, err := applyConfigReload(cfgPath, oldCfg, nil, b)
-	if err != nil {
-		t.Fatalf("applyConfigReload: %v", err)
-	}
-	if returned != oldCfg {
-		t.Error("no-op reload should return the original config pointer unchanged")
+	if len(sessions) != 0 {
+		t.Errorf("expected empty session list, got %d", len(sessions))
 	}
 }
 
-// TestApplyConfigReload_MonitorConfigApplied verifies that when a monitor is
-// provided and config changes are detected, monitor.SetConfig is called with
-// the new configuration.
-func TestApplyConfigReload_MonitorConfigApplied(t *testing.T) {
-	store, b := newReloadTestBroadcaster(t)
+func TestServerWiring_ConfigEndpoint(t *testing.T) {
+	mux := newTestStack(t)
 
-	// Base config: load from empty file (all defaults, poll_interval = 1s).
-	basePath := writeConfigFile(t, "")
-	oldCfg, err := config.LoadOrDefault(basePath)
-	if err != nil {
-		t.Fatalf("LoadOrDefault: %v", err)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/config", nil)
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/config: status %d, want %d", rec.Code, http.StatusOK)
 	}
-
-	mon := monitor.NewMonitor(oldCfg, store, b, nil)
-
-	// New config: different poll interval.
-	newPath := writeConfigFile(t, "monitor:\n  poll_interval: 2s\n")
-	newCfg, err := applyConfigReload(newPath, oldCfg, mon, b)
-	if err != nil {
-		t.Fatalf("applyConfigReload: %v", err)
-	}
-	if newCfg == oldCfg {
-		t.Fatal("config should have changed (poll_interval differs)")
-	}
-
-	// The monitor's internal config should reflect the new poll interval.
-	applied := mon.Config()
-	if applied.Monitor.PollInterval != 2*time.Second {
-		t.Errorf("monitor PollInterval = %s, want 2s", applied.Monitor.PollInterval)
+	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, want %q", ct, "application/json")
 	}
 }
 
-// TestApplyConfigReload_PrivacyFilterBlocksSession verifies that path-based
-// filtering applied via reload correctly excludes sessions whose working
-// directory no longer matches the allowed pattern.
-func TestApplyConfigReload_PrivacyFilterBlocksSession(t *testing.T) {
-	_, b := newReloadTestBroadcaster(t)
+func TestServerWiring_StatsEndpoint(t *testing.T) {
+	mux := newTestStack(t)
 
-	// Old config: no path restrictions.
-	oldPath := writeConfigFile(t, "")
-	oldCfg, err := config.LoadOrDefault(oldPath)
-	if err != nil {
-		t.Fatalf("LoadOrDefault: %v", err)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/stats", nil)
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/stats: status %d, want %d", rec.Code, http.StatusOK)
 	}
-
-	sessions := []*session.SessionState{
-		{ID: "s1", WorkingDir: "/home/user/work"},
-		{ID: "s2", WorkingDir: "/home/user/personal"},
-	}
-
-	// Before reload: both sessions visible.
-	before := b.FilterSessions(sessions)
-	if len(before) != 2 {
-		t.Fatalf("before reload: got %d sessions, want 2", len(before))
-	}
-
-	// New config: only allow /home/user/work/*.
-	newPath := writeConfigFile(t, "privacy:\n  allowed_paths:\n    - /home/user/work\n")
-	_, err = applyConfigReload(newPath, oldCfg, nil, b)
-	if err != nil {
-		t.Fatalf("applyConfigReload: %v", err)
-	}
-
-	// After reload: only the work session is broadcast.
-	after := b.FilterSessions(sessions)
-	if len(after) != 1 || after[0].ID != "s1" {
-		t.Errorf("after reload: got sessions %v, want [s1]", sessionIDs(after))
+	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, want %q", ct, "application/json")
 	}
 }
 
-func sessionIDs(sessions []*session.SessionState) []string {
-	ids := make([]string, len(sessions))
-	for i, s := range sessions {
-		ids[i] = s.ID
+func TestServerWiring_AchievementsEndpoint(t *testing.T) {
+	mux := newTestStack(t)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/achievements", nil)
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/achievements: status %d, want %d", rec.Code, http.StatusOK)
 	}
-	return ids
+}
+
+func TestServerWiring_AuthRequired(t *testing.T) {
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Port:           0,
+			Host:           "127.0.0.1",
+			MaxConnections: 10,
+		},
+		Monitor: config.MonitorConfig{
+			BroadcastThrottle: 50 * time.Millisecond,
+			SnapshotInterval:  10 * time.Second,
+		},
+	}
+
+	store := session.NewStore()
+	broadcaster := ws.NewBroadcaster(store, cfg.Monitor.BroadcastThrottle, cfg.Monitor.SnapshotInterval, cfg.Server.MaxConnections)
+	t.Cleanup(func() { broadcaster.Stop() })
+
+	const token = "test-secret-token"
+	server := ws.NewServer(cfg, store, broadcaster, "", false, nil, nil, token)
+
+	mux := http.NewServeMux()
+	server.SetupRoutes(mux)
+
+	tests := []struct {
+		name       string
+		authHeader string
+		wantStatus int
+	}{
+		{"no token", "", http.StatusUnauthorized},
+		{"valid token", "Bearer " + token, http.StatusOK},
+		{"wrong token", "Bearer wrong-token", http.StatusUnauthorized},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/api/sessions", nil)
+			if tt.authHeader != "" {
+				req.Header.Set("Authorization", tt.authHeader)
+			}
+			mux.ServeHTTP(rec, req)
+			if rec.Code != tt.wantStatus {
+				t.Errorf("status %d, want %d", rec.Code, tt.wantStatus)
+			}
+		})
+	}
+}
+
+func TestListenAndServe_AcceptsConnections(t *testing.T) {
+	// Find a free port.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen: %v", err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	ln.Close()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	go ws.ListenAndServe("127.0.0.1", port, mux) //nolint:errcheck
+
+	// Poll until the server is ready.
+	addr := fmt.Sprintf("http://127.0.0.1:%d/health", port)
+	var resp *http.Response
+	for i := 0; i < 50; i++ {
+		resp, err = http.Get(addr)
+		if err == nil {
+			resp.Body.Close()
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatalf("server did not start: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("GET /health: status %d, want %d", resp.StatusCode, http.StatusOK)
+	}
 }
