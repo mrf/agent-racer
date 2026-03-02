@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/agent-racer/backend/internal/session"
@@ -110,5 +111,51 @@ func TestBroadcast_SubsequentBroadcastsSkipEvictedClient(t *testing.T) {
 	// Subsequent broadcasts must not panic (sending to a closed channel panics).
 	for i := 0; i < 5; i++ {
 		b.broadcast(WSMessage{Type: MsgDelta})
+	}
+}
+
+// TestBroadcast_ConcurrentBroadcastEviction fires many concurrent broadcasts
+// at a client with a full send buffer. Before the fix, two goroutines could
+// both see the full buffer, both call RemoveClient, and the second would
+// panic sending on an already-closed channel.
+func TestBroadcast_ConcurrentBroadcastEviction(t *testing.T) {
+	b := newTestBroadcaster(session.NewStore(), nil)
+
+	slow := makeClient(b)
+	fillSendBuffer(slow)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			b.broadcast(WSMessage{Type: MsgDelta})
+		}()
+	}
+	wg.Wait()
+
+	if got := b.ClientCount(); got != 0 {
+		t.Fatalf("expected 0 clients after concurrent eviction, got %d", got)
+	}
+}
+
+// TestBroadcast_ConcurrentRemoveClient calls RemoveClient from many
+// goroutines simultaneously to verify the mutex guard prevents double-close.
+func TestBroadcast_ConcurrentRemoveClient(t *testing.T) {
+	b := newTestBroadcaster(session.NewStore(), nil)
+	c := makeClient(b)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			b.RemoveClient(c)
+		}()
+	}
+	wg.Wait()
+
+	if got := b.ClientCount(); got != 0 {
+		t.Fatalf("expected 0 clients after concurrent removal, got %d", got)
 	}
 }
