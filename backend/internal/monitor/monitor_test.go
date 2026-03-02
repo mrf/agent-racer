@@ -104,6 +104,11 @@ func TestNameFromPath(t *testing.T) {
 		{"", "unknown"},
 		{"/", "unknown"},
 		{"/single", "single"},
+		// Worktree paths should use the slug
+		{"/home/user/Projects/repo/.claude/worktrees/fix-login-bug", "fix-login-bug"},
+		{"/home/user/Projects/repo/.claude/worktrees/my-feature/subdir", "my-feature"},
+		// Non-worktree .claude paths should not match
+		{"/home/user/.claude/projects/repo", "repo"},
 	}
 
 	for _, tt := range tests {
