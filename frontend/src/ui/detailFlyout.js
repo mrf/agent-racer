@@ -47,7 +47,7 @@ function renderDetailContent(state) {
     </div>
     <div class="detail-row">
       <span class="label">Tmux</span>
-      <span class="value">${state.tmuxTarget ? esc(state.tmuxTarget) : 'not in tmux'}</span>
+      <span class="value">${state.tmuxTarget ? `${esc(state.tmuxTarget)} <span class="tmux-hint">(click car to jump)</span>` : 'not in tmux'}</span>
     </div>
     ${state.slug ? `<div class="detail-row">
       <span class="label">Session Name</span>
