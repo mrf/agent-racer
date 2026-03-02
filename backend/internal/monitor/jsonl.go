@@ -57,6 +57,7 @@ type contentBlock struct {
 	Name      string `json:"name,omitempty"`
 	ID        string `json:"id,omitempty"`          // tool_use block ID
 	ToolUseID string `json:"tool_use_id,omitempty"` // tool_result references the tool_use
+	Text      string `json:"text,omitempty"`        // text content block
 }
 
 // progressEntry is the top-level structure for type:"progress" JSONL entries
@@ -106,19 +107,24 @@ type SubagentParseResult struct {
 	Completed       bool
 }
 
+// maxLastTextLen caps the text stored in LastAssistantText to avoid
+// bloating session state with large message bodies.
+const maxLastTextLen = 500
+
 type ParseResult struct {
-	SessionID       string
-	Slug            string // Internal session name (e.g. "mighty-cuddling-castle")
-	Model           string
-	LatestUsage     *TokenUsage
-	MessageCount    int
-	ToolCalls       int
-	LastTool        string
-	LastActivity    string
-	LastTime        time.Time
-	WorkingDir      string
-	Subagents       map[string]*SubagentParseResult // keyed by toolUseID
-	CompactionCount int                             // number of compact_boundary events in this chunk
+	SessionID         string
+	Slug              string // Internal session name (e.g. "mighty-cuddling-castle")
+	Model             string
+	LatestUsage       *TokenUsage
+	MessageCount      int
+	ToolCalls         int
+	LastTool          string
+	LastActivity      string
+	LastTime          time.Time
+	WorkingDir        string
+	Subagents         map[string]*SubagentParseResult // keyed by toolUseID
+	CompactionCount   int                             // number of compact_boundary events in this chunk
+	LastAssistantText string                          // last text content block from an assistant message
 }
 
 func FindSessionFile(workingDir string) (string, error) {
@@ -311,17 +317,26 @@ func parseAssistantMessage(raw json.RawMessage, result *ParseResult) {
 		result.LatestUsage = msg.Usage
 	}
 
-	// Parse content blocks for tool use
+	// Parse content blocks for tool use and text content.
 	var blocks []contentBlock
 	if err := json.Unmarshal(msg.Content, &blocks); err != nil {
 		return
 	}
 
 	for _, block := range blocks {
-		if block.Type == "tool_use" {
+		switch block.Type {
+		case "tool_use":
 			result.ToolCalls++
 			result.LastTool = block.Name
 			result.LastActivity = "tool_use"
+		case "text":
+			if block.Text != "" {
+				t := block.Text
+				if len(t) > maxLastTextLen {
+					t = t[:maxLastTextLen]
+				}
+				result.LastAssistantText = t
+			}
 		}
 	}
 }

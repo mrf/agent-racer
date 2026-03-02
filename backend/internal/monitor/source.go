@@ -151,6 +151,11 @@ type SourceUpdate struct {
 	// found in this chunk. This is a delta to be added to the
 	// cumulative count.
 	CompactionCount int
+
+	// LastAssistantText is the most recent text block emitted by the
+	// assistant in this chunk, truncated to a display-safe length.
+	// Empty means no text content was found.
+	LastAssistantText string
 }
 
 // HasData reports whether this update contains any meaningful data
@@ -169,5 +174,6 @@ func (u SourceUpdate) HasData() bool {
 		u.Branch != "" ||
 		u.MaxContextTokens > 0 ||
 		len(u.Subagents) > 0 ||
-		u.CompactionCount > 0
+		u.CompactionCount > 0 ||
+		u.LastAssistantText != ""
 }

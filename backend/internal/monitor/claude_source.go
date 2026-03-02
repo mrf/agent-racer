@@ -90,17 +90,18 @@ func (c *ClaudeSource) Parse(handle SessionHandle, offset int64) (SourceUpdate, 
 	}
 
 	update := SourceUpdate{
-		SessionID:       result.SessionID,
-		Slug:            result.Slug,
-		Model:           result.Model,
-		MessageCount:    result.MessageCount,
-		ToolCalls:       result.ToolCalls,
-		LastTool:        result.LastTool,
-		Activity:        result.LastActivity,
-		LastTime:        result.LastTime,
-		WorkingDir:      result.WorkingDir,
-		Subagents:       result.Subagents,
-		CompactionCount: result.CompactionCount,
+		SessionID:         result.SessionID,
+		Slug:              result.Slug,
+		Model:             result.Model,
+		MessageCount:      result.MessageCount,
+		ToolCalls:         result.ToolCalls,
+		LastTool:          result.LastTool,
+		Activity:          result.LastActivity,
+		LastTime:          result.LastTime,
+		WorkingDir:        result.WorkingDir,
+		Subagents:         result.Subagents,
+		CompactionCount:   result.CompactionCount,
+		LastAssistantText: result.LastAssistantText,
 	}
 
 	if result.LatestUsage != nil {
