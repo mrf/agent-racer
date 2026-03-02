@@ -11,6 +11,7 @@ import { authFetch, getAuthToken } from './auth.js';
 import { createFlyout } from './ui/detailFlyout.js';
 import { createSessionTracker } from './ui/sessionTracker.js';
 import { initAmbientAudio } from './ui/ambientAudio.js';
+import { ShortcutBar } from './ui/ShortcutBar.js';
 
 const debugPanel = document.getElementById('debug-panel');
 const debugLog = document.getElementById('debug-log');
@@ -38,6 +39,7 @@ const battlePassBar = new BattlePassBar(document.getElementById('battlepass-bar'
 
 const flyout = createFlyout({ detailFlyout, flyoutContent, canvas });
 const tracker = createSessionTracker(engine);
+const shortcutBar = new ShortcutBar(document.getElementById('shortcut-bar'));
 
 initAmbientAudio(engine);
 
@@ -228,6 +230,14 @@ debugClose.addEventListener('click', () => {
   debugVisible = false;
 });
 
+function updateShortcutHighlights() {
+  shortcutBar.setActive('achievements', achievementPanel.isVisible);
+  shortcutBar.setActive('garage', rewardSelector.isVisible);
+  shortcutBar.setActive('debug', debugVisible);
+  shortcutBar.setActive('mute', muted);
+  shortcutBar.setActive('fullscreen', !!document.fullscreenElement);
+}
+
 document.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
@@ -265,7 +275,10 @@ document.addEventListener('keydown', (e) => {
       }
       break;
   }
+  updateShortcutHighlights();
 });
+
+document.addEventListener('fullscreenchange', () => updateShortcutHighlights());
 
 const conn = new RaceConnection({
   onSnapshot: handleSnapshot,
