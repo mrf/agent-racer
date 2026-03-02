@@ -200,12 +200,14 @@ func (s *Store) Save(st *Stats) error {
 
 // newStats returns a Stats with initialized maps and the current version.
 func newStats() *Stats {
-	return &Stats{
+	st := &Stats{
 		Version:              statsVersion,
 		SessionsPerSource:    make(map[string]int),
 		SessionsPerModel:     make(map[string]int),
 		AchievementsUnlocked: make(map[string]time.Time),
 	}
+	initWeeklyChallengeState(&st.WeeklyChallenges)
+	return st
 }
 
 // initMaps ensures all map fields are non-nil after deserialization.
