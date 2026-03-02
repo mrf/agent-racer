@@ -79,6 +79,11 @@ func NewStatsTracker(persist *Store, bufferSize int, sc *SeasonConfig) (*StatsTr
 		}
 	}
 
+	// Ensure WeekStart is set before any events arrive. Without this, a zero
+	// WeekStart causes the first EventTerminal to trigger a false rotation,
+	// wiping snapshot data accumulated from prior EventNew/EventUpdate events.
+	RotateChallengesIfNeeded(&stats.WeeklyChallenges, time.Now())
+
 	ch := make(chan session.Event, bufferSize)
 	t := &StatsTracker{
 		persist:           persist,
