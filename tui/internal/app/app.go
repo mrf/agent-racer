@@ -340,6 +340,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.debugLog.Add("nav", "resync requested")
 		return m, nil
 
+	case key.Matches(msg, m.keys.Expand):
+		m.trackView.ToggleExpand()
+		return m, nil
+
 	case key.Matches(msg, m.keys.Enter):
 		if s := m.trackView.SelectedSession(); s != nil {
 			m.detailView = detail.New(s)
@@ -438,7 +442,7 @@ func (m Model) renderHelp() string {
 	if m.width < breakpointNarrow {
 		return theme.StyleDimmed.Render("  j/k:nav  tab:zone  d:debug  r:resync  q:quit")
 	}
-	return theme.StyleDimmed.Render("  j/k:navigate  tab:zone  1-3:jump  enter:detail  f:focus  a:achievements  g:garage  b:battlepass  d:debug  r:resync  q:quit")
+	return theme.StyleDimmed.Render("  j/k:navigate  tab:zone  1-3:jump  →:expand  enter:detail  f:focus  a:achievements  g:garage  b:battlepass  d:debug  r:resync  q:quit")
 }
 
 // refreshTrack rebuilds the track view, dashboard, and updates status bar counts.

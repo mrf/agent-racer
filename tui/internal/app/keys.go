@@ -7,6 +7,7 @@ type KeyMap struct {
 	Up           key.Binding
 	Down         key.Binding
 	Enter        key.Binding
+	Expand       key.Binding
 	Tab          key.Binding
 	Zone1        key.Binding
 	Zone2        key.Binding
@@ -35,6 +36,10 @@ func DefaultKeyMap() KeyMap {
 		Enter: key.NewBinding(
 			key.WithKeys("enter"),
 			key.WithHelp("enter", "detail / focus"),
+		),
+		Expand: key.NewBinding(
+			key.WithKeys("right"),
+			key.WithHelp("→", "expand/collapse subagents"),
 		),
 		Tab: key.NewBinding(
 			key.WithKeys("tab"),

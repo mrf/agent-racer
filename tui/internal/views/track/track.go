@@ -26,11 +26,15 @@ type Model struct {
 	// Layout dimensions.
 	Width  int
 	Height int
+
+	// expanded tracks which session IDs have their subagent tree expanded.
+	// Sessions default to collapsed (not in this map or mapped to false).
+	expanded map[string]bool
 }
 
 // New creates a track model.
 func New() Model {
-	return Model{}
+	return Model{expanded: make(map[string]bool)}
 }
 
 // SetSessions updates the session list and rebuilds zone groupings.
@@ -94,6 +98,16 @@ func (m *Model) MoveUp() {
 	}
 }
 
+// ToggleExpand toggles the subagent tree for the currently selected session.
+// Has no effect if the selected session has no subagents.
+func (m *Model) ToggleExpand() {
+	s := m.SelectedSession()
+	if s == nil || len(s.Subagents) == 0 {
+		return
+	}
+	m.expanded[s.ID] = !m.expanded[s.ID]
+}
+
 // CycleZone advances to the next zone.
 func (m *Model) CycleZone() {
 	m.ActiveZone = (m.ActiveZone + 1) % 3
@@ -140,11 +154,9 @@ func (m Model) View() string {
 	}
 	for i, s := range m.racing {
 		selected := m.ActiveZone == ZoneRacing && i == m.SelectedIdx
-		sections = append(sections, renderRacingLine(i, s, selected, width))
-		for _, sub := range s.Subagents {
-			sub := sub
-			sections = append(sections, renderSubagentLine(&sub))
-		}
+		expanded := m.expanded[s.ID]
+		sections = append(sections, renderRacingLine(i, s, selected, width, len(s.Subagents), expanded))
+		sections = appendSubagentLines(sections, s, expanded)
 	}
 
 	// Pit zone header.
@@ -156,11 +168,9 @@ func (m Model) View() string {
 	}
 	for i, s := range m.pit {
 		selected := m.ActiveZone == ZonePit && i == m.SelectedIdx
-		sections = append(sections, renderPitLine(i, s, selected))
-		for _, sub := range s.Subagents {
-			sub := sub
-			sections = append(sections, renderSubagentLine(&sub))
-		}
+		expanded := m.expanded[s.ID]
+		sections = append(sections, renderPitLine(i, s, selected, len(s.Subagents), expanded))
+		sections = appendSubagentLines(sections, s, expanded)
 	}
 
 	// Parked zone header.
@@ -176,6 +186,18 @@ func (m Model) View() string {
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, sections...)
+}
+
+// appendSubagentLines appends rendered subagent tree lines when expanded.
+func appendSubagentLines(sections []string, s *client.SessionState, expanded bool) []string {
+	if !expanded {
+		return sections
+	}
+	for i := 0; i < len(s.Subagents); i++ {
+		sub := s.Subagents[i]
+		sections = append(sections, renderSubagentLine(&sub, i == len(s.Subagents)-1))
+	}
+	return sections
 }
 
 func (m Model) activeZoneCount() int {
