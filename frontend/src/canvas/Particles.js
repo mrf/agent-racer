@@ -326,6 +326,42 @@ export class ParticleSystem {
           gravity: 0,
         };
 
+      // ── Damage presets ──────────────────
+      case 'steam':
+        return {
+          ...base,
+          vx: (Math.random() - 0.5) * 1.5,
+          vy: -1.0 - Math.random() * 1.5,
+          size: 5 + Math.random() * 5,
+          color: { r: 200, g: 210, b: 220 },
+          colorEnd: { r: 160, g: 170, b: 185 },
+          decay: 0.015 + Math.random() * 0.008,
+          sizeMultiplier: 'bloom',
+        };
+      case 'damageSmoke':
+        return {
+          ...base,
+          vx: (Math.random() - 0.5) * 1.0,
+          vy: -0.4 - Math.random() * 0.8,
+          size: 4 + Math.random() * 5,
+          color: { r: 50, g: 45, b: 40 },
+          colorEnd: { r: 30, g: 28, b: 25 },
+          decay: 0.01 + Math.random() * 0.006,
+          sizeMultiplier: 'bloom',
+        };
+      case 'damageSparks':
+        return {
+          ...base,
+          vx: -1 + Math.random() * 3,
+          vy: -1.5 + Math.random() * 2,
+          size: 1 + Math.random() * 1.5,
+          color: { r: 255, g: 200, b: 50 },
+          colorEnd: { r: 255, g: 100, b: 20 },
+          decay: 0.06 + Math.random() * 0.03,
+          gravity: 0.06,
+          layer: 'front',
+        };
+
       default:
         return base;
     }
