@@ -70,6 +70,7 @@ export class AchievementPanel {
     this._tooltip = this._overlay.querySelector('.ap-tooltip');
     this._visible = false;
     this._achievements = [];
+    this._dirty = true; // force fetch on first open
 
     this._overlay.querySelector('.ap-close').addEventListener('click', () => this.hide());
     // Click on backdrop (outside ap-inner) closes panel
@@ -81,14 +82,23 @@ export class AchievementPanel {
   }
 
   async hydrate() {
+    if (!this._dirty) {
+      this._render();
+      return;
+    }
     try {
       const resp = await authFetch('/api/achievements');
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       this._achievements = await resp.json();
+      this._dirty = false;
       this._render();
     } catch (err) {
       this._body.innerHTML = `<p class="ap-error-message">Failed to load achievements: ${escapeHTML(err.message)}</p>`;
     }
+  }
+
+  markDirty() {
+    this._dirty = true;
   }
 
   show() {
