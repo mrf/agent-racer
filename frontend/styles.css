@@ -70,7 +70,7 @@ header {
 
 #race-container {
   width: 100vw;
-  height: calc(100vh - 48px - 32px); /* header + battle pass bar */
+  height: calc(100vh - 48px - 32px - 28px); /* header + battle pass bar + shortcut bar */
   position: relative;
   overflow-y: auto;
   overflow-x: hidden;
@@ -936,4 +936,54 @@ header {
 .ap-empty-message {
   color: #666;
   font-size: 12px;
+}
+
+/* Shortcut bar */
+#shortcut-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 28px;
+  background: #16213e;
+  border-top: 1px solid #0f3460;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 0 12px;
+  z-index: 15;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  color: #6b7280;
+  user-select: none;
+}
+
+.shortcut-item {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.shortcut-key {
+  color: #888;
+  font-weight: bold;
+}
+
+.shortcut-sep {
+  color: #555;
+  margin: 0 1px;
+}
+
+.shortcut-label {
+  color: #6b7280;
+}
+
+.shortcut-item.active .shortcut-key,
+.shortcut-item.active .shortcut-sep {
+  color: #e94560;
+}
+
+.shortcut-item.active .shortcut-label {
+  color: #e0e0e0;
 }
