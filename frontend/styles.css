@@ -1118,3 +1118,17 @@ header {
 .help-shortcuts td:last-child {
   color: #aaa;
 }
+
+/* Mini-map radar overlay */
+.minimap-canvas {
+  position: fixed;
+  bottom: 36px;
+  right: 16px;
+  width: 200px;
+  height: 72px;
+  border-radius: 6px;
+  z-index: 50;
+  cursor: pointer;
+  transform-origin: bottom right;
+  transition: transform 0.15s ease;
+}
