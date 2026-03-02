@@ -802,4 +802,270 @@ describe('SoundEngine', () => {
       expect(engine.recentEvents).toHaveLength(3);
     });
   });
+
+  describe('rapid mute toggle state consistency', () => {
+    beforeEach(() => {
+      engine._ensureCtx();
+    });
+
+    it('ends muted after odd number of toggles from unmuted', () => {
+      engine.setMuted(true);
+      engine.setMuted(false);
+      engine.setMuted(true);
+      expect(engine.muted).toBe(true);
+      expect(engine.masterGain.gain.value).toBe(0);
+    });
+
+    it('ends unmuted after even number of toggles from unmuted', () => {
+      engine.setMuted(true);
+      engine.setMuted(false);
+      expect(engine.muted).toBe(false);
+      expect(engine.masterGain.gain.value).toBe(1);
+    });
+
+    it('masterGain tracks muted state correctly through 10 rapid toggles', () => {
+      for (let i = 0; i < 10; i++) {
+        engine.setMuted(true);
+        expect(engine.masterGain.gain.value).toBe(0);
+        engine.setMuted(false);
+        expect(engine.masterGain.gain.value).toBe(1);
+      }
+      expect(engine.muted).toBe(false);
+    });
+
+    it('setMuted(true) twice is idempotent', () => {
+      engine.startEngine('r1', 'thinking');
+      engine.setMuted(true);
+      engine.setMuted(true);
+      expect(engine.muted).toBe(true);
+      expect(engine.masterGain.gain.value).toBe(0);
+    });
+
+    it('setMuted(false) when already unmuted is idempotent', () => {
+      engine.setMuted(false);
+      expect(engine.muted).toBe(false);
+      expect(engine.masterGain.gain.value).toBe(1);
+    });
+
+    it('engine restartable after rapid mute then unmute', () => {
+      engine.startEngine('r1', 'thinking');
+
+      engine.setMuted(true);   // triggers stopEngine (grace period starts)
+      engine.setMuted(false);  // unmuted
+
+      // Restart engine — should cancel the pending stop
+      engine.startEngine('r1', 'thinking');
+      expect(engine.engineStopTimeouts.has('r1')).toBe(false);
+      expect(engine.engineNodes.has('r1')).toBe(true);
+
+      // Past when the original grace period would have expired
+      vi.advanceTimersByTime(2000);
+      expect(engine.engineNodes.has('r1')).toBe(true);
+    });
+
+    it('setMuted works before AudioContext is initialized', () => {
+      const freshEngine = new SoundEngine();
+      expect(() => freshEngine.setMuted(true)).not.toThrow();
+      expect(freshEngine.muted).toBe(true);
+      expect(() => freshEngine.setMuted(false)).not.toThrow();
+      expect(freshEngine.muted).toBe(false);
+    });
+  });
+
+  describe('volume setters', () => {
+    beforeEach(() => {
+      engine._ensureCtx();
+    });
+
+    it('setMasterVolume sets gain value when unmuted', () => {
+      engine.setMasterVolume(0.5);
+      expect(engine.masterGain.gain.value).toBe(0.5);
+    });
+
+    it('setMasterVolume clamps negative values to 0', () => {
+      engine.setMasterVolume(-0.5);
+      expect(engine.masterGain.gain.value).toBe(0);
+    });
+
+    it('setMasterVolume clamps values above 1 to 1', () => {
+      engine.setMasterVolume(1.5);
+      expect(engine.masterGain.gain.value).toBe(1);
+    });
+
+    it('setMasterVolume does not change gain when muted', () => {
+      engine.setMuted(true);
+      engine.setMasterVolume(0.7);
+      expect(engine.masterGain.gain.value).toBe(0);
+    });
+
+    it('setAmbientVolume sets ambient bus gain', () => {
+      engine.setAmbientVolume(0.3);
+      expect(engine.ambientBus.gain.value).toBe(0.3);
+    });
+
+    it('setAmbientVolume clamps negative values to 0', () => {
+      engine.setAmbientVolume(-1);
+      expect(engine.ambientBus.gain.value).toBe(0);
+    });
+
+    it('setAmbientVolume clamps values above 1 to 1', () => {
+      engine.setAmbientVolume(2);
+      expect(engine.ambientBus.gain.value).toBe(1);
+    });
+
+    it('setSfxVolume sets sfx bus gain', () => {
+      engine.setSfxVolume(0.6);
+      expect(engine.sfxBus.gain.value).toBe(0.6);
+    });
+
+    it('setSfxVolume clamps negative values to 0', () => {
+      engine.setSfxVolume(-0.1);
+      expect(engine.sfxBus.gain.value).toBe(0);
+    });
+
+    it('setSfxVolume clamps values above 1 to 1', () => {
+      engine.setSfxVolume(5);
+      expect(engine.sfxBus.gain.value).toBe(1);
+    });
+
+    it('volume setters do not throw when ctx is not initialized', () => {
+      const freshEngine = new SoundEngine();
+      expect(() => freshEngine.setMasterVolume(0.5)).not.toThrow();
+      expect(() => freshEngine.setAmbientVolume(0.5)).not.toThrow();
+      expect(() => freshEngine.setSfxVolume(0.5)).not.toThrow();
+    });
+  });
+
+  describe('applyConfig volume and ambient', () => {
+    beforeEach(() => {
+      engine._ensureCtx();
+    });
+
+    it('does nothing when config is null', () => {
+      expect(() => engine.applyConfig(null)).not.toThrow();
+      expect(engine.muted).toBe(false);
+    });
+
+    it('applies master_volume', () => {
+      engine.applyConfig({ master_volume: 0.7 });
+      expect(engine.masterGain.gain.value).toBe(0.7);
+    });
+
+    it('applies ambient_volume', () => {
+      engine.applyConfig({ ambient_volume: 0.4 });
+      expect(engine.ambientBus.gain.value).toBe(0.4);
+    });
+
+    it('applies sfx_volume', () => {
+      engine.applyConfig({ sfx_volume: 0.8 });
+      expect(engine.sfxBus.gain.value).toBe(0.8);
+    });
+
+    it('applies all volume fields in one config', () => {
+      engine.applyConfig({ master_volume: 0.6, ambient_volume: 0.4, sfx_volume: 0.5 });
+      expect(engine.masterGain.gain.value).toBe(0.6);
+      expect(engine.ambientBus.gain.value).toBe(0.4);
+      expect(engine.sfxBus.gain.value).toBe(0.5);
+    });
+
+    it('enabled=false takes precedence over master_volume', () => {
+      engine.applyConfig({ enabled: false, master_volume: 0.8 });
+      expect(engine.muted).toBe(true);
+      expect(engine.masterGain.gain.value).toBe(0);
+    });
+
+    it('applyConfig with no enabled field preserves existing mute state', () => {
+      engine.setMuted(true);
+      engine.applyConfig({ master_volume: 0.5 });
+      expect(engine.muted).toBe(true);
+      expect(engine.masterGain.gain.value).toBe(0);
+    });
+
+    it('stops ambient when enable_ambient is false and ambient is running', () => {
+      engine.startAmbient();
+      expect(engine.ambientRunning).toBe(true);
+      engine.applyConfig({ enable_ambient: false });
+      expect(engine.ambientRunning).toBe(false);
+    });
+
+    it('does not throw when enable_ambient is false and ambient is already stopped', () => {
+      expect(engine.ambientRunning).toBe(false);
+      expect(() => engine.applyConfig({ enable_ambient: false })).not.toThrow();
+      expect(engine.ambientRunning).toBe(false);
+    });
+  });
+
+  describe('SFX playback creates audio nodes', () => {
+    beforeEach(() => {
+      engine._ensureCtx();
+    });
+
+    it('playGearShift creates one oscillator', () => {
+      const oscBefore = mockCtx.createOscillator.mock.calls.length;
+      engine.playGearShift();
+      expect(mockCtx.createOscillator.mock.calls.length).toBe(oscBefore + 1);
+    });
+
+    it('playToolClick creates one oscillator', () => {
+      const oscBefore = mockCtx.createOscillator.mock.calls.length;
+      engine.playToolClick();
+      expect(mockCtx.createOscillator.mock.calls.length).toBe(oscBefore + 1);
+    });
+
+    it('playCrash creates oscillators and a buffer source', () => {
+      const oscBefore = mockCtx.createOscillator.mock.calls.length;
+      const srcBefore = mockCtx.createBufferSource.mock.calls.length;
+      engine.playCrash();
+      expect(mockCtx.createOscillator.mock.calls.length).toBeGreaterThan(oscBefore);
+      expect(mockCtx.createBufferSource.mock.calls.length).toBeGreaterThan(srcBefore);
+    });
+
+    it('playVictory creates 9 oscillators (3 chords × 3 notes)', () => {
+      const oscBefore = mockCtx.createOscillator.mock.calls.length;
+      engine.playVictory();
+      expect(mockCtx.createOscillator.mock.calls.length).toBe(oscBefore + 9);
+    });
+
+    it('playUnlockChime creates 6 oscillators (2 chords × 3 notes)', () => {
+      const oscBefore = mockCtx.createOscillator.mock.calls.length;
+      engine.playUnlockChime();
+      expect(mockCtx.createOscillator.mock.calls.length).toBe(oscBefore + 6);
+    });
+
+    it('playUnlockChime gold tier uses higher pitch than bronze tier', () => {
+      const startBronze = mockCtx.createOscillator.mock.calls.length;
+      engine.playUnlockChime('bronze');
+      const bronzeFirstOsc = mockCtx.createOscillator.mock.results[startBronze].value;
+
+      const startGold = mockCtx.createOscillator.mock.calls.length;
+      engine.playUnlockChime('gold');
+      const goldFirstOsc = mockCtx.createOscillator.mock.results[startGold].value;
+
+      expect(goldFirstOsc.frequency.value).toBeGreaterThan(bronzeFirstOsc.frequency.value);
+    });
+
+    it('playUnlockChime platinum tier uses higher pitch than silver tier', () => {
+      const startSilver = mockCtx.createOscillator.mock.calls.length;
+      engine.playUnlockChime('silver');
+      const silverFirstOsc = mockCtx.createOscillator.mock.results[startSilver].value;
+
+      const startPlatinum = mockCtx.createOscillator.mock.calls.length;
+      engine.playUnlockChime('platinum');
+      const platinumFirstOsc = mockCtx.createOscillator.mock.results[startPlatinum].value;
+
+      expect(platinumFirstOsc.frequency.value).toBeGreaterThan(silverFirstOsc.frequency.value);
+    });
+
+    it('playAppear creates a buffer source', () => {
+      const srcBefore = mockCtx.createBufferSource.mock.calls.length;
+      engine.playAppear();
+      expect(mockCtx.createBufferSource.mock.calls.length).toBeGreaterThan(srcBefore);
+    });
+
+    it('playDisappear creates a buffer source', () => {
+      const srcBefore = mockCtx.createBufferSource.mock.calls.length;
+      engine.playDisappear();
+      expect(mockCtx.createBufferSource.mock.calls.length).toBeGreaterThan(srcBefore);
+    });
+  });
 });
