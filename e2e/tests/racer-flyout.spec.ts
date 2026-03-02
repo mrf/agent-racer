@@ -95,7 +95,9 @@ test.describe('Racer detail flyout', () => {
     const flyout = page.locator('#detail-flyout');
     await expect(flyout).toBeVisible();
 
-    await page.locator('#flyout-close').click();
+    // The flyout follows the racer via lerp animation every frame, so
+    // the close button is never positionally "stable" for Playwright.
+    await page.locator('#flyout-close').click({ force: true });
     await expect(flyout).toBeHidden();
   });
 

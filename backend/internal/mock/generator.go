@@ -108,7 +108,7 @@ func (g *MockGenerator) Start(ctx context.Context) {
 				MaxContextTokens: 200000, StartedAt: now, LastActivityAt: now,
 				Activity: session.Starting, TmuxTarget: "dev:2.0",
 			},
-			tokensPerTick: 800, pattern: "stall", maxTokens: 120000,
+			tokensPerTick: 800, pattern: "stall", maxTokens: 10_000_000,
 			tools: []string{"Read", "Grep", "Grep", "Read", "Bash", "LSP"},
 		},
 		{
