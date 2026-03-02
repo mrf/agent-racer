@@ -122,7 +122,8 @@ func sparkline(samples []float64) string {
 
 // linePrefix writes the common prefix shared by all session lines:
 // selection cursor, number, separator, styled glyph, badge, and padded name.
-func linePrefix(b *strings.Builder, idx int, activity client.Activity, source, model, name string, selected bool) {
+// indicator is an optional pre-rendered suffix (e.g. dimmed "[+2]") appended after the name padding.
+func linePrefix(b *strings.Builder, idx int, activity client.Activity, source, model, name string, selected bool, indicator string) {
 	if selected {
 		b.WriteString(lipgloss.NewStyle().Foreground(theme.ColorBright).Bold(true).Render("> "))
 	} else {
@@ -147,12 +148,22 @@ func linePrefix(b *strings.Builder, idx int, activity client.Activity, source, m
 	if len(name) < nameWidth {
 		b.WriteString(strings.Repeat(" ", nameWidth-len(name)))
 	}
+	if indicator != "" {
+		b.WriteString(indicator)
+	}
 }
 
-// renderRacingLine renders a session on the racing track with a progress bar
-// and inline sparkline showing burn rate history.
-func renderRacingLine(idx int, s *client.SessionState, selected bool, width int, burnHist []float64) string {
+// renderRacingLine renders a session on the racing track with a progress bar,
+// inline sparkline, and optional collapse indicator for subagents.
+func renderRacingLine(idx int, s *client.SessionState, selected bool, width int, burnHist []float64, subCount int, expanded bool) string {
 	name := displayName(s, nameWidth)
+
+	// Build the collapse indicator for sessions with hidden subagents.
+	var indicatorRaw, indicator string
+	if subCount > 0 && !expanded {
+		indicatorRaw = fmt.Sprintf(" [+%d]", subCount)
+		indicator = theme.StyleDimmed.Render(indicatorRaw)
+	}
 
 	pctStr := fmt.Sprintf("%3d%%", int(s.ContextUtilization*100))
 	tokens := formatTokens(s.TokensUsed)
@@ -160,18 +171,16 @@ func renderRacingLine(idx int, s *client.SessionState, selected bool, width int,
 	burnStr := fmt.Sprintf("%4.1f", s.BurnRatePerMinute)
 	spark := sparkline(burnHist)
 
-	// rightSide is ASCII-only so len() gives the correct visual width.
-	// The sparkline is tracked separately (maxBurnSamples visual chars).
-	// Layout: prefix(2) + num(2) + sep(2) + glyph(1-2) + space(1) + badge(3) + space(1) + name(<=20) + space(1) + [track] + rightSide + spark
+	// Layout: prefix(2) + num(2) + sep(2) + glyph(1-2) + space(1) + badge(3) + space(1) + name(<=20) + indicator + space(1) + [track] + rightSide + spark
 	rightSide := fmt.Sprintf(" %s  %5s  %4s  %s ", pctStr, tokens, elapsed, burnStr)
-	fixedWidth := 2 + 2 + 2 + glyphWidth(s.Activity) + 1 + 3 + 1 + len(name) + 1 + len(rightSide) + maxBurnSamples
+	fixedWidth := 2 + 2 + 2 + glyphWidth(s.Activity) + 1 + 3 + 1 + len(name) + len(indicatorRaw) + 1 + len(rightSide) + maxBurnSamples
 	trackWidth := width - fixedWidth
 	if trackWidth < 10 {
 		trackWidth = 10
 	}
 
 	var b strings.Builder
-	linePrefix(&b, idx, s.Activity, s.Source, s.Model, name, selected)
+	linePrefix(&b, idx, s.Activity, s.Source, s.Model, name, selected, indicator)
 	b.WriteByte(' ')
 	b.WriteString(renderProgressTrack(s.ContextUtilization, trackWidth))
 	b.WriteString(theme.StyleDimmed.Render(rightSide))
@@ -211,17 +220,22 @@ func renderProgressTrack(pct float64, width int) string {
 }
 
 // renderPitLine renders a session in the pit zone.
-func renderPitLine(idx int, s *client.SessionState, selected bool, burnHist []float64) string {
+func renderPitLine(idx int, s *client.SessionState, selected bool, burnHist []float64, subCount int, expanded bool) string {
 	name := displayName(s, nameWidth)
 	tokens := formatTokens(s.TokensUsed)
 	elapsed := formatDuration(s.StartedAt)
 	burnStr := fmt.Sprintf("%4.1f", s.BurnRatePerMinute)
 	spark := sparkline(burnHist)
 
+	var indicator string
+	if subCount > 0 && !expanded {
+		indicator = theme.StyleDimmed.Render(fmt.Sprintf(" [+%d]", subCount))
+	}
+
 	glyphStyle := lipgloss.NewStyle().Foreground(theme.ActivityColor(string(s.Activity)))
 
 	var b strings.Builder
-	linePrefix(&b, idx, s.Activity, s.Source, s.Model, name, selected)
+	linePrefix(&b, idx, s.Activity, s.Source, s.Model, name, selected, indicator)
 	b.WriteString("  ")
 	b.WriteString(glyphStyle.Render(string(s.Activity)))
 	b.WriteString(theme.StyleDimmed.Render(fmt.Sprintf("  %5s  %4s  %s ", tokens, elapsed, burnStr)))
@@ -243,7 +257,7 @@ func renderParkedLine(idx int, s *client.SessionState, selected bool) string {
 	glyphStyle := lipgloss.NewStyle().Foreground(theme.ActivityColor(string(s.Activity)))
 
 	var b strings.Builder
-	linePrefix(&b, idx, s.Activity, s.Source, s.Model, name, selected)
+	linePrefix(&b, idx, s.Activity, s.Source, s.Model, name, selected, "")
 	b.WriteString("  ")
 	b.WriteString(glyphStyle.Render(string(s.Activity)))
 	b.WriteString(theme.StyleDimmed.Render(fmt.Sprintf("  %5s  %4s", tokens, duration)))
@@ -251,8 +265,9 @@ func renderParkedLine(idx int, s *client.SessionState, selected bool) string {
 	return b.String()
 }
 
-// renderSubagentLine renders a subagent indented under its parent.
-func renderSubagentLine(sub *client.SubagentState) string {
+// renderSubagentLine renders a subagent indented under its parent with tree drawing chars.
+// isLast controls whether to use └── (last child) or ├── (middle child).
+func renderSubagentLine(sub *client.SubagentState, isLast bool) string {
 	glyph := activityGlyph(sub.Activity)
 	glyphStyle := lipgloss.NewStyle().Foreground(theme.ActivityColor(string(sub.Activity)))
 	modelStyle := lipgloss.NewStyle().Foreground(theme.ModelColor(sub.Model))
@@ -267,8 +282,13 @@ func renderSubagentLine(sub *client.SubagentState) string {
 
 	tokens := formatTokens(sub.TokensUsed)
 
+	connector := "├── "
+	if isLast {
+		connector = "└── "
+	}
+
 	var b strings.Builder
-	b.WriteString(theme.StyleDimmed.Render("      └─ "))
+	b.WriteString(theme.StyleDimmed.Render("      " + connector))
 	b.WriteString(glyphStyle.Render(glyph))
 	if glyphWidth(sub.Activity) < 2 {
 		b.WriteByte(' ')
