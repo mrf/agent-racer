@@ -1038,20 +1038,54 @@ func TestStatsTracker_EquipConcurrentWithProcessEvent(t *testing.T) {
 
 	var wg sync.WaitGroup
 
-	// Send EventNew events to drive processEvent concurrently.
+	// Goroutine 1: Send EventNew, EventUpdate, and EventTerminal events.
+	// This exercises the longest lock-holding paths in processEvent:
+	// - EventNew: session counting, source tracking, XP award
+	// - EventUpdate: context milestones, token tracking, high-util tracking
+	// - EventTerminal: achievement evaluation, model tracking, XP for completions
+	completedAt := time.Now()
+	startedAt := completedAt.Add(-5 * time.Minute)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		for i := 0; i < iterations; i++ {
+			sid := fmt.Sprintf("equip-conc-%d", i)
+
 			eventCh <- session.Event{
 				Type:        session.EventNew,
-				State:       &session.SessionState{ID: fmt.Sprintf("equip-conc-%d", i), Source: "test"},
-				ActiveCount: 1,
+				State:       &session.SessionState{ID: sid, Source: "test"},
+				ActiveCount: i + 1,
+			}
+
+			eventCh <- session.Event{
+				Type: session.EventUpdate,
+				State: &session.SessionState{
+					ID:                 sid,
+					ContextUtilization: 0.6,
+					BurnRatePerMinute:  500.0,
+					TokensUsed:         10_000 * (i + 1),
+				},
+				ActiveCount: i + 1,
+			}
+
+			eventCh <- session.Event{
+				Type: session.EventTerminal,
+				State: &session.SessionState{
+					ID:            sid,
+					Source:        "test",
+					Activity:      session.Complete,
+					Model:         "claude-opus-4",
+					CompletedAt:   &completedAt,
+					StartedAt:     startedAt,
+					ToolCallCount: 10,
+					MessageCount:  20,
+				},
+				ActiveCount: 0,
 			}
 		}
 	}()
 
-	// Call Equip() repeatedly while events are being processed.
+	// Goroutine 2: Call Equip() repeatedly while events are being processed.
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -1062,8 +1096,34 @@ func TestStatsTracker_EquipConcurrentWithProcessEvent(t *testing.T) {
 		}
 	}()
 
+	// Goroutine 3: Alternate Unequip/Equip to exercise both loadout paths.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			// Errors are expected here (e.g., unequipping an already-empty slot),
+			// so we ignore them — the point is to race with processEvent.
+			_, _ = tracker.Unequip(reg, RewardTypePaint)
+			_, _ = tracker.Equip(reg, "rookie_paint")
+		}
+	}()
+
+	// Goroutine 4: Read Stats() concurrently to stress the read lock path.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			_ = tracker.Stats()
+		}
+	}()
+
 	wg.Wait()
 	tracker.Flush()
+
+	// Final equip to ensure deterministic end state.
+	if _, err := tracker.Equip(reg, "rookie_paint"); err != nil {
+		t.Fatalf("final Equip error: %v", err)
+	}
 
 	stats := tracker.Stats()
 	if stats.Equipped.Paint != "rookie_paint" {
@@ -1071,6 +1131,9 @@ func TestStatsTracker_EquipConcurrentWithProcessEvent(t *testing.T) {
 	}
 	if stats.TotalSessions != iterations {
 		t.Errorf("TotalSessions = %d, want %d", stats.TotalSessions, iterations)
+	}
+	if stats.TotalCompletions != iterations {
+		t.Errorf("TotalCompletions = %d, want %d", stats.TotalCompletions, iterations)
 	}
 }
 
