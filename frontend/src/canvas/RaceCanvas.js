@@ -1,7 +1,8 @@
 import { ParticleSystem } from './Particles.js';
 import { Track } from './Track.js';
 import { Dashboard } from './Dashboard.js';
-import { Racer, getModelColor, hexToRgb } from '../entities/Racer.js';
+import { Racer } from '../entities/Racer.js';
+import { getModelColor, hexToRgb } from '../session/colors.js';
 import { authFetch } from '../auth.js';
 
 const DEFAULT_CONTEXT_WINDOW = 200000;
