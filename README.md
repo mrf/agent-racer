@@ -1,6 +1,6 @@
 # Agent Racer
 
-A real-time racing visualization of all active Claude Code sessions on your machine. Each session is a car on a racetrack, and its position is driven by context window utilization -- as a conversation consumes more tokens, the car advances toward the finish line.
+A real-time racing visualization of all active Claude Code sessions on your machine. Each session is a racer on a track, and its position is driven by context window utilization -- as a conversation consumes more tokens, the racer advances toward the finish line. Switch between a **car racing** view and a **footrace** view with pixel runners.
 
 ![Agent Racer dashboard showing multiple Claude sessions racing on a track](docs/screenshot.png)
 
@@ -153,11 +153,13 @@ sources:
 
 See `docs/multi-agent-guide.md` for detailed documentation on supported CLIs, configuration options, how to add new sources, and a manual validation checklist.
 
-## Visualization
+## Views
 
-### Cars
+Agent Racer supports multiple visualization styles. Press `V` to cycle between them. Your choice is saved in localStorage and persists across page reloads.
 
-Each session is rendered as a car with:
+### Car Racing (default)
+
+The original view. Each session is rendered as a car with:
 
 - **Color by model**: Purple = Opus, Blue/Cyan = Sonnet, Green = Haiku
 - **Position**: Horizontal position maps to context window utilization (0% to 100%)
@@ -181,12 +183,36 @@ Each session is rendered as a car with:
 
 *Note: "Starting" state is used only in mock mode for demo purposes.*
 
-### Pit Lane
+### Footrace
 
-Idle, waiting, and starting sessions (that aren't churning) automatically roll off the main track into a **pit area** below. This keeps the active racing lanes uncluttered while giving visual persistence to sessions that are still alive but not actively working.
+An alternate view where sessions are pixel runners on a running track. Press `V` to switch to it.
 
-- Cars smoothly animate between track and pit with opacity/scale dimming
-- When a session becomes active again (thinking, tool use, or churning), the car drives back onto the track
+Each session is a procedurally drawn character with:
+
+- **Model-colored headband and jersey** (same color scheme as car view)
+- **Number bib** with session name abbreviation
+- **Animated limbs** -- arms pump and legs cycle based on activity
+
+| Activity | Animation |
+|----------|-----------|
+| **Thinking** | Running -- arms pumping, legs cycling, leaning forward |
+| **Tool Use** | Sprinting -- exaggerated motion, speed lines |
+| **Idle/Starting** | Stretching -- gentle bounce, jogging in place |
+| **Waiting** | Standing -- head turns, occasional yawn |
+| **Complete** | Celebrating -- arms raised, jumping |
+| **Errored** | Tripping -- stumble, face-plant, stars |
+| **Lost** | Ghost -- translucent, slow walk |
+
+The track surface is grass and dirt with lane ropes, mile markers, a rest area (bench) for idle runners, and a finish banner with podium for completed sessions.
+
+Footrace-specific particle effects: dust clouds, sweat drops, celebration stars, trip sparks, and footprints.
+
+### Pit Lane / Rest Area
+
+Idle, waiting, and starting sessions (that aren't churning) automatically move off the main track into a side area. In car view this is a **pit lane**; in footrace view it's a **rest area** with benches. This keeps the active lanes uncluttered while giving visual persistence to sessions that are still alive but not actively working.
+
+- Racers smoothly animate between track and pit/rest area with opacity/scale dimming
+- When a session becomes active again (thinking, tool use, or churning), the racer moves back onto the track
 - Terminal states (complete, errored, lost) stay on track for their exit animations
 
 ### Track
@@ -201,10 +227,14 @@ Idle, waiting, and starting sessions (that aren't churning) automatically roll o
 
 | Key | Action |
 |-----|--------|
+| `V` | Cycle view (car racing / footrace) |
+| `A` | Toggle achievements panel |
+| `G` | Toggle garage (cosmetics) |
 | `D` | Toggle debug panel (shows raw WebSocket messages) |
 | `M` | Toggle sound effects (mute/unmute) |
-| `F` | Toggle fullscreen |
-| `Esc` | Close detail panel |
+| `Shift+F` | Toggle fullscreen |
+| `?` | Toggle help popup |
+| `Esc` | Close active panel or flyout |
 
 Click on any car to open the **detail panel** with: activity, token progress bar, model, working directory, message count, tool call count, current tool, timestamps, PID, and session ID.
 
@@ -400,18 +430,29 @@ agent-racer/
     ├── index.html
     ├── styles.css
     └── src/
-        ├── main.js               # Bootstrap, shortcuts, sound, detail panel
+        ├── main.js               # Bootstrap, shortcuts, sound, view switching
+        ├── ViewRenderer.js        # Pluggable view registry (registerView/createView)
         ├── websocket.js           # Auto-reconnecting WebSocket client
         ├── notifications.js       # Browser notifications
+        ├── session/
+        │   ├── constants.js       # Shared constants (TERMINAL_ACTIVITIES, etc.)
+        │   ├── colors.js          # Model/source color utilities
+        │   └── zones.js           # Zone classification (track/pit/parkingLot)
+        ├── audio/
+        │   ├── SoundEngine.js     # Web Audio sound effects
+        │   └── engineSync.js      # Pure function: sync engine sounds to entity state
         ├── canvas/
-        │   ├── Particles.js       # Exhaust, sparks, smoke, confetti
-        │   ├── Track.js           # Track rendering with markers
-        │   └── RaceCanvas.js      # requestAnimationFrame loop
+        │   ├── Particles.js       # Exhaust, sparks, smoke, confetti, dust, sweat
+        │   ├── Track.js           # Car racing track rendering
+        │   ├── FootraceTrack.js   # Running track rendering (grass, lanes, markers)
+        │   ├── RaceCanvas.js      # Car racing view (requestAnimationFrame loop)
+        │   └── FootraceCanvas.js  # Footrace view (pixel runners)
         └── entities/
-            └── Racer.js           # Car entity with activity animations
+            ├── Racer.js           # Car entity with activity animations
+            └── Character.js       # Pixel runner entity with animation state machine
 ```
 
-**No build tools for the frontend.** Vanilla JS with ES modules, served directly. The backend is a single Go binary with minimal dependencies (`gorilla/websocket`, `gopsutil`, `yaml.v3`). The TUI is a separate Go binary using Bubble Tea.
+**No build tools for the frontend.** Vanilla JS with ES modules, served via Vite in dev mode. The backend is a single Go binary with minimal dependencies (`gorilla/websocket`, `gopsutil`, `yaml.v3`). The TUI is a separate Go binary using Bubble Tea.
 
 **Frontend embedding:** The `frontend/` directory is the single source of truth. During builds (`make build`), it's copied to `backend/internal/frontend/static/` as a build artifact (git-ignored) for Go's embed directive.
 
