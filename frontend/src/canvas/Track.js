@@ -572,41 +572,39 @@ export class Track {
   _drawFinishLine(ctx, bounds, maxTokens) {
     const finishX = bounds.x + bounds.width;
 
-    // Finish line
+    // Finish line (constrained to track surface)
     ctx.strokeStyle = '#e94560';
     ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.moveTo(finishX, bounds.y - 10);
-    ctx.lineTo(finishX, bounds.y + bounds.height + 10);
+    ctx.moveTo(finishX, bounds.y);
+    ctx.lineTo(finishX, bounds.y + bounds.height);
     ctx.stroke();
 
-    // Static checkerboard pattern (left of finish line, mirroring start)
+    // Checkerboard pattern constrained to track surface
     const checkSize = 12;
     const cols = 4;
     const checkerLeft = finishX - cols * checkSize - 2;
     const checkerCenterX = checkerLeft + cols * checkSize / 2;
-    for (let row = 0; row < Math.ceil((bounds.height + 20) / checkSize); row++) {
+    const rowCount = Math.ceil(bounds.height / checkSize);
+    for (let row = 0; row < rowCount; row++) {
       for (let col = 0; col < cols; col++) {
         ctx.fillStyle = (row + col) % 2 === 0 ? '#e94560' : '#1a1a2e';
         ctx.fillRect(
           checkerLeft + col * checkSize,
-          bounds.y - 10 + row * checkSize,
+          bounds.y + row * checkSize,
           checkSize, checkSize
         );
       }
     }
 
-    // "FINISH" text and flag icon above checkerboard
+    // Labels above the track (top to bottom: flag, "FINISH", token count)
+    this._drawCheckerFlag(ctx, checkerCenterX, bounds.y - 38, 10);
     ctx.fillStyle = '#e94560';
-    ctx.font = 'bold 11px Courier New';
     ctx.textAlign = 'center';
-    ctx.fillText('FINISH', checkerCenterX, bounds.y - 20);
-    this._drawCheckerFlag(ctx, checkerCenterX, bounds.y - 30, 10);
-
-    // Token count label
-    ctx.fillStyle = '#e94560';
+    ctx.font = 'bold 11px Courier New';
+    ctx.fillText('FINISH', checkerCenterX, bounds.y - 28);
     ctx.font = 'bold 12px Courier New';
-    ctx.fillText(this._formatTokenLabel(maxTokens), finishX, bounds.y - 8);
+    ctx.fillText(this._formatTokenLabel(maxTokens), finishX, bounds.y - 16);
   }
 
   _formatTokenLabel(tokens) {
