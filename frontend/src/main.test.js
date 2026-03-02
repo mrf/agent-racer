@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   engine: null,
-  raceCanvas: null,
+  activeView: null,
   conn: {},
 }));
 
@@ -14,22 +14,32 @@ vi.mock('./websocket.js', () => ({
   }),
 }));
 
-vi.mock('./canvas/RaceCanvas.js', () => ({
-  RaceCanvas: vi.fn(() => {
-    mocks.raceCanvas = {
-      setEngine: vi.fn(),
-      setAllRacers: vi.fn(),
-      updateRacer: vi.fn(),
-      removeRacer: vi.fn(),
-      onComplete: vi.fn(),
-      onError: vi.fn(),
-      setConnected: vi.fn(),
-      racers: new Map(),
-      onRacerClick: null,
-      onAfterDraw: null,
-    };
-    return mocks.raceCanvas;
-  }),
+function createMockView() {
+  const entities = new Map();
+  const view = {
+    setAllRacers: vi.fn(),
+    updateRacer: vi.fn(),
+    removeRacer: vi.fn(),
+    onComplete: vi.fn(),
+    onError: vi.fn(),
+    setConnected: vi.fn(),
+    destroy: vi.fn(),
+    entities,
+    racers: entities,
+    dt: 16,
+    ctx: {},
+    width: 800,
+    onRacerClick: null,
+    onHamsterClick: null,
+    onAfterDraw: null,
+  };
+  mocks.activeView = view;
+  return view;
+}
+
+vi.mock('./ViewRenderer.js', () => ({
+  createView: vi.fn(() => createMockView()),
+  getViewTypes: vi.fn(() => ['race']),
 }));
 
 vi.mock('./audio/SoundEngine.js', () => ({
@@ -106,6 +116,7 @@ function makeSession(overrides = {}) {
 
 beforeEach(async () => {
   vi.resetModules();
+  localStorage.clear();
   setupDOM();
   globalThis.fetch = vi.fn(() => Promise.resolve({ ok: false }));
   Object.defineProperty(window, 'innerWidth', { value: 1024, configurable: true, writable: true });
@@ -376,8 +387,8 @@ describe('SFX debounce (3s cooldown)', () => {
 
 function showFlyout(carX, carY, id = 'flyout-test') {
   const state = makeSession({ id });
-  mocks.raceCanvas.racers.set(id, { displayX: carX, displayY: carY });
-  mocks.raceCanvas.onRacerClick(state);
+  mocks.activeView.entities.set(id, { displayX: carX, displayY: carY });
+  mocks.activeView.onRacerClick(state);
   return document.getElementById('detail-flyout');
 }
 
@@ -434,8 +445,8 @@ describe('flyout anchor selection', () => {
     expect(flyout.className).toContain('arrow-left'); // right anchor
 
     // Move car — right still fits at carVX=500
-    mocks.raceCanvas.racers.set('sticky', { displayX: 500, displayY: 300 });
-    mocks.raceCanvas.onAfterDraw();
+    mocks.activeView.entities.set('sticky', { displayX: 500, displayY: 300 });
+    mocks.activeView.onAfterDraw();
 
     expect(flyout.className).toContain('arrow-left'); // stays right
   });
@@ -446,8 +457,8 @@ describe('flyout anchor selection', () => {
     expect(flyout.className).toContain('arrow-left'); // right anchor
 
     // Move car to right edge — right no longer fits
-    mocks.raceCanvas.racers.set('switch', { displayX: 900, displayY: 300 });
-    mocks.raceCanvas.onAfterDraw();
+    mocks.activeView.entities.set('switch', { displayX: 900, displayY: 300 });
+    mocks.activeView.onAfterDraw();
 
     expect(flyout.className).toContain('arrow-right'); // switched to left
   });
@@ -475,5 +486,83 @@ describe('flyout boundary clamping', () => {
     // above: 280 - 50 - 200 = 30 > 10 — fits
     const flyout = showFlyout(50, 280, 'clamp-left');
     expect(parseInt(flyout.style.left)).toBe(10);
+  });
+});
+
+// ── View switching ────────────────────────────────────────────────────
+
+describe('view switching', () => {
+  it('V key does nothing when only one view type is registered', async () => {
+    const viewBefore = mocks.activeView;
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'v' }));
+    expect(mocks.activeView).toBe(viewBefore);
+    expect(viewBefore.destroy).not.toHaveBeenCalled();
+  });
+
+  it('V key switches view when multiple types are registered', async () => {
+    const { getViewTypes } = await import('./ViewRenderer.js');
+    getViewTypes.mockReturnValue(['race', 'footrace']);
+
+    const firstView = mocks.activeView;
+    mocks.conn.onSnapshot({
+      sessions: [makeSession({ id: 's1' }), makeSession({ id: 's2' })],
+    });
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'v' }));
+
+    expect(firstView.destroy).toHaveBeenCalled();
+    expect(mocks.activeView).not.toBe(firstView);
+    expect(mocks.activeView.setAllRacers).toHaveBeenCalled();
+  });
+
+  it('switchView persists view type to localStorage', async () => {
+    const { getViewTypes } = await import('./ViewRenderer.js');
+    getViewTypes.mockReturnValue(['race', 'footrace']);
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'v' }));
+
+    expect(localStorage.getItem('agent-racer-view')).toBe('footrace');
+  });
+
+  it('switchView replays current sessions into new view', async () => {
+    const { getViewTypes } = await import('./ViewRenderer.js');
+    getViewTypes.mockReturnValue(['race', 'footrace']);
+
+    mocks.conn.onSnapshot({
+      sessions: [
+        makeSession({ id: 's1', activity: 'thinking' }),
+        makeSession({ id: 's2', activity: 'tool_use' }),
+      ],
+    });
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'v' }));
+
+    const replayCall = mocks.activeView.setAllRacers.mock.calls[0][0];
+    expect(replayCall).toHaveLength(2);
+    expect(replayCall.map(s => s.id).sort()).toEqual(['s1', 's2']);
+  });
+
+  it('switchView sets connected state on new view', async () => {
+    const { getViewTypes } = await import('./ViewRenderer.js');
+    getViewTypes.mockReturnValue(['race', 'footrace']);
+
+    mocks.conn.onStatus('connected');
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'v' }));
+
+    expect(mocks.activeView.setConnected).toHaveBeenCalledWith(true);
+  });
+
+  it('V key cycles through view types', async () => {
+    const { getViewTypes, createView } = await import('./ViewRenderer.js');
+    getViewTypes.mockReturnValue(['race', 'footrace']);
+
+    // First press: race → footrace
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'v' }));
+    expect(createView).toHaveBeenLastCalledWith('footrace', expect.anything(), expect.anything());
+
+    // Second press: footrace → race
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'v' }));
+    expect(createView).toHaveBeenLastCalledWith('race', expect.anything(), expect.anything());
   });
 });
