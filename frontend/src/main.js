@@ -14,6 +14,9 @@ import { createSessionTracker } from './ui/sessionTracker.js';
 import { initAmbientAudio } from './ui/ambientAudio.js';
 import { ShortcutBar } from './ui/ShortcutBar.js';
 import { HelpPopup } from './ui/HelpPopup.js';
+import { CommentaryEngine } from './commentary/CommentaryEngine.js';
+import { Ticker } from './commentary/Ticker.js';
+import { Announcer } from './commentary/Announcer.js';
 
 const debugPanel = document.getElementById('debug-panel');
 const debugLog = document.getElementById('debug-log');
@@ -30,6 +33,8 @@ let debugVisible = false;
 let muted = false;
 
 const VIEW_STORAGE_KEY = 'agent-racer-view';
+const COMMENTARY_STORAGE_KEY = 'agent-racer-commentary';
+const COMMENTARY_MODES = ['ticker', 'announcer', 'off'];
 
 const engine = new SoundEngine();
 
@@ -48,6 +53,19 @@ const flyout = createFlyout({ detailFlyout, flyoutContent, canvas });
 const tracker = createSessionTracker(engine);
 const shortcutBar = new ShortcutBar(document.getElementById('shortcut-bar'));
 const helpPopup = new HelpPopup();
+
+// Commentary system
+const commentary = new CommentaryEngine();
+const ticker = new Ticker();
+const announcer = new Announcer();
+
+let commentaryMode = localStorage.getItem(COMMENTARY_STORAGE_KEY) || 'ticker';
+if (!COMMENTARY_MODES.includes(commentaryMode)) commentaryMode = 'ticker';
+
+commentary.onMessage = (text) => {
+  if (commentaryMode === 'ticker') ticker.setMessage(text);
+  else if (commentaryMode === 'announcer') announcer.setMessage(text);
+};
 
 initAmbientAudio(engine);
 
@@ -111,6 +129,7 @@ function handleSnapshot(payload) {
   activeView.setAllRacers(payload.sessions);
   engine.updateExcitement(payload.sessions);
   flyout.updateContent(sessions);
+  commentary.processUpdate(sessions);
 }
 
 function handleDelta(payload) {
@@ -132,12 +151,14 @@ function handleDelta(payload) {
   updateSessionCount();
   engine.updateExcitement([...sessions.values()]);
   flyout.updateContent(sessions);
+  commentary.processUpdate(sessions);
 }
 
 function handleCompletion(payload) {
   const isSuccess = payload.activity === 'complete';
   log(`Session "${payload.name}" ${payload.activity}`, isSuccess ? 'info' : 'error');
   notifyCompletion(payload.name, payload.activity);
+  commentary.onCompletion(payload.sessionId, payload.name, payload.activity);
 
   if (isSuccess) {
     activeView.onComplete(payload.sessionId);
@@ -195,6 +216,15 @@ export function wireViewCallbacks(view, flyout, unlockToast) {
   view.onAfterDraw = () => {
     unlockToast.update(view.dt);
     unlockToast.draw(view.ctx, view.width);
+
+    // Commentary rendering
+    if (commentaryMode === 'ticker') {
+      ticker.update(view.dt);
+      ticker.draw(view.ctx, view.width, view.height);
+    } else if (commentaryMode === 'announcer') {
+      announcer.update(view.dt);
+      announcer.draw(view.ctx, view.width);
+    }
 
     if (!flyout.isVisible()) return;
 
@@ -256,6 +286,7 @@ debugClose.addEventListener('click', () => {
 function updateShortcutHighlights() {
   shortcutBar.setActive('achievements', achievementPanel.isVisible);
   shortcutBar.setActive('garage', rewardSelector.isVisible);
+  shortcutBar.setActive('commentary', commentaryMode !== 'off');
   shortcutBar.setActive('debug', debugVisible);
   shortcutBar.setActive('mute', muted);
   shortcutBar.setActive('fullscreen', !!document.fullscreenElement);
@@ -285,6 +316,13 @@ document.addEventListener('keydown', (e) => {
       const idx = types.indexOf(currentViewType);
       const next = types[(idx + 1) % types.length];
       switchView(next);
+      break;
+    }
+    case 'c': {
+      const idx = COMMENTARY_MODES.indexOf(commentaryMode);
+      commentaryMode = COMMENTARY_MODES[(idx + 1) % COMMENTARY_MODES.length];
+      localStorage.setItem(COMMENTARY_STORAGE_KEY, commentaryMode);
+      log(`Commentary: ${commentaryMode}`, 'info');
       break;
     }
     case 'm':
@@ -333,4 +371,4 @@ conn.connect();
 requestPermission();
 loadSoundConfig();
 log('Agent Racing Dashboard initialized', 'info');
-log('Shortcuts: A=achievements, G=garage, D=debug, M=mute, V=view, Shift+F=fullscreen, Click racer=details', 'info');
+log('Shortcuts: A=achievements, G=garage, C=commentary, D=debug, M=mute, V=view, Shift+F=fullscreen, Click racer=details', 'info');
