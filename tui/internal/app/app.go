@@ -15,6 +15,7 @@ import (
 	"github.com/agent-racer/tui/internal/views/status"
 	"github.com/agent-racer/tui/internal/views/track"
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -74,6 +75,9 @@ type Model struct {
 
 	// Connection state.
 	connected bool
+
+	// Spinner drives animated indicators across sub-views.
+	spinner spinner.Model
 }
 
 // focusResultMsg carries the result of a FocusSession HTTP call.
@@ -96,6 +100,7 @@ func New(ws *client.WSClient, http *client.HTTPClient) Model {
 		battlePass:   battlepass.New(),
 		garageView:   garage.New(http),
 		debugLog:     debug.New(),
+		spinner:      spinner.New(spinner.WithSpinner(spinner.MiniDot)),
 	}
 	m.debugLog.Add("nav", "TUI started")
 	return m
@@ -103,7 +108,7 @@ func New(ws *client.WSClient, http *client.HTTPClient) Model {
 
 // Init starts the WebSocket connection and fetches initial battle pass data.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.ws.Listen(m.ctx), m.loadBattlePassCmd())
+	return tea.Batch(m.ws.Listen(m.ctx), m.loadBattlePassCmd(), m.spinner.Tick)
 }
 
 // loadBattlePassCmd fetches stats and challenges from the HTTP API.
@@ -143,7 +148,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.challenges != nil {
 			m.battlePass.SetChallenges(msg.challenges)
 		}
+		m.battlePass.SetLoaded()
 		return m, nil
+
+	case spinner.TickMsg:
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		sv := m.spinner.View()
+		m.statusBar.SpinnerView = sv
+		m.achievements.SpinnerView = sv
+		m.battlePass.SpinnerView = sv
+		return m, cmd
 
 	case garage.StatsLoadedMsg, garage.EquipResultMsg:
 		var cmd tea.Cmd
@@ -418,7 +433,7 @@ func (m Model) renderDisconnectOverlay() string {
 		Bold(true).
 		Render("⚡ DISCONNECTED")
 
-	sub := theme.StyleDimmed.Render("Reconnecting to backend...")
+	sub := theme.StyleDimmed.Render(m.spinner.View() + " Reconnecting to backend...")
 	hint := theme.StyleDimmed.Render("Press q to quit")
 
 	box := lipgloss.JoinVertical(lipgloss.Center, "", icon, "", sub, "", hint, "")

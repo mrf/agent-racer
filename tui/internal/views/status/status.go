@@ -17,6 +17,7 @@ type Model struct {
 	Parked       int
 	SourceHealth map[string]client.SourceHealthPayload
 	Width        int
+	SpinnerView  string // animated spinner view when not connected
 }
 
 // New creates a status bar model.
@@ -44,7 +45,7 @@ func (m Model) View() string {
 	if m.Connected {
 		connStr = lipgloss.NewStyle().Foreground(theme.ColorHealthy).Render("● Connected")
 	} else {
-		connStr = lipgloss.NewStyle().Foreground(theme.ColorDanger).Render("○ Connecting...")
+		connStr = lipgloss.NewStyle().Foreground(theme.ColorDanger).Render(theme.SpinnerOrFallback(m.SpinnerView) + " Connecting...")
 	}
 
 	counts := fmt.Sprintf("%d racing  %d pit  %d parked",

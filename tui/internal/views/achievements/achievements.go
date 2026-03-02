@@ -43,6 +43,7 @@ type Model struct {
 	scroll      int
 	loading     bool
 	fetchErr    string
+	SpinnerView string // animated spinner provided by the root app
 }
 
 // New returns a Model in loading state.
@@ -127,7 +128,7 @@ func (m Model) renderInner(w, h int) string {
 	b.WriteString(title + "\n\n")
 
 	if m.loading {
-		b.WriteString(theme.StyleDimmed.Render("Loading..."))
+		b.WriteString(theme.StyleDimmed.Render(theme.SpinnerOrFallback(m.SpinnerView) + " Loading..."))
 		return b.String()
 	}
 	if m.fetchErr != "" {
