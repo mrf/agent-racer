@@ -160,6 +160,219 @@ describe('ParticleSystem', () => {
     });
   });
 
+  describe('emit', () => {
+    it('creates particles with the given preset', () => {
+      const sys = new ParticleSystem();
+      sys.emit('exhaust', 10, 20, 3);
+      expect(sys.particles).toHaveLength(3);
+      for (const p of sys.particles) {
+        expect(p.x).toBe(10);
+        expect(p.y).toBe(20);
+        expect(p.sizeMultiplier).toBe('bloom');
+      }
+    });
+
+    it('defaults to 5 particles', () => {
+      const sys = new ParticleSystem();
+      sys.emit('sparks', 0, 0);
+      expect(sys.particles).toHaveLength(5);
+    });
+
+    it('accumulates particles across calls', () => {
+      const sys = new ParticleSystem();
+      sys.emit('smoke', 0, 0, 2);
+      sys.emit('smoke', 0, 0, 3);
+      expect(sys.particles).toHaveLength(5);
+    });
+  });
+
+  describe('emitWithColor', () => {
+    it('overrides particle color with provided color', () => {
+      const sys = new ParticleSystem();
+      const override = { r: 10, g: 20, b: 30 };
+      sys.emitWithColor('exhaust', 5, 10, 2, override);
+      expect(sys.particles).toHaveLength(2);
+      for (const p of sys.particles) {
+        expect(p.color).toEqual(override);
+        expect(p.x).toBe(5);
+        expect(p.y).toBe(10);
+      }
+    });
+
+    it('does not override color when colorOverride is null', () => {
+      const sys = new ParticleSystem();
+      sys.emitWithColor('exhaust', 0, 0, 1, null);
+      // exhaust default color
+      expect(sys.particles[0].color.r).toBe(240);
+    });
+
+    it('creates a copy of the override so mutations are isolated', () => {
+      const sys = new ParticleSystem();
+      const override = { r: 100, g: 100, b: 100 };
+      sys.emitWithColor('sparks', 0, 0, 1, override);
+      override.r = 0;
+      expect(sys.particles[0].color.r).toBe(100);
+    });
+  });
+
+  describe('createParticle presets', () => {
+    const sys = new ParticleSystem();
+
+    it('exhaust has bloom sizeMultiplier and behind layer', () => {
+      const p = sys.createParticle('exhaust', 0, 0);
+      expect(p.sizeMultiplier).toBe('bloom');
+      expect(p.layer).toBe('behind');
+      expect(p.colorEnd).toBeTruthy();
+    });
+
+    it('sparks has gravity and front layer', () => {
+      const p = sys.createParticle('sparks', 0, 0);
+      expect(p.gravity).toBe(0.05);
+      expect(p.layer).toBe('front');
+    });
+
+    it('confetti has rotation and flutter', () => {
+      const p = sys.createParticle('confetti', 0, 0);
+      expect(p.rotation).toBeDefined();
+      expect(p.flutter).toBeGreaterThan(0);
+      expect(p.gravity).toBe(0.08);
+      expect(p.layer).toBe('front');
+    });
+
+    it('speedLines uses rect drawMode', () => {
+      const p = sys.createParticle('speedLines', 0, 0);
+      expect(p.drawMode).toBe('rect');
+      expect(p.width).toBeGreaterThan(0);
+    });
+
+    it('celebration produces both streamer and circle drawModes', () => {
+      const modes = new Set();
+      for (let i = 0; i < 100; i++) {
+        modes.add(sys.createParticle('celebration', 0, 0).drawMode);
+      }
+      expect(modes.has('streamer')).toBe(true);
+      expect(modes.has('circle')).toBe(true);
+    });
+
+    it('skidMarks has very low decay', () => {
+      const p = sys.createParticle('skidMarks', 0, 0);
+      expect(p.decay).toBe(0.002);
+      expect(p.gravity).toBe(0);
+    });
+
+    it('smoke has bloom sizeMultiplier', () => {
+      const p = sys.createParticle('smoke', 0, 0);
+      expect(p.sizeMultiplier).toBe('bloom');
+    });
+
+    it('flame has bloom sizeMultiplier and color gradient', () => {
+      const p = sys.createParticle('flame', 0, 0);
+      expect(p.sizeMultiplier).toBe('bloom');
+      expect(p.color.r).toBe(255);
+      expect(p.colorEnd.r).toBe(255);
+    });
+
+    it('blueFlame has blue color range', () => {
+      const p = sys.createParticle('blueFlame', 0, 0);
+      expect(p.color.b).toBe(255);
+      expect(p.colorEnd.b).toBe(200);
+    });
+
+    it('redSparks has front layer and gravity', () => {
+      const p = sys.createParticle('redSparks', 0, 0);
+      expect(p.layer).toBe('front');
+      expect(p.gravity).toBe(0.06);
+    });
+
+    it('afterburn has bloom sizeMultiplier', () => {
+      const p = sys.createParticle('afterburn', 0, 0);
+      expect(p.sizeMultiplier).toBe('bloom');
+    });
+
+    it('prismatic picks a color band and has bloom', () => {
+      const p = sys.createParticle('prismatic', 0, 0);
+      expect(p.sizeMultiplier).toBe('bloom');
+      expect(p.baseAlpha).toBe(0.7);
+    });
+
+    it('confettiBurst uses rect drawMode and front layer', () => {
+      const p = sys.createParticle('confettiBurst', 0, 0);
+      expect(p.drawMode).toBe('rect');
+      expect(p.layer).toBe('front');
+      expect(p.gravity).toBe(0.07);
+    });
+
+    it('tireSmoke has bloom sizeMultiplier', () => {
+      const p = sys.createParticle('tireSmoke', 0, 0);
+      expect(p.sizeMultiplier).toBe('bloom');
+    });
+
+    it('snowfall has flutter and gravity', () => {
+      const p = sys.createParticle('snowfall', 0, 0);
+      expect(p.flutter).toBeGreaterThan(0);
+      expect(p.gravity).toBe(0.01);
+    });
+
+    it('sakura has rotation and flutter', () => {
+      const p = sys.createParticle('sakura', 0, 0);
+      expect(p.rotation).toBeDefined();
+      expect(p.flutter).toBeGreaterThan(0);
+      expect(p.gravity).toBe(0.015);
+    });
+
+    it('autumn has rotation and flutter', () => {
+      const p = sys.createParticle('autumn', 0, 0);
+      expect(p.rotation).toBeDefined();
+      expect(p.flutter).toBeGreaterThan(0);
+      expect(p.gravity).toBe(0.02);
+    });
+
+    it('unknown preset returns base particle', () => {
+      const p = sys.createParticle('nonexistent', 100, 200);
+      expect(p.x).toBe(100);
+      expect(p.y).toBe(200);
+      expect(p.life).toBe(1.0);
+      expect(p.layer).toBe('behind');
+      expect(p.drawMode).toBe('circle');
+    });
+  });
+
+  describe('clear', () => {
+    it('removes all particles', () => {
+      const sys = new ParticleSystem();
+      sys.emit('exhaust', 0, 0, 10);
+      expect(sys.particles.length).toBe(10);
+      sys.clear();
+      expect(sys.particles).toHaveLength(0);
+    });
+  });
+
+  describe('update position and rotation', () => {
+    it('moves particle by vx and vy', () => {
+      const sys = systemWith({ x: 10, y: 20, vx: 3, vy: -2 });
+      sys.update(FRAME);
+      expect(sys.particles[0].x).toBeCloseTo(13, 5);
+      expect(sys.particles[0].y).toBeCloseTo(18, 5);
+    });
+
+    it('advances rotation by rotSpeed', () => {
+      const sys = new ParticleSystem();
+      sys.particles.push(makeParticle({ rotation: 0, rotSpeed: 0.5 }));
+      sys.update(FRAME);
+      expect(sys.particles[0].rotation).toBeCloseTo(0.5, 5);
+    });
+
+    it('applies flutter to vx based on life and flutterSpeed', () => {
+      const sys = new ParticleSystem();
+      sys.particles.push(makeParticle({
+        vx: 0, flutter: 2.0, flutterSpeed: 1, life: 0.5,
+      }));
+      const vxBefore = sys.particles[0].vx;
+      sys.update(FRAME);
+      expect(sys.particles[0].vx).not.toBe(vxBefore);
+    });
+  });
+
   describe('gravity application', () => {
     it('increases vy by gravity each frame', () => {
       const sys = systemWith({ gravity: 0.1 });

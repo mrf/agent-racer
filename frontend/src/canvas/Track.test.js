@@ -421,6 +421,133 @@ describe('Track', () => {
     });
   });
 
+  describe('getTokenX', () => {
+    it('returns left edge when tokens is 0', () => {
+      const bounds = { x: 100, width: 800 };
+      expect(track.getTokenX(bounds, 0, 200000)).toBe(100);
+    });
+
+    it('returns right edge when tokens equals globalMaxTokens', () => {
+      const bounds = { x: 100, width: 800 };
+      expect(track.getTokenX(bounds, 200000, 200000)).toBe(900);
+    });
+
+    it('returns midpoint at half tokens', () => {
+      const bounds = { x: 100, width: 800 };
+      expect(track.getTokenX(bounds, 100000, 200000)).toBe(500);
+    });
+
+    it('returns left edge when globalMaxTokens is 0', () => {
+      const bounds = { x: 100, width: 800 };
+      expect(track.getTokenX(bounds, 50000, 0)).toBe(100);
+    });
+
+    it('returns left edge when globalMaxTokens is negative', () => {
+      const bounds = { x: 100, width: 800 };
+      expect(track.getTokenX(bounds, 50000, -1)).toBe(100);
+    });
+  });
+
+  describe('updateViewport', () => {
+    it('sets full crowd mode for tall viewports', () => {
+      track.updateViewport(600);
+      expect(track._crowdMode).toBe('full');
+      expect(track.trackPadding.top).toBe(60);
+    });
+
+    it('sets compact crowd mode for medium viewports', () => {
+      track.updateViewport(400);
+      expect(track._crowdMode).toBe('compact');
+      expect(track.trackPadding.top).toBe(40);
+    });
+
+    it('sets hidden crowd mode for small viewports', () => {
+      track.updateViewport(300);
+      expect(track._crowdMode).toBe('hidden');
+      expect(track.trackPadding.top).toBe(20);
+    });
+
+    it('uses full mode at exact boundary (500)', () => {
+      track.updateViewport(500);
+      expect(track._crowdMode).toBe('full');
+    });
+
+    it('uses compact mode at exact boundary (350)', () => {
+      track.updateViewport(350);
+      expect(track._crowdMode).toBe('compact');
+    });
+
+    it('clears spectator cache on mode change', () => {
+      track._spectators = [{ fake: true }];
+      track._crowdMode = 'full';
+      track.updateViewport(300); // full -> hidden
+      expect(track._spectators).toBeNull();
+    });
+
+    it('preserves spectator cache when mode unchanged', () => {
+      track._spectators = [{ fake: true }];
+      track._crowdMode = 'full';
+      track.updateViewport(600); // still full
+      expect(track._spectators).toEqual([{ fake: true }]);
+    });
+  });
+
+  describe('_formatTokenLabel', () => {
+    it('formats millions with one decimal', () => {
+      expect(track._formatTokenLabel(1000000)).toBe('1.0M');
+      expect(track._formatTokenLabel(1500000)).toBe('1.5M');
+    });
+
+    it('formats thousands as integers', () => {
+      expect(track._formatTokenLabel(200000)).toBe('200K');
+      expect(track._formatTokenLabel(50000)).toBe('50K');
+      expect(track._formatTokenLabel(1000)).toBe('1K');
+    });
+
+    it('returns raw number below 1000', () => {
+      expect(track._formatTokenLabel(500)).toBe('500');
+      expect(track._formatTokenLabel(0)).toBe('0');
+    });
+  });
+
+  describe('_computeTokenMarkers', () => {
+    it('returns 2-6 evenly-spaced markers', () => {
+      const markers = track._computeTokenMarkers(200000);
+      expect(markers.length).toBeGreaterThanOrEqual(2);
+      expect(markers.length).toBeLessThanOrEqual(6);
+    });
+
+    it('markers do not exceed globalMaxTokens', () => {
+      const markers = track._computeTokenMarkers(200000);
+      for (const m of markers) {
+        expect(m.tokens).toBeLessThan(200000);
+      }
+    });
+
+    it('markers are evenly spaced', () => {
+      const markers = track._computeTokenMarkers(200000);
+      if (markers.length >= 2) {
+        const step = markers[1].tokens - markers[0].tokens;
+        for (let i = 2; i < markers.length; i++) {
+          expect(markers[i].tokens - markers[i - 1].tokens).toBe(step);
+        }
+      }
+    });
+
+    it('markers have formatted labels', () => {
+      const markers = track._computeTokenMarkers(200000);
+      for (const m of markers) {
+        expect(typeof m.label).toBe('string');
+        expect(m.label.length).toBeGreaterThan(0);
+      }
+    });
+
+    it('works for large token counts (1M)', () => {
+      const markers = track._computeTokenMarkers(1000000);
+      expect(markers.length).toBeGreaterThanOrEqual(2);
+    });
+  });
+
   describe('multi-track pit/parking bounds', () => {
     const twoGroups = [
       { maxTokens: 200000, laneCount: 2 },

@@ -749,6 +749,239 @@ describe('RaceCanvas', () => {
     });
   });
 
+  describe('setConnected', () => {
+    it('sets connected state to true', () => {
+      rc.setConnected(true);
+      expect(rc.connected).toBe(true);
+    });
+
+    it('sets connected state to false', () => {
+      rc.setConnected(true);
+      rc.setConnected(false);
+      expect(rc.connected).toBe(false);
+    });
+  });
+
+  describe('setEngine', () => {
+    it('sets engine reference', () => {
+      const engine = { currentExcitement: 0.5 };
+      rc.setEngine(engine);
+      expect(rc.engine).toBe(engine);
+    });
+
+    it('replaces existing engine', () => {
+      const e1 = { id: 1 };
+      const e2 = { id: 2 };
+      rc.setEngine(e1);
+      rc.setEngine(e2);
+      expect(rc.engine).toBe(e2);
+    });
+  });
+
+  describe('destroy cleanup', () => {
+    it('releases glow canvas references', () => {
+      rc.destroy();
+      expect(rc.glowCanvas).toBeNull();
+      expect(rc.glowCtx).toBeNull();
+    });
+
+    it('clears callback references', () => {
+      rc.onRacerClick = vi.fn();
+      rc.onHamsterClick = vi.fn();
+      rc.onAfterDraw = vi.fn();
+      rc.engine = {};
+      rc.destroy();
+      expect(rc.onRacerClick).toBeNull();
+      expect(rc.onHamsterClick).toBeNull();
+      expect(rc.onAfterDraw).toBeNull();
+      expect(rc.engine).toBeNull();
+    });
+
+    it('clears particles on destroy', () => {
+      rc.destroy();
+      expect(rc.particles.clear).toHaveBeenCalled();
+    });
+  });
+
+  describe('zone counts', () => {
+    it('tracks zone counts after update', () => {
+      const stale = agoISO(31_000);
+      rc.setAllRacers([
+        makeState({ id: 'a', activity: 'thinking' }),
+        makeState({ id: 'b', activity: 'tool_use' }),
+        makeState({ id: 'c', activity: 'idle', lastDataReceivedAt: stale }),
+        makeState({ id: 'd', activity: 'complete' }),
+        makeState({ id: 'e', activity: 'errored' }),
+      ]);
+      rc.update();
+      expect(rc._zoneCounts).toEqual({ racing: 2, pit: 1, parked: 2 });
+    });
+
+    it('zone counts are zero with no racers', () => {
+      rc.update();
+      expect(rc._zoneCounts).toEqual({ racing: 0, pit: 0, parked: 0 });
+    });
+  });
+
+  describe('draw overlays', () => {
+    it('draw runs without error when disconnected', () => {
+      rc.setConnected(false);
+      expect(() => rc.draw()).not.toThrow();
+    });
+
+    it('draw runs without error when connected and empty', () => {
+      rc.setConnected(true);
+      expect(() => rc.draw()).not.toThrow();
+    });
+
+    it('draw runs without error with flash active', () => {
+      rc.flashAlpha = 0.3;
+      expect(() => rc.draw()).not.toThrow();
+    });
+
+    it('draw runs without error with active shake', () => {
+      rc.shakeIntensity = 6;
+      rc.shakeDuration = 0.3;
+      rc.shakeTimer = 0;
+      expect(() => rc.draw()).not.toThrow();
+    });
+  });
+
+  describe('flash and shake decay', () => {
+    it('flash decays over time', () => {
+      rc.flashAlpha = 0.3;
+      rc.dt = 1 / 60;
+      rc.update();
+      expect(rc.flashAlpha).toBeLessThan(0.3);
+      expect(rc.flashAlpha).toBeGreaterThanOrEqual(0);
+    });
+
+    it('flash does not go below zero', () => {
+      rc.flashAlpha = 0.001;
+      rc.dt = 1;
+      rc.update();
+      expect(rc.flashAlpha).toBe(0);
+    });
+
+    it('shake timer advances', () => {
+      rc.shakeIntensity = 6;
+      rc.shakeDuration = 0.3;
+      rc.shakeTimer = 0;
+      rc.dt = 0.1;
+      rc.update();
+      expect(rc.shakeTimer).toBeCloseTo(0.1, 5);
+    });
+
+    it('shake timer stops advancing once it reaches duration', () => {
+      rc.shakeIntensity = 6;
+      rc.shakeDuration = 0.3;
+      rc.shakeTimer = 0.3;
+      rc.dt = 0.1;
+      rc.update();
+      expect(rc.shakeTimer).toBe(0.3);
+    });
+  });
+
+  describe('zone transitions', () => {
+    it('triggers zone transition when racer moves from pit to track', () => {
+      const stale = agoISO(31_000);
+      rc.setAllRacers([makeState({ id: 'a', activity: 'idle', lastDataReceivedAt: stale })]);
+      rc.update();
+      const racer = rc.racers.get('a');
+      expect(racer.inPit).toBe(true);
+
+      // Now make it active
+      rc.updateRacer(makeState({ id: 'a', activity: 'thinking', lastDataReceivedAt: agoISO(0) }));
+      rc.update();
+      expect(racer.inPit).toBe(false);
+      expect(racer.startZoneTransition).toHaveBeenCalled();
+    });
+
+    it('triggers zone transition when racer moves from track to parking lot', () => {
+      rc.setAllRacers([makeState({ id: 'a', activity: 'thinking' })]);
+      rc.update();
+      const racer = rc.racers.get('a');
+
+      rc.updateRacer(makeState({ id: 'a', activity: 'complete' }));
+      rc.update();
+      expect(racer.inParkingLot).toBe(true);
+      expect(racer.startZoneTransition).toHaveBeenCalled();
+    });
+
+    it('triggers zone transition when racer moves from parking lot to pit', () => {
+      rc.setAllRacers([makeState({ id: 'a', activity: 'complete' })]);
+      rc.update();
+      const racer = rc.racers.get('a');
+      expect(racer.inParkingLot).toBe(true);
+
+      // Move to pit (idle + stale)
+      const stale = agoISO(31_000);
+      rc.updateRacer(makeState({ id: 'a', activity: 'idle', lastDataReceivedAt: stale }));
+      rc.update();
+      expect(racer.inPit).toBe(true);
+      expect(racer.startZoneTransition).toHaveBeenCalled();
+    });
+  });
+
+  describe('engine audio sync', () => {
+    let engine;
+
+    beforeEach(() => {
+      engine = {
+        startEngine: vi.fn(),
+        stopEngine: vi.fn(),
+        currentExcitement: 0,
+      };
+      rc.setEngine(engine);
+    });
+
+    it('starts engine for thinking racers', () => {
+      rc.setAllRacers([makeState({ id: 'a', activity: 'thinking' })]);
+      rc.update();
+      expect(engine.startEngine).toHaveBeenCalledWith('a', 'thinking');
+    });
+
+    it('starts engine for tool_use racers', () => {
+      rc.setAllRacers([makeState({ id: 'a', activity: 'tool_use' })]);
+      rc.update();
+      expect(engine.startEngine).toHaveBeenCalledWith('a', 'tool_use');
+    });
+
+    it('stops engine for pit racers', () => {
+      const stale = agoISO(31_000);
+      rc.setAllRacers([makeState({ id: 'a', activity: 'idle', lastDataReceivedAt: stale })]);
+      rc.update();
+      expect(engine.stopEngine).toHaveBeenCalledWith('a');
+    });
+
+    it('stops engine for parking lot racers', () => {
+      rc.setAllRacers([makeState({ id: 'a', activity: 'complete' })]);
+      rc.update();
+      expect(engine.stopEngine).toHaveBeenCalledWith('a');
+    });
+
+    it('starts churning engine for idle+churning racers', () => {
+      rc.setAllRacers([makeState({ id: 'a', activity: 'idle', isChurning: true, lastDataReceivedAt: agoISO(0) })]);
+      rc.update();
+      expect(engine.startEngine).toHaveBeenCalledWith('a', 'churning');
+    });
+  });
+
+  describe('globalMaxTokens', () => {
+    it('uses largest maxContextTokens across all zones', () => {
+      const stale = agoISO(31_000);
+      rc.setAllRacers([
+        makeState({ id: 'a', activity: 'thinking', maxContextTokens: 200000 }),
+        makeState({ id: 'b', activity: 'idle', lastDataReceivedAt: stale, maxContextTokens: 1000000 }),
+      ]);
+      rc.update();
+      // The pit racer's tokens should be scaled against globalMax (1M),
+      // so getTokenX is called with globalMaxTokens as 3rd arg.
+      const pitTokenXCalls = rc.track.getTokenX.mock.calls.filter(c => c[2] === 1000000);
+      expect(pitTokenXCalls.length).toBeGreaterThan(0);
+    });
+  });
+
   describe('handleMouseMove', () => {
     it('sets hovered on racer within hit radius', () => {
       rc.setAllRacers([makeState({ id: 'r1', tmuxTarget: 'my-pane' })]);
