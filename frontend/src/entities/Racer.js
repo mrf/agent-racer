@@ -146,11 +146,45 @@ export class Racer {
     this.hasTmux = !!state.tmuxTarget;
     this.hoverGlow = 0;
     this.hoverGlowPhase = Math.random() * Math.PI * 2;
+
+    // Cumulative damage (0.0 = pristine, 1.0 = critical)
+    this.damage = 0;
+    this.prevCompactionCount = state.compactionCount || 0;
+    this.damageSmokeCooldown = 0;
+    this.damageSteamCooldown = 0;
+    this.repairFlash = 0; // bright flash during repair completion
+
+    // Procedural scratch/dent seeds (stable per racer so overlays don't jitter)
+    this._scratchSeeds = [];
+    for (let i = 0; i < 12; i++) {
+      this._scratchSeeds.push({
+        x: Math.random() * 0.8 + 0.1,
+        y: Math.random() * 0.6 + 0.2,
+        angle: (Math.random() - 0.5) * 0.8,
+        len: 0.05 + Math.random() * 0.1,
+      });
+    }
+    this._dentSeeds = [];
+    for (let i = 0; i < 6; i++) {
+      this._dentSeeds.push({
+        x: Math.random() * 0.7 + 0.15,
+        y: Math.random() * 0.5 + 0.25,
+        r: 0.02 + Math.random() * 0.03,
+      });
+    }
   }
 
   update(state) {
     const oldActivity = this.state.activity;
     const wasChurning = this.state.isChurning;
+
+    // Detect new compactions → add damage
+    const newCompactions = (state.compactionCount || 0) - this.prevCompactionCount;
+    if (newCompactions > 0) {
+      this.damage = Math.min(1.0, this.damage + newCompactions * 0.15);
+      this.prevCompactionCount = state.compactionCount || 0;
+    }
+
     this.state = state;
     this.hasTmux = !!state.tmuxTarget;
 
@@ -184,11 +218,18 @@ export class Racer {
         this.skidEmitted = false;
         this.smokeEmitted = false;
         this.spinAngle = 0;
+        // Errors cause significant damage (+30%)
+        this.damage = Math.min(1.0, this.damage + 0.30);
       }
       if (state.activity === 'complete') {
         this.confettiEmitted = false;
         this.completionTimer = 0;
         this.goldFlash = 0;
+        // Completion resets damage with repair animation
+        if (this.damage > 0) {
+          this.repairFlash = 1.0;
+        }
+        this.damage = 0;
       }
       if (state.activity === 'tool_use') {
         // Trigger hammer animation on tool_use transition
@@ -443,6 +484,60 @@ export class Racer {
       this.targetGlow = 0.04;
     }
 
+    // Continuous damage from high burn rate (>5K/min → heat marks)
+    if (burnRate > 5000) {
+      this.damage = Math.min(1.0, this.damage + 0.002 * dtScale);
+    }
+
+    // Context pressure damage (>95% utilization → overheating)
+    const ctxUtil = this.state.contextUtilization || 0;
+    if (ctxUtil > 0.95) {
+      this.damage = Math.min(1.0, this.damage + 0.003 * dtScale);
+    }
+
+    // Pit repair: heal 1%/sec
+    if (this.inPit && this.damage > 0) {
+      this.damage = Math.max(0, this.damage - 0.01 * (dt || 1 / 60));
+    }
+
+    // Repair flash decay
+    if (this.repairFlash > 0) {
+      this.repairFlash = Math.max(0, this.repairFlash - 2.0 * (dt || 1 / 60));
+    }
+
+    // Damage-based particle effects
+    if (particles && this.damage > 0.25 && !this.inParkingLot) {
+      this.damageSmokeCooldown -= dt || 1 / 60;
+      if (this.damageSmokeCooldown <= 0) {
+        // Smoke intensity scales with damage
+        let smokeRate = 0.3;
+        if (this.damage > 0.75) smokeRate = 0.08;
+        else if (this.damage > 0.5) smokeRate = 0.15;
+        this.damageSmokeCooldown = smokeRate;
+        const smokeX = this.displayX + (Math.random() - 0.3) * 20 * S;
+        const smokeY = this.displayY - 8 * S;
+        particles.emit('damageSmoke', smokeX, smokeY, 1);
+      }
+    }
+
+    // Steam from overheating (context >95%)
+    if (particles && ctxUtil > 0.95 && !this.inParkingLot) {
+      this.damageSteamCooldown -= dt || 1 / 60;
+      if (this.damageSteamCooldown <= 0) {
+        this.damageSteamCooldown = 0.12;
+        const steamX = this.displayX + 10 * S;
+        const steamY = this.displayY - 6 * S;
+        particles.emit('steam', steamX, steamY, 2);
+      }
+    }
+
+    // Damage sparks for heavily damaged cars (>50%)
+    if (particles && this.damage > 0.5 && !this.inParkingLot && Math.random() > 0.92) {
+      const sparkX = this.displayX + (Math.random() - 0.3) * 15 * S;
+      const sparkY = this.displayY + (Math.random() - 0.5) * 8 * S;
+      particles.emit('damageSparks', sparkX, sparkY, 1 + Math.floor(this.damage * 3));
+    }
+
     // Suppress effects when in pit or parking lot
     if (this.inPit || this.inParkingLot) {
       this.targetGlow = Math.min(this.targetGlow, 0.02);
@@ -560,6 +655,25 @@ export class Racer {
     }
 
     this.drawCar(ctx, x, y + yOff, color, activity);
+
+    // Damage overlay (scratches, dents, cracks)
+    if (this.damage > 0.01) {
+      this._drawDamageOverlay(ctx, x, y + yOff);
+    }
+
+    // Repair flash (bright white glow on completion)
+    if (this.repairFlash > 0) {
+      ctx.save();
+      const flashR = 40 * CAR_SCALE;
+      const grad = ctx.createRadialGradient(x, y + yOff, 0, x, y + yOff, flashR);
+      grad.addColorStop(0, `rgba(200,255,200,${this.repairFlash * 0.4})`);
+      grad.addColorStop(1, 'rgba(200,255,200,0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(x, y + yOff, flashR, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
 
     // Hover glow for tmux-focusable sessions
     if (this.hoverGlow > 0.01) {
@@ -1117,6 +1231,118 @@ export class Racer {
       ctx.fillRect(-hammerHeadWidth / 2, handleLength - 1, hammerHeadWidth, hammerHeadHeight);
       ctx.restore();
     }
+  }
+
+  _drawDamageOverlay(ctx, x, y) {
+    const S = CAR_SCALE;
+    const L = LIMO_STRETCH;
+    const dmg = this.damage;
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(S, S);
+
+    // Car body bounds in local space (approx)
+    const bodyLeft = -17 - L;
+    const bodyRight = 21;
+    const bodyTop = -9;
+    const bodyBottom = 2;
+    const bodyW = bodyRight - bodyLeft;
+    const bodyH = bodyBottom - bodyTop;
+
+    // Tier 1 (0-25%): minor scratches
+    if (dmg > 0) {
+      const scratchCount = Math.min(this._scratchSeeds.length, Math.ceil(dmg * 12));
+      ctx.strokeStyle = `rgba(255,255,255,${Math.min(0.35, dmg * 0.5)})`;
+      ctx.lineWidth = 0.5;
+      for (let i = 0; i < scratchCount; i++) {
+        const s = this._scratchSeeds[i];
+        const sx = bodyLeft + s.x * bodyW;
+        const sy = bodyTop + s.y * bodyH;
+        const len = s.len * bodyW;
+        ctx.beginPath();
+        ctx.moveTo(sx, sy);
+        ctx.lineTo(sx + Math.cos(s.angle) * len, sy + Math.sin(s.angle) * len);
+        ctx.stroke();
+      }
+    }
+
+    // Tier 2 (25-50%): dents + faint smoke tint
+    if (dmg > 0.25) {
+      const dentAlpha = Math.min(0.3, (dmg - 0.25) * 0.6);
+      const dentCount = Math.min(this._dentSeeds.length, Math.ceil((dmg - 0.25) * 8));
+      for (let i = 0; i < dentCount; i++) {
+        const d = this._dentSeeds[i];
+        const dx = bodyLeft + d.x * bodyW;
+        const dy = bodyTop + d.y * bodyH;
+        const dr = d.r * bodyW;
+        // Dark dent shadow
+        ctx.fillStyle = `rgba(0,0,0,${dentAlpha})`;
+        ctx.beginPath();
+        ctx.ellipse(dx, dy, dr, dr * 0.6, 0, 0, Math.PI * 2);
+        ctx.fill();
+        // Highlight edge
+        ctx.strokeStyle = `rgba(255,255,255,${dentAlpha * 0.5})`;
+        ctx.lineWidth = 0.3;
+        ctx.beginPath();
+        ctx.arc(dx - dr * 0.3, dy - dr * 0.3, dr * 0.5, Math.PI * 1.2, Math.PI * 1.8);
+        ctx.stroke();
+      }
+    }
+
+    // Tier 3 (50-75%): cracked windshield + heavy marks
+    if (dmg > 0.5) {
+      const crackAlpha = Math.min(0.6, (dmg - 0.5) * 1.2);
+      // Windshield crack pattern radiating from center (local x 3..9, y -9..-5)
+      const crackOrigin = [6, -7];
+      const crackEnds = [[4, -5.5], [8, -6], [5, -8.5], [7.5, -8]];
+      ctx.strokeStyle = `rgba(200,220,255,${crackAlpha})`;
+      ctx.lineWidth = 0.6;
+      ctx.beginPath();
+      for (let i = 0; i < crackEnds.length; i++) {
+        ctx.moveTo(crackOrigin[0], crackOrigin[1]);
+        ctx.lineTo(crackEnds[i][0], crackEnds[i][1]);
+      }
+      ctx.stroke();
+
+      // Dark scorch marks on body
+      const scorchAlpha = (dmg - 0.5) * 0.4;
+      ctx.fillStyle = `rgba(30,20,10,${scorchAlpha})`;
+      ctx.beginPath();
+      ctx.ellipse(-5 - L * 0.5, -3, 8, 3, 0.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(8, -1, 5, 2, -0.1, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Tier 4 (75-100%): loose panels + heavy damage overlay
+    if (dmg > 0.75) {
+      const critAlpha = Math.min(0.5, (dmg - 0.75) * 1.0);
+
+      // Loose panel gaps (dark lines suggesting panels separating)
+      ctx.strokeStyle = `rgba(20,15,10,${critAlpha})`;
+      ctx.lineWidth = 0.8;
+      ctx.beginPath();
+      ctx.moveTo(-4, bodyTop);
+      ctx.lineTo(-4, bodyTop + 3);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-10 - L * 0.3, bodyTop + 2);
+      ctx.lineTo(-10 - L * 0.3, bodyBottom - 1);
+      ctx.stroke();
+
+      // Panel offset (slight shift to suggest looseness)
+      const jitter = Math.sin(performance.now() * 0.01) * 0.3;
+      ctx.fillStyle = `rgba(60,40,20,${critAlpha * 0.3})`;
+      ctx.fillRect(bodyLeft + 2 + jitter, bodyTop + 1, 6, 4);
+
+      // Overall damage tint
+      ctx.fillStyle = `rgba(40,20,0,${critAlpha * 0.15})`;
+      ctx.fillRect(bodyLeft, bodyTop, bodyW, bodyH);
+    }
+
+    ctx.restore();
   }
 
   drawInfo(ctx, x, y, color, activity) {
