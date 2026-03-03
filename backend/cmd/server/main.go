@@ -17,6 +17,7 @@ import (
 	"github.com/agent-racer/backend/internal/gamification"
 	"github.com/agent-racer/backend/internal/mock"
 	"github.com/agent-racer/backend/internal/monitor"
+	"github.com/agent-racer/backend/internal/replay"
 	"github.com/agent-racer/backend/internal/session"
 	"github.com/agent-racer/backend/internal/ws"
 )
@@ -102,6 +103,17 @@ func main() {
 		log.Println("========================================")
 	}
 
+	// Set up replay recorder and API (records session snapshots to JSONL files).
+	replayDir := config.DefaultReplayDir()
+	var rec *replay.Recorder
+	if cfg.Replay.Enabled {
+		var recErr error
+		rec, recErr = replay.NewRecorder(replayDir, cfg.Replay.RetentionDays)
+		if recErr != nil {
+			log.Printf("Replay recorder disabled: %v", recErr)
+		}
+	}
+
 	server := ws.NewServer(cfg, store, broadcaster, frontendDir, *devMode, embeddedHandler, cfg.Server.AllowedOrigins, authToken)
 
 	// Stats tracker for gamification system.
@@ -144,6 +156,10 @@ func main() {
 
 	server.SetStatsTracker(tracker)
 
+	// Wire up replay API handler (serves replays even when recording is disabled).
+	replayAPIHandler := replay.NewHandler(replayDir, server.Authorize)
+	server.SetReplayHandler(replayAPIHandler)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -165,6 +181,9 @@ func main() {
 		sources := buildSources(cfg)
 		mon = monitor.NewMonitor(cfg, store, broadcaster, sources)
 		mon.SetStatsEvents(statsCh)
+		if rec != nil {
+			mon.SetSnapshotHook(rec.WriteSnapshot)
+		}
 		go mon.Start(ctx)
 	}
 
@@ -224,6 +243,9 @@ func main() {
 		cancel()
 		broadcaster.Stop()
 		wg.Wait() // allow stats tracker to flush
+		if rec != nil {
+			rec.Close()
+		}
 		os.Exit(0)
 	}()
 
