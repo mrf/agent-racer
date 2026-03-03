@@ -63,7 +63,7 @@ export class Minimap {
       this._animFrame = requestAnimationFrame(tick);
       if (now - this._lastFrameTime < FRAME_MS) return;
       this._lastFrameTime = now;
-      if (this.visible && this.raceCanvas) {
+      if (this.visible && this.raceCanvas && this._ctx) {
         this._draw(now);
       }
     };
