@@ -95,6 +95,7 @@ vi.mock('./Dashboard.js', () => ({
     this.getRequiredHeight = vi.fn(() => 160);
     this.getBounds = vi.fn();
     this.draw = vi.fn();
+    this.handleClick = vi.fn(() => false);
   }),
 }));
 

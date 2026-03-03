@@ -143,6 +143,9 @@ function handleSnapshot(payload) {
   updateSessionCount();
   log(`Snapshot: ${payload.sessions.length} sessions`, 'info');
   activeView.setAllRacers(payload.sessions);
+  if (payload.teams && activeView.setTeams) {
+    activeView.setTeams(payload.teams);
+  }
   engine.updateExcitement(payload.sessions);
   flyout.updateContent(sessions);
   commentary.processUpdate(sessions);
@@ -160,6 +163,9 @@ function handleDelta(payload) {
       sessions.delete(id);
       activeView.removeRacer(id);
     }
+  }
+  if (payload.teams && activeView.setTeams) {
+    activeView.setTeams(payload.teams);
   }
 
   tracker.onDelta(payload.updates, payload.removed);

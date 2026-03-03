@@ -88,12 +88,14 @@ type SourceHealthPayload struct {
 
 type SnapshotPayload struct {
 	Sessions     []*session.SessionState `json:"sessions"`
+	Teams        []session.TeamInfo      `json:"teams,omitempty"`
 	SourceHealth []SourceHealthPayload   `json:"sourceHealth,omitempty"`
 }
 
 type DeltaPayload struct {
 	Updates []*session.SessionState `json:"updates"`
-	Removed []string               `json:"removed,omitempty"`
+	Removed []string                `json:"removed,omitempty"`
+	Teams   []session.TeamInfo      `json:"teams,omitempty"`
 }
 
 type CompletionPayload struct {

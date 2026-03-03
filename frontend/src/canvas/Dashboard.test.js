@@ -34,6 +34,8 @@ function stubCtx() {
     fillRect: vi.fn(),
     arc: vi.fn(),
     fill: vi.fn(),
+    roundRect: vi.fn(),
+    measureText: vi.fn(() => ({ width: 50 })),
   };
 }
 

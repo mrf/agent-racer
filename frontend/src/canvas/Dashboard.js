@@ -1,9 +1,11 @@
 import { getEquippedBadge, getEquippedTitle } from '../gamification/CosmeticRegistry.js';
 import { TERMINAL_ACTIVITIES } from '../session/constants.js';
+import { TeamGarage } from './TeamGarage.js';
 
 const DASHBOARD_GAP = 30;
 const DASHBOARD_PADDING = { top: 20, bottom: 20, left: 20, right: 20 };
 const STATS_HEIGHT = 40;
+const TAB_BAR_HEIGHT = 28;
 const LEADERBOARD_HEADER_HEIGHT = 28;
 const LEADERBOARD_ROW_HEIGHT = 26;
 const SECTION_GAP = 16;
@@ -53,13 +55,20 @@ function elapsed(startStr) {
 }
 
 export class Dashboard {
+  constructor() {
+    this._activeTab = 'sessions';
+    this._teamGarage = new TeamGarage();
+    // Stores bounds of tab buttons for click detection: [{label, x, y, w, h}]
+    this._tabButtons = [];
+  }
+
   getRequiredHeight(sessionCount) {
     const rows = Math.min(Math.max(sessionCount, 0), MAX_LEADERBOARD_ROWS);
     const leaderboardHeight = rows > 0
       ? LEADERBOARD_HEADER_HEIGHT + rows * LEADERBOARD_ROW_HEIGHT
       : 0;
     return DASHBOARD_GAP + DASHBOARD_PADDING.top + STATS_HEIGHT + SECTION_GAP
-      + leaderboardHeight + DASHBOARD_PADDING.bottom;
+      + TAB_BAR_HEIGHT + SECTION_GAP + leaderboardHeight + DASHBOARD_PADDING.bottom;
   }
 
   getMinHeight() {
@@ -76,7 +85,18 @@ export class Dashboard {
     };
   }
 
-  draw(ctx, bounds, sessions, zoneCounts) {
+  /** Returns true if the click was consumed by a tab button. */
+  handleClick(mx, my) {
+    for (const btn of this._tabButtons) {
+      if (mx >= btn.x && mx <= btn.x + btn.w && my >= btn.y && my <= btn.y + btn.h) {
+        this._activeTab = btn.label;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  draw(ctx, bounds, sessions, zoneCounts, teams) {
     if (!bounds || bounds.height < 40) return;
 
     const { x, y, width, height } = bounds;
@@ -93,12 +113,65 @@ export class Dashboard {
     const statsY = y + DASHBOARD_PADDING.top;
     this._drawStats(ctx, x, statsY, width, sessions, zoneCounts);
 
-    // Leaderboard
-    if (sessions.length > 0) {
-      const lbY = statsY + STATS_HEIGHT + SECTION_GAP;
-      const lbHeight = height - DASHBOARD_PADDING.top - STATS_HEIGHT - SECTION_GAP - DASHBOARD_PADDING.bottom;
-      this._drawLeaderboard(ctx, x, lbY, width, lbHeight, sessions);
+    // Tab bar
+    const tabY = statsY + STATS_HEIGHT + SECTION_GAP;
+    this._drawTabBar(ctx, x, tabY, width, sessions, teams || []);
+
+    // Content below tabs
+    const contentY = tabY + TAB_BAR_HEIGHT + SECTION_GAP;
+    const contentHeight = height - DASHBOARD_PADDING.top - STATS_HEIGHT - SECTION_GAP
+      - TAB_BAR_HEIGHT - SECTION_GAP - DASHBOARD_PADDING.bottom;
+
+    if (this._activeTab === 'sessions') {
+      if (sessions.length > 0) {
+        this._drawLeaderboard(ctx, x, contentY, width, contentHeight, sessions);
+      }
+    } else {
+      this._teamGarage.draw(ctx, x, contentY, width, contentHeight, teams || []);
     }
+  }
+
+  _drawTabBar(ctx, x, y, width, sessions, teams) {
+    const tabs = [
+      { label: 'sessions', text: `SESSIONS (${sessions.length})` },
+      { label: 'teams', text: `TEAMS (${teams.length})` },
+    ];
+    const tabW = 120;
+    const tabH = TAB_BAR_HEIGHT - 4;
+    const tabGap = 6;
+
+    this._tabButtons = [];
+
+    for (let i = 0; i < tabs.length; i++) {
+      const tab = tabs[i];
+      const tx = x + i * (tabW + tabGap);
+      const ty = y + 2;
+      const active = this._activeTab === tab.label;
+
+      // Button background
+      ctx.fillStyle = active ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.04)';
+      ctx.beginPath();
+      ctx.roundRect(tx, ty, tabW, tabH, 3);
+      ctx.fill();
+
+      // Active indicator line at bottom
+      if (active) {
+        ctx.fillStyle = '#3b82f6';
+        ctx.fillRect(tx + 4, ty + tabH - 2, tabW - 8, 2);
+      }
+
+      // Label
+      ctx.fillStyle = active ? '#e0e0e0' : '#555';
+      ctx.font = active ? 'bold 10px Courier New' : '10px Courier New';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(tab.text, tx + tabW / 2, ty + tabH / 2 - 1);
+
+      this._tabButtons.push({ label: tab.label, x: tx, y: ty, w: tabW, h: tabH });
+    }
+
+    ctx.textBaseline = 'alphabetic';
+    ctx.textAlign = 'left';
   }
 
   _drawStats(ctx, x, y, width, sessions, zoneCounts) {
