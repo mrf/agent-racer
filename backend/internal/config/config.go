@@ -28,6 +28,7 @@ type Config struct {
 	Privacy      PrivacyConfig      `yaml:"privacy"`
 	Gamification GamificationConfig `yaml:"gamification"`
 	Replay       ReplayConfig       `yaml:"replay"`
+	Track        TrackConfig        `yaml:"track"`
 }
 
 // ReplayConfig controls session replay recording.
@@ -36,6 +37,11 @@ type ReplayConfig struct {
 	Enabled bool `yaml:"enabled"`
 	// RetentionDays is how many days of replay files to keep. 0 = keep forever.
 	RetentionDays int `yaml:"retention_days"`
+}
+
+// TrackConfig holds track layout settings.
+type TrackConfig struct {
+	Active string `yaml:"active"` // track ID to use; empty = default linear track
 }
 
 // GamificationConfig holds settings for the gamification subsystem.

@@ -16,6 +16,7 @@ import (
 	"github.com/agent-racer/backend/internal/gamification"
 	"github.com/agent-racer/backend/internal/replay"
 	"github.com/agent-racer/backend/internal/session"
+	"github.com/agent-racer/backend/internal/tracks"
 	"github.com/gorilla/websocket"
 )
 
@@ -48,6 +49,7 @@ type Server struct {
 	achievementEngine *gamification.AchievementEngine
 	rewardRegistry    *gamification.RewardRegistry
 	replayHandler     *replay.Handler
+	trackHandler      *tracks.Handler
 }
 
 func NewServer(cfg *config.Config, store *session.Store, broadcaster *Broadcaster, frontendDir string, dev bool, embeddedHandler http.Handler, allowedOrigins []string, authToken string) *Server {
@@ -90,6 +92,12 @@ func (s *Server) SetReplayHandler(h *replay.Handler) {
 	s.replayHandler = h
 }
 
+// SetTrackHandler configures the track handler used by /api/tracks endpoints.
+// Must be called before SetupRoutes.
+func (s *Server) SetTrackHandler(h *tracks.Handler) {
+	s.trackHandler = h
+}
+
 func (s *Server) SetupRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/ws", s.handleWS)
 	mux.HandleFunc("/api/sessions", s.handleSessions)
@@ -103,6 +111,18 @@ func (s *Server) SetupRoutes(mux *http.ServeMux) {
 
 	if s.replayHandler != nil {
 		s.replayHandler.RegisterRoutes(mux)
+	}
+
+	if s.trackHandler != nil {
+		tracksAuth := func(w http.ResponseWriter, r *http.Request) {
+			if !s.authorize(r) {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+			s.trackHandler.ServeHTTP(w, r)
+		}
+		mux.HandleFunc("/api/tracks", tracksAuth)
+		mux.HandleFunc("/api/tracks/", tracksAuth)
 	}
 
 	if s.dev {

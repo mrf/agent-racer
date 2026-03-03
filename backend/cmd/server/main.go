@@ -19,6 +19,7 @@ import (
 	"github.com/agent-racer/backend/internal/monitor"
 	"github.com/agent-racer/backend/internal/replay"
 	"github.com/agent-racer/backend/internal/session"
+	"github.com/agent-racer/backend/internal/tracks"
 	"github.com/agent-racer/backend/internal/ws"
 )
 
@@ -115,6 +116,14 @@ func main() {
 	}
 
 	server := ws.NewServer(cfg, store, broadcaster, frontendDir, *devMode, embeddedHandler, cfg.Server.AllowedOrigins, authToken)
+
+	// Track store for custom race circuits.
+	trackStore, trackErr := tracks.NewStore("")
+	if trackErr != nil {
+		log.Printf("Warning: track store unavailable: %v", trackErr)
+	} else {
+		server.SetTrackHandler(tracks.NewHandler(trackStore))
+	}
 
 	// Stats tracker for gamification system.
 	gamStore := gamification.NewStore("")
