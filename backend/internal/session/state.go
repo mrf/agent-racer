@@ -96,6 +96,8 @@ type SessionState struct {
 	CompactionCount    int             `json:"compactionCount,omitempty"`
 	Subagents          []SubagentState `json:"subagents,omitempty"`
 	LastAssistantText  string          `json:"lastAssistantText,omitempty"`
+	Position           int             `json:"position,omitempty"`      // 1-based rank among non-terminal sessions
+	PositionDelta      int             `json:"positionDelta,omitempty"` // positive = moved up, negative = dropped
 	LogPath            string          `json:"-"` // internal: path to JSONL file, excluded from wire protocol
 }
 

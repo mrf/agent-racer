@@ -146,6 +146,11 @@ export class Racer {
     this.hasTmux = !!state.tmuxTarget;
     this.hoverGlow = 0;
     this.hoverGlowPhase = Math.random() * Math.PI * 2;
+
+    // Draft/overtake mechanics
+    this.draftIntensity = 0;   // 0-1: how deep in draft zone (set by RaceCanvas)
+    this.overtakeFlash = 0;    // 0-1: overtake flash intensity (decays over time)
+    this.position = 0;         // current race position (1-based)
   }
 
   update(state) {
@@ -295,6 +300,14 @@ export class Racer {
     // Parking lot dimming transition
     this.parkingLotDim += (this.parkingLotDimTarget - this.parkingLotDim) * 0.06 * dtScale;
 
+    // Draft intensity decays to 0 each frame (reset by RaceCanvas each update)
+    this.draftIntensity = Math.max(0, this.draftIntensity - 0.1 * dtScale);
+
+    // Overtake flash decays over ~0.6s
+    if (this.overtakeFlash > 0) {
+      this.overtakeFlash = Math.max(0, this.overtakeFlash - dt / 0.6);
+    }
+
     this.thoughtBubblePhase += 0.06 * dtScale;
     this.dotPhase += 0.04 * dtScale;
     this.flagPhase += 0.05 * dtScale;
@@ -311,6 +324,9 @@ export class Racer {
     const burnRate = this.state.burnRatePerMinute || 0;
     const burnIntensity = burnRate > 5000 ? 3 : burnRate > 2000 ? 2 : burnRate > 500 ? 1 : 0;
 
+    // Draft boost: drafter car emits extra turbulent exhaust
+    const draftBoost = this.draftIntensity > 0.3 ? 1 : 0;
+
     switch (activity) {
       case 'thinking':
         this.targetGlow = 0.08 + burnIntensity * 0.02;
@@ -322,6 +338,9 @@ export class Racer {
             } else {
               particles.emit('exhaust', this.displayX - (17 + LIMO_STRETCH) * S, this.displayY + 1 * S, 1);
             }
+          }
+          if (draftBoost && Math.random() > 0.6) {
+            particles.emit('draftTurbulence', this.displayX - (17 + LIMO_STRETCH) * S, this.displayY, 1);
           }
         }
         this.hammerActive = false; // Stop hammer animation
@@ -580,7 +599,46 @@ export class Racer {
     this.drawActivityEffects(ctx, x, y + yOff, color, activity);
     this.drawInfo(ctx, x, y, color, activity);
 
+    // Position badge (top-left of car)
+    if (this.position > 0 && !this.inPit && !this.inParkingLot) {
+      this._drawPositionBadge(ctx, x, y + yOff, color);
+    }
+
+    // Overtake flash: brief golden overlay on the car
+    if (this.overtakeFlash > 0) {
+      const flashAlpha = this.overtakeFlash * 0.55;
+      ctx.save();
+      ctx.globalAlpha = flashAlpha;
+      ctx.fillStyle = '#ffd700';
+      const carLen = (17 + LIMO_STRETCH + 23) * S;
+      ctx.fillRect(x - (17 + LIMO_STRETCH) * S, y + yOff - 12 * S, carLen, 14 * S);
+      ctx.restore();
+    }
+
     ctx.restore();
+  }
+
+  _drawPositionBadge(ctx, x, y, color) {
+    const pos = this.position;
+    const S = CAR_SCALE;
+    const badgeX = x - (17 + LIMO_STRETCH) * S;
+    const badgeY = y - 12 * S - 14;
+    const badgeR = 9;
+
+    // Background circle: gold for top 3, dark for rest
+    const bgColor = pos <= 3 ? '#d4a017' : 'rgba(20,20,40,0.75)';
+    ctx.fillStyle = bgColor;
+    ctx.beginPath();
+    ctx.arc(badgeX, badgeY, badgeR, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Position number
+    ctx.fillStyle = pos <= 3 ? '#1a1a2e' : '#aaa';
+    ctx.font = `bold ${pos >= 10 ? 7 : 9}px Courier New`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`${pos}`, badgeX, badgeY);
+    ctx.textBaseline = 'alphabetic';
   }
 
   drawCar(ctx, x, y, color, activity) {

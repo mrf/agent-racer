@@ -715,4 +715,31 @@ export class SoundEngine {
       this.stopAmbient();
     }
   }
+
+  // Overtake whoosh: doppler-like pitch sweep (low -> high -> low)
+  playOvertakeWhoosh() {
+    if (this.muted) return;
+    try { this._ensureCtx(); } catch { return; }
+    const now = this.ctx.currentTime;
+
+    // Filtered noise with a bandpass sweep for a "whoosh" feel
+    const noise = this._makeNoise(false);
+    const bp = this.ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.setValueAtTime(300, now);
+    bp.frequency.linearRampToValueAtTime(2000, now + 0.12);
+    bp.frequency.exponentialRampToValueAtTime(400, now + 0.25);
+    bp.Q.value = 1.5;
+
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(0.001, now);
+    gain.gain.linearRampToValueAtTime(0.22, now + 0.06);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+
+    noise.connect(bp);
+    bp.connect(gain);
+    gain.connect(this.sfxBus);
+    noise.start(now);
+    noise.stop(now + 0.3);
+  }
 }

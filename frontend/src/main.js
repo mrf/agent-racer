@@ -169,6 +169,12 @@ function handleBattlePassProgress(payload) {
   battlePassBar.onProgress(payload);
 }
 
+function handleOvertake(payload) {
+  log(`Overtake! ${payload.overtakerName} passed ${payload.overtakenName} (pos ${payload.newPosition})`, 'info');
+  activeView.onOvertake && activeView.onOvertake(payload);
+  engine.playOvertakeWhoosh();
+}
+
 function handleStatus(status) {
   statusDot.className = `status-dot ${status}`;
   activeView.setConnected(status === 'connected');
@@ -327,6 +333,7 @@ const conn = new RaceConnection({
   onAchievementUnlocked: handleAchievementUnlocked,
   onEquipped: handleEquipped,
   onBattlePassProgress: handleBattlePassProgress,
+  onOvertake: handleOvertake,
 });
 
 conn.connect();

@@ -266,6 +266,32 @@ export class ParticleSystem {
           gravity: 0.02,
         };
 
+      // ── Racing event presets ─────────────
+      case 'overtakeSwoosh':
+        return {
+          ...base,
+          vx: 3 + Math.random() * 5,  // burst forward (rightward)
+          vy: (Math.random() - 0.5) * 4,
+          size: 2 + Math.random() * 3,
+          color: { r: 255, g: 220, b: 60 },   // gold-yellow
+          colorEnd: { r: 255, g: 140, b: 20 }, // orange fade
+          decay: 0.04 + Math.random() * 0.03,
+          layer: 'front',
+        };
+
+      case 'draftTurbulence':
+        return {
+          ...base,
+          vx: -0.5 - Math.random() * 1.0,
+          vy: (Math.random() - 0.5) * 1.5,
+          size: 2 + Math.random() * 2,
+          color: { r: 180, g: 200, b: 255 },
+          colorEnd: { r: 100, g: 120, b: 200 },
+          decay: 0.025 + Math.random() * 0.015,
+          baseAlpha: 0.5,
+          sizeMultiplier: 'bloom',
+        };
+
       // ── Footrace presets ──────────────────
       case 'dustCloud':
         return {

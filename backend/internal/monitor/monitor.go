@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -369,6 +370,11 @@ func (m *Monitor) poll() {
 		if !activeKeys[key] {
 			delete(m.removedKeys, key)
 		}
+	}
+
+	// Compute racing positions and detect overtakes before committing.
+	if len(updates) > 0 {
+		m.updatePositions(updates)
 	}
 
 	// Atomically commit all session updates to the store and queue the
@@ -1144,4 +1150,113 @@ func workingDirFromFile(sessionFile string) string {
 		return ""
 	}
 	return DecodeProjectPath(projectDir)
+}
+
+// updatePositions computes racing positions for all non-terminal sessions,
+// sets Position/PositionDelta on the supplied updates, and broadcasts
+// overtake events when a session passes another.
+func (m *Monitor) updatePositions(updates []*session.SessionState) {
+	// Get current store state (these carry the previous positions).
+	allSessions := m.store.GetAll()
+
+	// Build a lookup of previous positions and names from the store.
+	prevPos := make(map[string]int, len(allSessions))
+	prevNames := make(map[string]string, len(allSessions))
+	for _, s := range allSessions {
+		if s.Position > 0 {
+			prevPos[s.ID] = s.Position
+		}
+		prevNames[s.ID] = s.Name
+	}
+
+	// Build a combined view: updates override store entries.
+	updateMap := make(map[string]*session.SessionState, len(updates))
+	for _, u := range updates {
+		updateMap[u.ID] = u
+	}
+	combined := make([]*session.SessionState, 0, len(allSessions)+len(updates))
+	seen := make(map[string]bool, len(allSessions))
+	for _, s := range allSessions {
+		seen[s.ID] = true
+		if u, ok := updateMap[s.ID]; ok {
+			combined = append(combined, u)
+		} else {
+			combined = append(combined, s)
+		}
+	}
+	for _, u := range updates {
+		if !seen[u.ID] {
+			combined = append(combined, u)
+		}
+	}
+
+	// Collect non-terminal sessions and sort by context utilization descending.
+	type utilEntry struct {
+		id   string
+		name string
+		util float64
+	}
+	racing := make([]utilEntry, 0, len(combined))
+	for _, s := range combined {
+		if !s.IsTerminal() {
+			racing = append(racing, utilEntry{s.ID, s.Name, s.ContextUtilization})
+		}
+	}
+	sort.Slice(racing, func(i, j int) bool {
+		return racing[i].util > racing[j].util
+	})
+
+	// Assign new positions.
+	newPos := make(map[string]int, len(racing))
+	for i := 0; i < len(racing); i++ {
+		newPos[racing[i].id] = i + 1
+	}
+
+	// Build reverse map of previous order: position -> ID.
+	prevOrder := make(map[int]string, len(allSessions))
+	for _, s := range allSessions {
+		if s.Position > 0 && !s.IsTerminal() {
+			prevOrder[s.Position] = s.ID
+		}
+	}
+
+	// Set position/delta on updates and emit overtake events.
+	for _, u := range updates {
+		np, active := newPos[u.ID]
+		if !active {
+			u.Position = 0
+			u.PositionDelta = 0
+			continue
+		}
+		pp := prevPos[u.ID]
+		u.Position = np
+		if pp > 0 {
+			u.PositionDelta = pp - np // positive = moved up
+		}
+
+		// Overtake: moved up and the session now occupying our previous slot is a different car.
+		if u.PositionDelta <= 0 {
+			continue
+		}
+		overtakenID, ok := prevOrder[np]
+		if !ok || overtakenID == u.ID {
+			continue
+		}
+		overtakenName := prevNames[overtakenID]
+		if overtakenName == "" {
+			overtakenName = overtakenID
+		}
+		msg, err := ws.NewOvertakeMessage(ws.OvertakePayload{
+			OvertakerID:   u.ID,
+			OvertakerName: u.Name,
+			OvertakenID:   overtakenID,
+			OvertakenName: overtakenName,
+			NewPosition:   np,
+		})
+		if err != nil {
+			log.Printf("updatePositions: marshal overtake event: %v", err)
+			continue
+		}
+		m.broadcaster.BroadcastMessage(msg)
+	}
 }
