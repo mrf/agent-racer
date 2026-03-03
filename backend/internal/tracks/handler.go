@@ -52,13 +52,16 @@ func writeJSON(w http.ResponseWriter, v interface{}) {
 	json.NewEncoder(w).Encode(v)
 }
 
-func isPreset(id string) bool {
+var presetIDs = func() map[string]bool {
+	m := make(map[string]bool)
 	for _, p := range Presets() {
-		if p.ID == id {
-			return true
-		}
+		m[p.ID] = true
 	}
-	return false
+	return m
+}()
+
+func isPreset(id string) bool {
+	return presetIDs[id]
 }
 
 func (h *Handler) listTracks(w http.ResponseWriter, r *http.Request) {
@@ -68,27 +71,24 @@ func (h *Handler) listTracks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	presets := Presets()
-	presetIDs := make(map[string]bool)
-	for i := 0; i < len(presets); i++ {
-		presetIDs[presets[i].ID] = true
-	}
-	var filtered []*Track
+	all := make([]*Track, 0, len(presets)+len(userTracks))
+	all = append(all, presets...)
 	for i := 0; i < len(userTracks); i++ {
-		if !presetIDs[userTracks[i].ID] {
-			filtered = append(filtered, userTracks[i])
+		if !isPreset(userTracks[i].ID) {
+			all = append(all, userTracks[i])
 		}
 	}
-	all := make([]*Track, 0, len(presets)+len(filtered))
-	all = append(all, presets...)
-	all = append(all, filtered...)
 	writeJSON(w, all)
 }
 
 func (h *Handler) getTrack(w http.ResponseWriter, r *http.Request, id string) {
-	for _, p := range Presets() {
-		if p.ID == id {
-			writeJSON(w, p)
-			return
+	if isPreset(id) {
+		presets := Presets()
+		for i := 0; i < len(presets); i++ {
+			if presets[i].ID == id {
+				writeJSON(w, presets[i])
+				return
+			}
 		}
 	}
 	t, err := h.store.Get(id)
@@ -109,7 +109,6 @@ func (h *Handler) createTrack(w http.ResponseWriter, r *http.Request) {
 		t.ID = fmt.Sprintf("track-%d", time.Now().UnixMilli())
 	}
 	t.CreatedAt = time.Now()
-	t.UpdatedAt = time.Now()
 	if err := h.store.Save(&t); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

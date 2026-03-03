@@ -26,6 +26,7 @@ export class TrackEditor {
     this._validationEl = null;
     this._trackListEl = null;
     this._currentTrackId = null;
+    this._lastValidation = null;
 
     this._mouseDownHandler = (e) => this._onMouseDown(e);
     this._mouseMoveHandler = (e) => this._onMouseMove(e);
@@ -125,11 +126,13 @@ export class TrackEditor {
   }
 
   _validate() {
-    if (!this._validationEl) return null;
     const result = validateTrack(this.tiles);
+    this._lastValidation = result;
+    if (!this._validationEl) return result;
     this._validationEl.textContent = (result.valid ? '\u2713 ' : '\u2717 ') + result.message;
-    this._validationEl.style.color = result.valid ? '#4ade80' : '#f87171';
-    this._validationEl.style.borderColor = result.valid ? '#4ade80' : '#f87171';
+    const color = result.valid ? '#4ade80' : '#f87171';
+    this._validationEl.style.color = color;
+    this._validationEl.style.borderColor = color;
     return result;
   }
 
@@ -226,9 +229,13 @@ export class TrackEditor {
     const track = { id, name, width: this.width, height: this.height, tiles: this.tiles };
     try {
       const isUpdate = this._currentTrackId === id;
-      const resp = isUpdate
-        ? await authFetch('/api/tracks/' + id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(track) })
-        : await authFetch('/api/tracks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(track) });
+      const url = isUpdate ? '/api/tracks/' + id : '/api/tracks';
+      const method = isUpdate ? 'PUT' : 'POST';
+      const resp = await authFetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(track),
+      });
       if (resp.ok) {
         this._currentTrackId = id;
         alert('Saved: ' + name);
@@ -261,9 +268,8 @@ export class TrackEditor {
       Object.assign(header.style, { color: '#a0a0ff', fontWeight: 'bold', marginBottom: '8px' });
       this._trackListEl.appendChild(header);
 
-      const list = tracks || [];
-      for (let i = 0; i < list.length; i++) {
-        const t = list[i];
+      for (let i = 0; i < tracks.length; i++) {
+        const t = tracks[i];
         const row = document.createElement('div');
         Object.assign(row.style, {
           display: 'flex', gap: '8px', alignItems: 'center',
@@ -328,7 +334,7 @@ export class TrackEditor {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = (track.id || 'track') + '.json';
+    a.download = track.id + '.json';
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -419,39 +425,12 @@ export class TrackEditor {
         ctx.bezierCurveTo(x + sz * 0.3, cy - sz * 0.3, x + sz * 0.7, cy + sz * 0.3, x + sz, cy);
         ctx.stroke();
         break;
-      case 'start-line': {
-        ctx.fillStyle = '#ffffff';
-        const bw = 10, bh = sz - 6;
-        const bx = cx - bw / 2, by = y + 3;
-        for (let i = 0; i < 3; i++) {
-          for (let j = 0; j < 2; j++) {
-            ctx.fillStyle = (i + j) % 2 === 0 ? '#fff' : '#222';
-            ctx.fillRect(bx + j * (bw / 2), by + i * (bh / 3), bw / 2, bh / 3);
-          }
-        }
-        ctx.fillStyle = '#fff';
-        ctx.font = 'bold 9px Courier New';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'bottom';
-        ctx.fillText('S', cx, y + sz - 1);
+      case 'start-line':
+        this._drawCheckerLine(ctx, cx, y, sz, '#fff', '#222', 'S');
         break;
-      }
-      case 'finish-line': {
-        const bw = 10, bh = sz - 6;
-        const bx = cx - bw / 2, by = y + 3;
-        for (let i = 0; i < 3; i++) {
-          for (let j = 0; j < 2; j++) {
-            ctx.fillStyle = (i + j) % 2 === 0 ? '#e94560' : '#1a1a2e';
-            ctx.fillRect(bx + j * (bw / 2), by + i * (bh / 3), bw / 2, bh / 3);
-          }
-        }
-        ctx.fillStyle = '#e94560';
-        ctx.font = 'bold 9px Courier New';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'bottom';
-        ctx.fillText('F', cx, y + sz - 1);
+      case 'finish-line':
+        this._drawCheckerLine(ctx, cx, y, sz, '#e94560', '#1a1a2e', 'F');
         break;
-      }
       case 'pit-entry':
         ctx.strokeStyle = '#ffaa00';
         ctx.beginPath(); ctx.moveTo(x, cy); ctx.lineTo(x + sz, cy); ctx.stroke();
@@ -501,9 +480,25 @@ export class TrackEditor {
     ctx.restore();
   }
 
+  _drawCheckerLine(ctx, cx, y, sz, color1, color2, label) {
+    const bw = 10, bh = sz - 6;
+    const bx = cx - bw / 2, by = y + 3;
+    for (let i = 0; i < 3; i++) {
+      for (let j = 0; j < 2; j++) {
+        ctx.fillStyle = (i + j) % 2 === 0 ? color1 : color2;
+        ctx.fillRect(bx + j * (bw / 2), by + i * (bh / 3), bw / 2, bh / 3);
+      }
+    }
+    ctx.fillStyle = color1;
+    ctx.font = 'bold 9px Courier New';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(label, cx, y + sz - 1);
+  }
+
   _drawValidationOverlay(ctx) {
-    const result = validateTrack(this.tiles);
-    if (!result.valid && result.disconnected.length > 0) {
+    const result = this._lastValidation;
+    if (result && !result.valid && result.disconnected.length > 0) {
       ctx.strokeStyle = 'rgba(248,113,113,0.8)';
       ctx.lineWidth = 2;
       for (let i = 0; i < result.disconnected.length; i++) {

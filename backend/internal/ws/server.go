@@ -103,20 +103,15 @@ func (s *Server) SetupRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/challenges", s.handleChallenges)
 
 	if s.trackHandler != nil {
-		mux.HandleFunc("/api/tracks", func(w http.ResponseWriter, r *http.Request) {
+		tracksAuth := func(w http.ResponseWriter, r *http.Request) {
 			if !s.authorize(r) {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
 			s.trackHandler.ServeHTTP(w, r)
-		})
-		mux.HandleFunc("/api/tracks/", func(w http.ResponseWriter, r *http.Request) {
-			if !s.authorize(r) {
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
-				return
-			}
-			s.trackHandler.ServeHTTP(w, r)
-		})
+		}
+		mux.HandleFunc("/api/tracks", tracksAuth)
+		mux.HandleFunc("/api/tracks/", tracksAuth)
 	}
 
 	if s.dev {

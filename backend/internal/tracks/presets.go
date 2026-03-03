@@ -36,10 +36,11 @@ func ovalTrack() *Track {
 	g[13][27] = "curve-ne"
 	g[7][4] = "start-line"
 	g[8][4] = "finish-line"
+	now := time.Now()
 	return &Track{
 		ID: "oval", Name: "Oval Circuit",
 		Width: w, Height: h, Tiles: g,
-		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+		CreatedAt: now, UpdatedAt: now,
 	}
 }
 
@@ -75,10 +76,11 @@ func figure8Track() *Track {
 	g[8][15] = "straight-h"
 	g[8][16] = "straight-h"
 	g[4][2] = "start-line"
+	now := time.Now()
 	return &Track{
 		ID: "figure8", Name: "Figure-8",
 		Width: w, Height: h, Tiles: g,
-		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+		CreatedAt: now, UpdatedAt: now,
 	}
 }
 
@@ -120,9 +122,10 @@ func f1Track() *Track {
 	g[7][16] = "grandstand"
 	g[2][20] = "tree"
 	g[2][21] = "tree"
+	now := time.Now()
 	return &Track{
 		ID: "f1-circuit", Name: "F1 Circuit",
 		Width: w, Height: h, Tiles: g,
-		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+		CreatedAt: now, UpdatedAt: now,
 	}
 }
