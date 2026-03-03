@@ -19,6 +19,7 @@ const (
 	MsgAchievementUnlocked MessageType = "achievement_unlocked"
 	MsgSourceHealth        MessageType = "source_health"
 	MsgBattlePassProgress  MessageType = "battlepass_progress"
+	MsgOvertake            MessageType = "overtake"
 )
 
 type WSMessage struct {
@@ -64,6 +65,10 @@ func NewBattlePassProgressMessage(payload BattlePassProgressPayload) (WSMessage,
 	return newMessage(MsgBattlePassProgress, payload)
 }
 
+func NewOvertakeMessage(payload OvertakePayload) (WSMessage, error) {
+	return newMessage(MsgOvertake, payload)
+}
+
 type SourceHealthStatus string
 
 const (
@@ -107,6 +112,14 @@ type BattlePassProgressPayload struct {
 	TierProgress float64                `json:"tierProgress"`
 	RecentXP     []gamification.XPEntry `json:"recentXP"`
 	Rewards      []string               `json:"rewards,omitempty"`
+}
+
+type OvertakePayload struct {
+	OvertakerID   string `json:"overtakerId"`
+	OvertakerName string `json:"overtakerName"`
+	OvertakenID   string `json:"overtakenId"`
+	OvertakenName string `json:"overtakenName"`
+	NewPosition   int    `json:"newPosition"`
 }
 
 type AchievementRewardPayload struct {

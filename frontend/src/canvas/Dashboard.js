@@ -206,12 +206,21 @@ export class Dashboard {
 
     ctx.globalAlpha = alpha;
 
-    // Rank
+    // Rank with position delta arrow
     ctx.fillStyle = rank <= 3 ? '#d4a017' : '#555';
     ctx.font = rank <= 3 ? 'bold 12px Courier New' : '12px Courier New';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
     ctx.fillText(`${rank}`, cols.rank + 16, cy);
+
+    // Position delta indicator (↑ green / ↓ red)
+    const delta = session.positionDelta || 0;
+    if (delta !== 0 && !isTerminal) {
+      ctx.font = '10px sans-serif';
+      ctx.fillStyle = delta > 0 ? '#22c55e' : '#e94560';
+      ctx.textAlign = 'left';
+      ctx.fillText(delta > 0 ? '\u2191' : '\u2193', cols.rank + 18, cy);
+    }
 
     // Badge
     if (badge) {
