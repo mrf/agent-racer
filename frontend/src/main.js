@@ -1,5 +1,6 @@
 import { RaceConnection } from './websocket.js';
 import { createView, getViewTypes } from './ViewRenderer.js';
+import { SpeechBubble } from './entities/SpeechBubble.js';
 import { SoundEngine } from './audio/SoundEngine.js';
 import { requestPermission, notifyCompletion } from './notifications.js';
 import { AchievementPanel } from './gamification/AchievementPanel.js';
@@ -28,6 +29,7 @@ const canvas = document.getElementById('race-canvas');
 let sessions = new Map();
 let debugVisible = false;
 let muted = false;
+let bubblesEnabled = true;
 
 const VIEW_STORAGE_KEY = 'agent-racer-view';
 
@@ -258,6 +260,7 @@ function updateShortcutHighlights() {
   shortcutBar.setActive('garage', rewardSelector.isVisible);
   shortcutBar.setActive('debug', debugVisible);
   shortcutBar.setActive('mute', muted);
+  shortcutBar.setActive('bubbles', bubblesEnabled);
   shortcutBar.setActive('fullscreen', !!document.fullscreenElement);
   shortcutBar.setActive('help', helpPopup.isVisible);
 }
@@ -271,6 +274,11 @@ document.addEventListener('keydown', (e) => {
       break;
     case 'a':
       achievementPanel.toggle();
+      break;
+    case 'b':
+      bubblesEnabled = !bubblesEnabled;
+      SpeechBubble.enabled = bubblesEnabled;
+      log(`Speech bubbles ${bubblesEnabled ? 'on' : 'off'}`, 'info');
       break;
     case 'g':
       rewardSelector.toggle();
@@ -333,4 +341,4 @@ conn.connect();
 requestPermission();
 loadSoundConfig();
 log('Agent Racing Dashboard initialized', 'info');
-log('Shortcuts: A=achievements, G=garage, D=debug, M=mute, V=view, Shift+F=fullscreen, Click racer=details', 'info');
+log('Shortcuts: A=achievements, B=bubbles, G=garage, D=debug, M=mute, V=view, Shift+F=fullscreen, Click racer=details', 'info');

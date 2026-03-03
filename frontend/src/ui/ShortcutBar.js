@@ -1,5 +1,6 @@
 const SHORTCUTS = [
   { key: 'a', label: 'achievements', id: 'achievements' },
+  { key: 'b', label: 'bubbles', id: 'bubbles' },
   { key: 'g', label: 'garage', id: 'garage' },
   { key: 'd', label: 'debug', id: 'debug' },
   { key: 'm', label: 'mute', id: 'mute' },
