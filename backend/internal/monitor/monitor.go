@@ -56,6 +56,10 @@ type sessionEndMarker struct {
 	Timestamp      string `json:"timestamp"`
 }
 
+// SnapshotHook is called after each poll with the current snapshot of all sessions.
+// It is called synchronously from the poll goroutine; implementations must not block.
+type SnapshotHook func([]*session.SessionState)
+
 type Monitor struct {
 	mu               sync.RWMutex               // protects cfg, sources, health
 	cfg              *config.Config
@@ -72,6 +76,7 @@ type Monitor struct {
 	statsLastDropLog time.Time                  // last time a drop was logged
 	health           map[string]*sourceHealth   // keyed by source name
 	reconfigureCh    chan struct{}               // signals Start() to recreate its poll ticker
+	snapshotHook     SnapshotHook               // optional hook called after each poll
 }
 
 func NewMonitor(cfg *config.Config, store *session.Store, broadcaster *ws.Broadcaster, sources []Source) *Monitor {
@@ -143,6 +148,13 @@ func (m *Monitor) SetSources(newSources []Source) {
 // and terminal state transitions. Pass nil to disable.
 func (m *Monitor) SetStatsEvents(ch chan<- session.Event) {
 	m.statsEvents = ch
+}
+
+// SetSnapshotHook registers a function to be called after each poll with a
+// snapshot of all current sessions. Pass nil to disable. The hook is called
+// synchronously; it must not block.
+func (m *Monitor) SetSnapshotHook(fn SnapshotHook) {
+	m.snapshotHook = fn
 }
 
 // emitEvent sends a session event to the stats channel if configured.
@@ -388,6 +400,10 @@ func (m *Monitor) poll() {
 	}
 
 	m.flushRemovals(now)
+
+	if m.snapshotHook != nil {
+		m.snapshotHook(m.store.GetAll())
+	}
 }
 
 // pollSource processes a single source within a deferred recover, so that a

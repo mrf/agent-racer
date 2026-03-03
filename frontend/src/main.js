@@ -19,6 +19,8 @@ import { Minimap } from './ui/Minimap.js';
 import { CommentaryEngine } from './commentary/CommentaryEngine.js';
 import { Ticker } from './commentary/Ticker.js';
 import { Announcer } from './commentary/Announcer.js';
+import { ReplayPlayer } from './replay/ReplayPlayer.js';
+import { TimelineScrubber } from './replay/TimelineScrubber.js';
 
 const debugPanel = document.getElementById('debug-panel');
 const debugLog = document.getElementById('debug-log');
@@ -34,6 +36,36 @@ let sessions = new Map();
 let debugVisible = false;
 let muted = false;
 let bubblesEnabled = true;
+
+// Replay mode: when active, live WebSocket updates do not render to the canvas.
+let replayActive = false;
+let _replayScrubber = null;
+
+function openReplay() {
+  if (replayActive) return;
+  replayActive = true;
+  const player = new ReplayPlayer();
+  player.onSnapshot = (replaySessions) => {
+    activeView.setAllRacers(replaySessions);
+  };
+  _replayScrubber = new TimelineScrubber(player, () => {
+    replayActive = false;
+    _replayScrubber = null;
+    updateShortcutHighlights();
+    // Restore live view by requesting a fresh snapshot from the server.
+    conn.requestResync();
+    activeView.setAllRacers([...sessions.values()]);
+  });
+  _replayScrubber.open();
+  updateShortcutHighlights();
+  log('Replay mode opened', 'info');
+}
+
+function closeReplay() {
+  if (_replayScrubber) {
+    _replayScrubber.close();
+  }
+}
 
 const VIEW_STORAGE_KEY = 'agent-racer-view';
 const COMMENTARY_STORAGE_KEY = 'agent-racer-commentary';
@@ -142,32 +174,36 @@ function handleSnapshot(payload) {
 
   updateSessionCount();
   log(`Snapshot: ${payload.sessions.length} sessions`, 'info');
-  activeView.setAllRacers(payload.sessions);
-  engine.updateExcitement(payload.sessions);
-  flyout.updateContent(sessions);
-  commentary.processUpdate(sessions);
+  if (!replayActive) {
+    activeView.setAllRacers(payload.sessions);
+    engine.updateExcitement(payload.sessions);
+    flyout.updateContent(sessions);
+    commentary.processUpdate(sessions);
+  }
 }
 
 function handleDelta(payload) {
   if (payload.updates) {
     for (const s of payload.updates) {
       sessions.set(s.id, s);
-      activeView.updateRacer(s);
+      if (!replayActive) activeView.updateRacer(s);
     }
   }
   if (payload.removed) {
     for (const id of payload.removed) {
       sessions.delete(id);
-      activeView.removeRacer(id);
+      if (!replayActive) activeView.removeRacer(id);
     }
   }
 
   tracker.onDelta(payload.updates, payload.removed);
 
   updateSessionCount();
-  engine.updateExcitement([...sessions.values()]);
-  flyout.updateContent(sessions);
-  commentary.processUpdate(sessions);
+  if (!replayActive) {
+    engine.updateExcitement([...sessions.values()]);
+    flyout.updateContent(sessions);
+    commentary.processUpdate(sessions);
+  }
 }
 
 function handleCompletion(payload) {
@@ -318,6 +354,7 @@ function updateShortcutHighlights() {
   shortcutBar.setActive('bubbles', bubblesEnabled);
   shortcutBar.setActive('fullscreen', !!document.fullscreenElement);
   shortcutBar.setActive('help', helpPopup.isVisible);
+  shortcutBar.setActive('replay', replayActive);
 }
 
 document.addEventListener('keydown', (e) => {
@@ -380,8 +417,14 @@ document.addEventListener('keydown', (e) => {
         document.exitFullscreen();
       }
       break;
+    case 'r':
+      if (replayActive) closeReplay();
+      else openReplay();
+      break;
     case 'escape':
-      if (helpPopup.isVisible) {
+      if (replayActive) {
+        closeReplay();
+      } else if (helpPopup.isVisible) {
         helpPopup.hide();
       } else if (rewardSelector.isVisible) {
         rewardSelector.hide();
@@ -414,4 +457,4 @@ conn.connect();
 requestPermission();
 loadSoundConfig();
 log('Agent Racing Dashboard initialized', 'info');
-log('Shortcuts: A=achievements, B=bubbles, G=garage, C=commentary, D=debug, M=mute, N=minimap, V=view, W=weather, Shift+F=fullscreen, Click racer=details', 'info');
+log('Shortcuts: A=achievements, B=bubbles, C=commentary, D=debug, G=garage, M=mute, N=minimap, R=replay, V=view, W=weather, Shift+F=fullscreen, Click racer=details', 'info');

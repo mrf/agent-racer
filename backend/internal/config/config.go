@@ -27,6 +27,15 @@ type Config struct {
 	TokenNorm    TokenNormConfig    `yaml:"token_normalization"`
 	Privacy      PrivacyConfig      `yaml:"privacy"`
 	Gamification GamificationConfig `yaml:"gamification"`
+	Replay       ReplayConfig       `yaml:"replay"`
+}
+
+// ReplayConfig controls session replay recording.
+type ReplayConfig struct {
+	// Enabled activates replay recording. Defaults to true.
+	Enabled bool `yaml:"enabled"`
+	// RetentionDays is how many days of replay files to keep. 0 = keep forever.
+	RetentionDays int `yaml:"retention_days"`
 }
 
 // GamificationConfig holds settings for the gamification subsystem.
@@ -206,6 +215,10 @@ func defaultConfig() *Config {
 			},
 			TokensPerMessage: 2000,
 		},
+		Replay: ReplayConfig{
+			Enabled:       true,
+			RetentionDays: 7,
+		},
 	}
 }
 
@@ -383,9 +396,14 @@ func defaultConfigDir() string {
 	return filepath.Join(homeDir, ".config")
 }
 
-// DefaultConfigPath returns the default XDG-compliant config file path
+// DefaultConfigPath returns the default XDG-compliant config file path.
 func DefaultConfigPath() string {
 	return filepath.Join(defaultConfigDir(), "agent-racer", "config.yaml")
+}
+
+// DefaultReplayDir returns the XDG-compliant path for replay files.
+func DefaultReplayDir() string {
+	return filepath.Join(defaultStateDir(), "agent-racer", "replays")
 }
 
 // GenerateToken returns a cryptographically random 16-byte hex token.

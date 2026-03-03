@@ -88,6 +88,7 @@ function buildDOM() {
             <tr><td class="help-shortcut-key">D</td><td>Debug log</td></tr>
             <tr><td class="help-shortcut-key">M</td><td>Mute / unmute sound</td></tr>
             <tr><td class="help-shortcut-key">N</td><td>Toggle mini-map radar (bottom-right)</td></tr>
+            <tr><td class="help-shortcut-key">R</td><td>Replay mode — browse &amp; scrub recorded sessions</td></tr>
             <tr><td class="help-shortcut-key">W</td><td>Toggle weather effects</td></tr>
             <tr><td class="help-shortcut-key">V</td><td>Toggle view (Race / Footrace)</td></tr>
             <tr><td class="help-shortcut-key">M</td><td>Mute / unmute sound</td></tr>
