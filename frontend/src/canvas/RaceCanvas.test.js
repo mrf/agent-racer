@@ -17,6 +17,7 @@ vi.mock('./Track.js', () => ({
   Track: vi.fn(function () {
     this.trackPadding = { left: 200, right: 60, top: 60, bottom: 40 };
     this.laneHeight = 80;
+    this._crowdMode = 'full';
     this.updateViewport = vi.fn();
     this.getRequiredHeight = vi.fn((activeOrGroups, pit = 0, parking = 0) => {
       // Simplified formula matching real Track layout constants
@@ -93,6 +94,14 @@ vi.mock('./Dashboard.js', () => ({
   Dashboard: vi.fn(function () {
     this.getRequiredHeight = vi.fn(() => 160);
     this.getBounds = vi.fn();
+    this.draw = vi.fn();
+  }),
+}));
+
+vi.mock('../entities/Grandstand.js', () => ({
+  Grandstand: vi.fn(function () {
+    this.trigger = vi.fn();
+    this.update = vi.fn();
     this.draw = vi.fn();
   }),
 }));

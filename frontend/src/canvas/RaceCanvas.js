@@ -2,6 +2,7 @@ import { ParticleSystem } from './Particles.js';
 import { Track } from './Track.js';
 import { Dashboard } from './Dashboard.js';
 import { Racer } from '../entities/Racer.js';
+import { Grandstand } from '../entities/Grandstand.js';
 import { getModelColor, hexToRgb } from '../session/colors.js';
 import { authFetch } from '../auth.js';
 import { DEFAULT_CONTEXT_WINDOW, TERMINAL_ACTIVITIES } from '../session/constants.js';
@@ -34,6 +35,7 @@ export class RaceCanvas {
     this.track = new Track();
     this.dashboard = new Dashboard();
     this.particles = new ParticleSystem();
+    this.grandstand = new Grandstand();
     this.racers = new Map();
     this.connected = false;
     this.animFrameId = null;
@@ -65,6 +67,10 @@ export class RaceCanvas {
     this._trackGroups = [{ maxTokens: DEFAULT_CONTEXT_WINDOW, laneCount: 1 }];
     this._trackGroupsKey = '';
     this._zoneCounts = { racing: 0, pit: 0, parked: 0 };
+
+    // Grandstand event tracking
+    this._racerMilestones = new Map();
+    this._prevLeaderOrder = [];
 
     this.resize();
     this._resizeHandler = () => this.resize();
@@ -143,10 +149,24 @@ export class RaceCanvas {
     } else {
       this.racers.set(state.id, new Racer(state));
     }
+
+    // Trigger crowd cheer when a racer crosses the 50% context mark
+    if ((state.contextUtilization || 0) >= 0.5) {
+      let milestones = this._racerMilestones.get(state.id);
+      if (!milestones) {
+        milestones = new Set();
+        this._racerMilestones.set(state.id, milestones);
+      }
+      if (!milestones.has('50pct')) {
+        milestones.add('50pct');
+        this.grandstand.trigger('cheer', state.contextUtilization || 0.5);
+      }
+    }
   }
 
   removeRacer(id) {
     this.racers.delete(id);
+    this._racerMilestones.delete(id);
   }
 
   onComplete(sessionId) {
@@ -156,6 +176,8 @@ export class RaceCanvas {
     }
     // Flash effect on completion
     this.flashAlpha = 0.3;
+    this.grandstand.trigger('ovation');
+    if (this.engine) this.engine.playCrowdCheer();
   }
 
   onError(sessionId) {
@@ -170,6 +192,8 @@ export class RaceCanvas {
     this.shakeIntensity = 6;
     this.shakeDuration = 0.3;
     this.shakeTimer = 0;
+    this.grandstand.trigger('gasp');
+    if (this.engine) this.engine.playCrowdGasp();
   }
 
   startLoop() {
@@ -357,6 +381,36 @@ export class RaceCanvas {
 
     this.particles.update(dt);
 
+    // Detect overtakes (track racer position order change)
+    const orderedRacers = trackRacers
+      .filter(r => (r.state.tokensUsed || 0) > 0)
+      .sort((a, b) => (b.state.tokensUsed || 0) - (a.state.tokensUsed || 0));
+    const currentOrder = orderedRacers.map(r => r.id);
+    if (this._prevLeaderOrder.length === currentOrder.length && currentOrder.length >= 2) {
+      for (let i = 0; i < currentOrder.length; i++) {
+        if (currentOrder[i] !== this._prevLeaderOrder[i]) {
+          const leader = orderedRacers[0];
+          const normX = leader ? Math.min(1, Math.max(0, leader.displayX / this.width)) : 0.5;
+          this.grandstand.trigger('wave', normX);
+          break;
+        }
+      }
+    }
+    this._prevLeaderOrder = currentOrder;
+
+    // Mexican wave when 3+ sessions are actively thinking/running
+    let activeCount = 0;
+    for (const racer of this.racers.values()) {
+      if (racer.state.activity === 'thinking' || racer.state.activity === 'tool_use') {
+        activeCount++;
+      }
+    }
+    if (activeCount >= 3) {
+      this.grandstand.trigger('mexican');
+    }
+
+    this.grandstand.update(dt);
+
     // Update screen shake
     if (this.shakeTimer < this.shakeDuration) {
       this.shakeTimer += dt;
@@ -394,6 +448,15 @@ export class RaceCanvas {
     const groups = this._trackGroups;
 
     const excitement = this.engine ? this.engine.currentExcitement : 0;
+
+    // Draw grandstand before the track so pennants layer on top of spectators
+    if (this.track._crowdMode !== 'hidden') {
+      const firstLayout = this.track.getMultiTrackLayout(this.width, groups)[0];
+      if (firstLayout) {
+        this.grandstand.draw(ctx, firstLayout, this.track._crowdMode, excitement);
+      }
+    }
+
     this.track.drawMultiTrack(ctx, this.width, this.height, groups, excitement);
 
     // Draw pit area (always visible, even when empty)
@@ -646,6 +709,7 @@ export class RaceCanvas {
 
     // Clear racer references
     this.racers.clear();
+    this._racerMilestones.clear();
 
     // Clear particle system
     this.particles.clear();

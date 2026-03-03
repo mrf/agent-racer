@@ -597,6 +597,49 @@ export class SoundEngine {
     noise.stop(now + 0.4);
   }
 
+  playCrowdCheer() {
+    if (this.muted) return;
+    try { this._ensureCtx(); } catch { return; }
+    const now = this.ctx.currentTime;
+
+    // Short noise burst at crowd-chatter frequencies
+    const noise = this._makeNoise(false);
+    const bandpass = this.ctx.createBiquadFilter();
+    bandpass.type = 'bandpass';
+    bandpass.frequency.value = 1200;
+    bandpass.Q.value = 0.4;
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(0.08, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
+    noise.connect(bandpass);
+    bandpass.connect(gain);
+    gain.connect(this.ambientBus);
+    noise.start(now);
+    noise.stop(now + 0.65);
+  }
+
+  playCrowdGasp() {
+    if (this.muted) return;
+    try { this._ensureCtx(); } catch { return; }
+    const now = this.ctx.currentTime;
+
+    // Brief rising filtered noise — collective intake of breath
+    const noise = this._makeNoise(false);
+    const hp = this.ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.setValueAtTime(800, now);
+    hp.frequency.exponentialRampToValueAtTime(2000, now + 0.15);
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(0.001, now);
+    gain.gain.linearRampToValueAtTime(0.07, now + 0.1);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+    noise.connect(hp);
+    hp.connect(gain);
+    gain.connect(this.ambientBus);
+    noise.start(now);
+    noise.stop(now + 0.4);
+  }
+
   playDisappear() {
     if (this.muted) return;
     try { this._ensureCtx(); } catch { return; }
