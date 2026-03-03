@@ -3,6 +3,7 @@ const SHORTCUTS = [
   { key: 'g', label: 'garage', id: 'garage' },
   { key: 'd', label: 'debug', id: 'debug' },
   { key: 'm', label: 'mute', id: 'mute' },
+  { key: 'w', label: 'weather', id: 'weather' },
   { key: 'v', label: 'view', id: 'view' },
   { key: 'f', label: 'fullscreen', id: 'fullscreen' },
   { key: '?', label: 'help', id: 'help' },

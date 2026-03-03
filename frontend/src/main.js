@@ -257,6 +257,7 @@ function updateShortcutHighlights() {
   shortcutBar.setActive('achievements', achievementPanel.isVisible);
   shortcutBar.setActive('garage', rewardSelector.isVisible);
   shortcutBar.setActive('debug', debugVisible);
+  shortcutBar.setActive('weather', activeView.weather ? activeView.weather.enabled : false);
   shortcutBar.setActive('mute', muted);
   shortcutBar.setActive('fullscreen', !!document.fullscreenElement);
   shortcutBar.setActive('help', helpPopup.isVisible);
@@ -287,6 +288,12 @@ document.addEventListener('keydown', (e) => {
       switchView(next);
       break;
     }
+    case 'w':
+      if (activeView.weather) {
+        const on = activeView.weather.toggle();
+        log(`Weather ${on ? 'enabled' : 'disabled'} (${activeView.weather.getStateLabel()})`, 'info');
+      }
+      break;
     case 'm':
       muted = !muted;
       engine.setMuted(muted);
@@ -333,4 +340,4 @@ conn.connect();
 requestPermission();
 loadSoundConfig();
 log('Agent Racing Dashboard initialized', 'info');
-log('Shortcuts: A=achievements, G=garage, D=debug, M=mute, V=view, Shift+F=fullscreen, Click racer=details', 'info');
+log('Shortcuts: A=achievements, G=garage, D=debug, M=mute, V=view, W=weather, Shift+F=fullscreen, Click racer=details', 'info');
