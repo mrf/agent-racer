@@ -232,9 +232,11 @@ func (b *Broadcaster) flush() {
 		return
 	}
 
+	allSessions := b.privacyFilter().FilterSlice(b.store.GetAll())
 	msg, err := NewDeltaMessage(DeltaPayload{
 		Updates: filtered,
 		Removed: removed,
+		Teams:   session.ComputeTeams(allSessions),
 	})
 	if err != nil {
 		log.Printf("flush marshal error: %v", err)
@@ -274,11 +276,13 @@ func (b *Broadcaster) snapshotLoop() {
 	}
 }
 
-// snapshotMessage builds a full snapshot WSMessage including sessions and
-// source health status (when a health hook is registered).
+// snapshotMessage builds a full snapshot WSMessage including sessions, teams,
+// and source health status (when a health hook is registered).
 func (b *Broadcaster) snapshotMessage() WSMessage {
+	allSessions := b.privacyFilter().FilterSlice(b.store.GetAll())
 	payload := SnapshotPayload{
-		Sessions: b.privacyFilter().FilterSlice(b.store.GetAll()),
+		Sessions: allSessions,
+		Teams:    session.ComputeTeams(allSessions),
 	}
 	b.mu.RLock()
 	hook := b.healthHook

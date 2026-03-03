@@ -181,6 +181,7 @@ export class Racer {
     this.draftIntensity = 0;   // 0-1: how deep in draft zone (set by RaceCanvas)
     this.overtakeFlash = 0;    // 0-1: overtake flash intensity (decays over time)
     this.position = 0;         // current race position (1-based)
+    this.teamColor = null;     // hex color string if session belongs to a team
   }
 
   _triggerBubble(state) {
@@ -762,6 +763,18 @@ export class Racer {
       ctx.fillStyle = '#ffd700';
       const carLen = (17 + LIMO_STRETCH + 23) * S;
       ctx.fillRect(x - (17 + LIMO_STRETCH) * S, y + yOff - 12 * S, carLen, 14 * S);
+      ctx.restore();
+    }
+
+    // Team livery stripe: thin colored bar along the car roofline
+    if (this.teamColor) {
+      ctx.save();
+      ctx.globalAlpha = 0.55;
+      ctx.fillStyle = this.teamColor;
+      // Roof spans from rear roofline to windshield in car coords; scale to screen
+      const roofLeft = x - (13 + LIMO_STRETCH) * S;
+      const roofRight = x + 3 * S;
+      ctx.fillRect(roofLeft, y + yOff - 9 * S, roofRight - roofLeft, 3 * S);
       ctx.restore();
     }
 

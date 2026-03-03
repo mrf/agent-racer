@@ -38,6 +38,7 @@ export class RaceCanvas {
     this.track = new Track();
     this.dashboard = new Dashboard();
     this.particles = new ParticleSystem();
+    this.teams = [];
     this.grandstand = new Grandstand();
     this.weather = new WeatherSystem();
     this.racers = new Map();
@@ -155,6 +156,25 @@ export class RaceCanvas {
       } else {
         this.racers.set(s.id, new Racer(s));
       }
+    }
+    this._applyTeamColors();
+  }
+
+  setTeams(teams) {
+    this.teams = teams || [];
+    this._applyTeamColors();
+  }
+
+  _applyTeamColors() {
+    const colorMap = new Map();
+    for (const team of this.teams) {
+      if (!team.memberIds) continue;
+      for (const id of team.memberIds) {
+        colorMap.set(id, team.color);
+      }
+    }
+    for (const [id, racer] of this.racers) {
+      racer.teamColor = colorMap.get(id) || null;
     }
   }
 
@@ -579,7 +599,7 @@ export class RaceCanvas {
     if (dashAvailable > 40) {
       const dashBounds = this.dashboard.getBounds(this.width, zonesHeight, dashAvailable);
       const sessions = [...this.racers.values()].map(r => r.state);
-      this.dashboard.draw(ctx, dashBounds, sessions, this._zoneCounts);
+      this.dashboard.draw(ctx, dashBounds, sessions, this._zoneCounts, this.teams);
     }
 
     // Draw particles behind racers
@@ -814,6 +834,13 @@ export class RaceCanvas {
   }
 
   handleClick(e) {
+    const rect = this.canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+
+    // Let dashboard consume tab-bar clicks first
+    if (this.dashboard.handleClick(mx, my)) return;
+
     const hit = this._hitTest(e);
     if (!hit) return;
 
