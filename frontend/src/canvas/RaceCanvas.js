@@ -1,6 +1,7 @@
 import { ParticleSystem } from './Particles.js';
 import { Track } from './Track.js';
 import { Dashboard } from './Dashboard.js';
+import { WeatherSystem } from './Weather.js';
 import { Racer } from '../entities/Racer.js';
 import { Grandstand } from '../entities/Grandstand.js';
 import { PitCrew } from '../entities/PitCrew.js';
@@ -38,6 +39,7 @@ export class RaceCanvas {
     this.dashboard = new Dashboard();
     this.particles = new ParticleSystem();
     this.grandstand = new Grandstand();
+    this.weather = new WeatherSystem();
     this.racers = new Map();
 
     // Pit crew: keyed by racer ID
@@ -508,6 +510,10 @@ export class RaceCanvas {
 
     this.grandstand.update(dt);
 
+    // Update weather system
+    this.weather.updateMetrics([...this.racers.values()].map(r => r.state));
+    this.weather.update(dt, this.width, this.height);
+
     // Update screen shake
     if (this.shakeTimer < this.shakeDuration) {
       this.shakeTimer += dt;
@@ -539,6 +545,9 @@ export class RaceCanvas {
     // Background
     ctx.fillStyle = '#1a1a2e';
     ctx.fillRect(-10, -10, this.width + 20, this.height + 20);
+
+    // Weather behind layer (sky tint, stars, wind)
+    this.weather.drawBehind(ctx, this.width, this.height);
 
     const pitLaneCount = this._pitLaneCount;
     const parkingLotLaneCount = this._parkingLotLaneCount;
@@ -596,6 +605,9 @@ export class RaceCanvas {
 
     // Draw particles in front of racers
     this.particles.drawFront(ctx);
+
+    // Weather front layer (rain, lightning, fog, haze)
+    this.weather.drawFront(ctx, this.width, this.height);
 
     // Glow/bloom composite pass
     this._drawBloom(ctx);
