@@ -19,6 +19,7 @@ import { Minimap } from './ui/Minimap.js';
 import { CommentaryEngine } from './commentary/CommentaryEngine.js';
 import { Ticker } from './commentary/Ticker.js';
 import { Announcer } from './commentary/Announcer.js';
+import { TrackEditor } from './editor/TrackEditor.js';
 
 const debugPanel = document.getElementById('debug-panel');
 const debugLog = document.getElementById('debug-log');
@@ -29,6 +30,7 @@ const flyoutClose = document.getElementById('flyout-close');
 const statusDot = document.getElementById('connection-status');
 const sessionCount = document.getElementById('session-count');
 const canvas = document.getElementById('race-canvas');
+const trackEditor = new TrackEditor(canvas);
 
 let sessions = new Map();
 let debugVisible = false;
@@ -248,6 +250,9 @@ export function wireViewCallbacks(view, flyout, unlockToast) {
       announcer.draw(view.ctx, view.width);
     }
 
+    // Track editor overlay
+    trackEditor.draw();
+
     if (!flyout.isVisible()) return;
 
     const hamsterId = flyout.getSelectedHamsterId();
@@ -390,6 +395,9 @@ document.addEventListener('keydown', (e) => {
       } else if (flyout.isVisible()) {
         flyout.hide();
       }
+      break;
+    case 'e':
+      trackEditor.toggle();
       break;
   }
   updateShortcutHighlights();

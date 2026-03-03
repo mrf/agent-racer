@@ -27,6 +27,12 @@ type Config struct {
 	TokenNorm    TokenNormConfig    `yaml:"token_normalization"`
 	Privacy      PrivacyConfig      `yaml:"privacy"`
 	Gamification GamificationConfig `yaml:"gamification"`
+	Track        TrackConfig        `yaml:"track"`
+}
+
+// TrackConfig holds track layout settings.
+type TrackConfig struct {
+	Active string `yaml:"active"` // track ID to use; empty = default linear track
 }
 
 // GamificationConfig holds settings for the gamification subsystem.
