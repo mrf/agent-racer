@@ -3,6 +3,7 @@ import { Track } from './Track.js';
 import { Dashboard } from './Dashboard.js';
 import { Racer } from '../entities/Racer.js';
 import { Grandstand } from '../entities/Grandstand.js';
+import { PitCrew } from '../entities/PitCrew.js';
 import { getModelColor, hexToRgb } from '../session/colors.js';
 import { authFetch } from '../auth.js';
 import { DEFAULT_CONTEXT_WINDOW, TERMINAL_ACTIVITIES } from '../session/constants.js';
@@ -37,6 +38,12 @@ export class RaceCanvas {
     this.particles = new ParticleSystem();
     this.grandstand = new Grandstand();
     this.racers = new Map();
+
+    // Pit crew: keyed by racer ID
+    this.pitCrews = new Map();
+    this.pitEntryTimers = new Map(); // seconds since entering pit
+    this.prevPitIds = new Set();     // racer IDs that were in pit last frame
+
     this.connected = false;
     this.animFrameId = null;
     this.onRacerClick = null;
@@ -167,6 +174,9 @@ export class RaceCanvas {
   removeRacer(id) {
     this.racers.delete(id);
     this._racerMilestones.delete(id);
+    const crew = this.pitCrews.get(id);
+    if (crew) crew.leave();
+    this.pitEntryTimers.delete(id);
   }
 
   onComplete(sessionId) {
@@ -234,6 +244,7 @@ export class RaceCanvas {
 
     const pitLaneCount = pitRacers.length;
     const parkingLotLaneCount = parkingLotRacers.length;
+    const currentPitIds = new Set(pitRacers.map(r => r.id));
 
     // Store zone counts for dashboard (single source of truth)
     this._zoneCounts = {
@@ -379,6 +390,44 @@ export class RaceCanvas {
       }
     }
 
+    // --- Pit crew management ---
+    // Detect racers that have left the pit → trigger crew departure
+    for (const id of this.prevPitIds) {
+      if (!currentPitIds.has(id)) {
+        const crew = this.pitCrews.get(id);
+        if (crew) crew.leave();
+        this.pitEntryTimers.delete(id);
+      }
+    }
+
+    // Spawn / update crew for current pit racers
+    for (const racer of pitRacers) {
+      const timer = (this.pitEntryTimers.get(racer.id) || 0) + dt;
+      this.pitEntryTimers.set(racer.id, timer);
+
+      if (timer >= 0.5 && !this.pitCrews.has(racer.id)) {
+        const color = getModelColor(racer.state.model, racer.state.source);
+        this.pitCrews.set(racer.id, new PitCrew(racer.displayX, racer.displayY + racer.springY, color));
+      }
+
+      const crew = this.pitCrews.get(racer.id);
+      if (crew) {
+        crew.updatePosition(racer.displayX, racer.displayY + racer.springY);
+        // Trigger celebration when session completes while in pit
+        if (racer.state.activity === 'complete' && !crew.celebrating) {
+          crew.celebrate();
+        }
+        crew.update(dt);
+      }
+    }
+
+    // Remove crews that have fully departed
+    for (const [id, crew] of this.pitCrews) {
+      if (crew.isDone()) this.pitCrews.delete(id);
+    }
+
+    this.prevPitIds = currentPitIds;
+
     this.particles.update(dt);
 
     // Detect overtakes (track racer position order change)
@@ -485,6 +534,11 @@ export class RaceCanvas {
     // Draw racers
     for (const racer of sorted) {
       racer.draw(ctx);
+    }
+
+    // Draw pit crew figures (in front of cars so they're visible)
+    for (const crew of this.pitCrews.values()) {
+      crew.draw(ctx);
     }
 
     // Draw particles in front of racers
@@ -710,6 +764,11 @@ export class RaceCanvas {
     // Clear racer references
     this.racers.clear();
     this._racerMilestones.clear();
+
+    // Clear pit crew state
+    this.pitCrews.clear();
+    this.pitEntryTimers.clear();
+    this.prevPitIds.clear();
 
     // Clear particle system
     this.particles.clear();
