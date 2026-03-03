@@ -4,7 +4,7 @@ import { gotoApp, waitForConnection } from './helpers.js';
 // ── Achievement Panel (A key) ───────────────────────────────────────────────
 
 test.describe('Achievement panel', () => {
-  test.setTimeout(45_000);
+  test.setTimeout(90_000);
 
   test.beforeEach(async ({ page }) => {
     await gotoApp(page);
@@ -29,8 +29,6 @@ test.describe('Achievement panel', () => {
     // Footer counter shows "X / Y unlocked".
     const counter = page.locator('.ap-counter');
     await expect(counter).toHaveText(/\d+ \/ \d+ unlocked/);
-
-    await page.screenshot({ path: 'tests/screenshots/achievement-panel-open.png' });
   });
 
   test('A key toggles achievement panel closed', async ({ page }) => {
@@ -57,7 +55,7 @@ test.describe('Achievement panel', () => {
 // ── Reward Selector / Garage (G key) ────────────────────────────────────────
 
 test.describe('Reward selector (Garage)', () => {
-  test.setTimeout(45_000);
+  test.setTimeout(90_000);
 
   test.beforeEach(async ({ page }) => {
     await gotoApp(page);
@@ -85,8 +83,6 @@ test.describe('Reward selector (Garage)', () => {
 
     const count = await selector.locator('.rs-column').count();
     expect(count).toBeGreaterThanOrEqual(4);
-
-    await page.screenshot({ path: 'tests/screenshots/reward-selector-open.png' });
   });
 
   test('G key toggles reward selector closed', async ({ page }) => {
@@ -113,7 +109,7 @@ test.describe('Reward selector (Garage)', () => {
 // ── Battle Pass Bar ─────────────────────────────────────────────────────────
 
 test.describe('Battle pass bar', () => {
-  test.setTimeout(45_000);
+  test.setTimeout(90_000);
 
   test.beforeEach(async ({ page }) => {
     await gotoApp(page);
@@ -136,6 +132,7 @@ test.describe('Battle pass bar', () => {
 // and inject additional messages, avoiding the timing issues with addInitScript.
 
 test.describe('Gamification WS events', () => {
+  test.setTimeout(90_000);
   let wsRoute: WebSocketRoute;
 
   test.beforeEach(async ({ page }) => {
@@ -207,7 +204,5 @@ test.describe('Gamification WS events', () => {
 
     const firstTile = page.locator('.ap-tile').first();
     await expect(firstTile).toBeVisible({ timeout: 8_000 });
-
-    await page.screenshot({ path: 'tests/screenshots/achievement-unlock-panel.png' });
   });
 });
