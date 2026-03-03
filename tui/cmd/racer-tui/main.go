@@ -9,19 +9,40 @@ import (
 
 	"github.com/agent-racer/tui/internal/app"
 	"github.com/agent-racer/tui/internal/client"
+	"github.com/agent-racer/tui/internal/config"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 func main() {
-	wsURL := flag.String("url", "ws://127.0.0.1:8080/ws", "WebSocket URL of the Agent Racer backend")
-	token := flag.String("token", "", "Auth token (if backend requires it)")
+	configPath := flag.String("config", "", "Path to config file (defaults to ~/.config/agent-racer/config.yaml)")
+	wsURL := flag.String("url", "", "WebSocket URL of the Agent Racer backend (overrides config)")
+	token := flag.String("token", "", "Auth token (overrides config)")
 	flag.Parse()
 
-	// Derive HTTP base URL from WebSocket URL.
-	httpBase := deriveHTTPBase(*wsURL)
+	// Load configuration from file.
+	cfgPath := *configPath
+	if cfgPath == "" {
+		cfgPath = config.DefaultConfigPath()
+	}
+	cfg := config.LoadOrDefault(cfgPath)
 
-	ws := client.NewWSClient(*wsURL, *token)
-	httpClient := client.NewHTTPClient(httpBase, *token)
+	// Resolve WebSocket URL: CLI flag > config file > hardcoded default.
+	effectiveURL := cfg.WebSocketURL()
+	if *wsURL != "" {
+		effectiveURL = *wsURL
+	}
+
+	// Resolve auth token: CLI flag > config file.
+	effectiveToken := cfg.Server.AuthToken
+	if *token != "" {
+		effectiveToken = *token
+	}
+
+	// Derive HTTP base URL from WebSocket URL.
+	httpBase := deriveHTTPBase(effectiveURL)
+
+	ws := client.NewWSClient(effectiveURL, effectiveToken)
+	httpClient := client.NewHTTPClient(httpBase, effectiveToken)
 
 	m := app.New(ws, httpClient)
 	p := tea.NewProgram(m, tea.WithAltScreen())
