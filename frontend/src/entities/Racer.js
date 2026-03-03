@@ -1,4 +1,5 @@
 import { Hamster } from './Hamster.js';
+import { SpeechBubble } from './SpeechBubble.js';
 import { getEquippedPaint, getEquippedBody, getEquippedBadge } from '../gamification/CosmeticRegistry.js';
 import { TERMINAL_ACTIVITIES, isTerminalActivity } from '../session/constants.js';
 import { MODEL_COLORS, DEFAULT_COLOR, SOURCE_COLORS, DEFAULT_SOURCE, getModelColor, hexToRgb, lightenHex, shortModelName } from '../session/colors.js';
@@ -172,10 +173,38 @@ export class Racer {
         r: 0.02 + Math.random() * 0.03,
       });
     }
+
+    // Comic speech bubble
+    this.bubble = new SpeechBubble();
+  }
+
+  _triggerBubble(state) {
+    switch (state.activity) {
+      case 'thinking':
+        this.bubble.show('thought', '...');
+        break;
+      case 'tool_use':
+        this.bubble.show('speech', state.currentTool || 'tool');
+        break;
+      case 'waiting':
+      case 'idle':
+      case 'starting':
+        this.bubble.show('zzz', '');
+        break;
+      case 'errored':
+        this.bubble.show('exclamation', '!');
+        break;
+      case 'complete':
+        this.bubble.show('complete', '\u2713');
+        break;
+      default:
+        this.bubble.hide();
+    }
   }
 
   update(state) {
     const oldActivity = this.state.activity;
+    const oldTool = this.state.currentTool;
     const wasChurning = this.state.isChurning;
 
     // Detect new compactions → add damage
@@ -237,6 +266,11 @@ export class Racer {
         this.hammerSwing = 0;
         this.hammerImpactEmitted = false;
       }
+
+      this._triggerBubble(state);
+    } else if (state.activity === 'tool_use' && state.currentTool && state.currentTool !== oldTool) {
+      // Same activity but tool changed — refresh speech bubble text
+      this.bubble.show('speech', state.currentTool);
     }
 
     // Sync hamsters from subagents
@@ -576,6 +610,8 @@ export class Racer {
         }
       }
     }
+
+    this.bubble.update(dt || 1 / 60);
   }
 
   draw(ctx) {
@@ -695,6 +731,15 @@ export class Racer {
     this.drawInfo(ctx, x, y, color, activity);
 
     ctx.restore();
+
+    // Speech bubble: drawn outside the main save/restore so it is not affected
+    // by the error-spin transform or parking-lot filter.
+    if (this.bubble.isVisible) {
+      ctx.save();
+      ctx.globalAlpha = this.opacity * (1 - this.pitDim * 0.15) * (1 - this.parkingLotDim * 0.2);
+      this.bubble.draw(ctx, x, y);
+      ctx.restore();
+    }
   }
 
   drawCar(ctx, x, y, color, activity) {
@@ -945,7 +990,8 @@ export class Racer {
   drawActivityEffects(ctx, x, y, color, activity) {
     switch (activity) {
       case 'thinking':
-        this._drawThoughtBubble(ctx, x, y);
+        // Suppressed when comic speech bubbles are on (SpeechBubble handles it)
+        if (!SpeechBubble.enabled) this._drawThoughtBubble(ctx, x, y);
         break;
 
       case 'tool_use':

@@ -82,6 +82,7 @@ function buildDOM() {
           <table class="help-shortcuts">
             <tr><td class="help-shortcut-key">?</td><td>Toggle this help</td></tr>
             <tr><td class="help-shortcut-key">A</td><td>Achievements panel</td></tr>
+            <tr><td class="help-shortcut-key">B</td><td>Toggle speech bubbles</td></tr>
             <tr><td class="help-shortcut-key">G</td><td>Garage (cosmetics)</td></tr>
             <tr><td class="help-shortcut-key">C</td><td>Cycle commentary (ticker / announcer / off)</td></tr>
             <tr><td class="help-shortcut-key">D</td><td>Debug log</td></tr>
