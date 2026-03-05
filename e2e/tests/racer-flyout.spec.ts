@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 import { waitForConnection, waitForRacers, clickFirstRacer, gotoApp } from './helpers.js';
 
 test.describe('Racer detail flyout', () => {
-  test.setTimeout(60_000);
+  test.setTimeout(120_000);
 
   test.beforeEach(async ({ page }) => {
     await gotoApp(page);

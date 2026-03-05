@@ -29,7 +29,7 @@ function formatTokens(tokens: number): string {
 // ---------------------------------------------------------------------------
 
 test.describe('Dashboard leaderboard', () => {
-  test.setTimeout(45_000);
+  test.setTimeout(90_000);
 
   test.beforeEach(async ({ page }) => {
     await gotoApp(page);

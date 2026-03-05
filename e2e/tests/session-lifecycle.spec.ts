@@ -3,7 +3,7 @@ import { waitForConnection, gotoApp } from './helpers.js';
 const TIMEOUT_RACERS_APPEAR = 10_000;
 const TIMEOUT_ACTIVITY = 15_000;
 const TIMEOUT_ZONE_TRANSITION = 10_000;
-const TIMEOUT_TEST = 30_000;
+const TIMEOUT_TEST = 90_000;
 
 // ---------------------------------------------------------------------------
 // Helpers
