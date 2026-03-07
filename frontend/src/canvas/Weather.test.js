@@ -4,13 +4,23 @@ import { WeatherSystem } from './Weather.js';
 const FRAME = 1 / 60;
 
 function makeCtx() {
-  const gradient = { addColorStop: vi.fn() };
-  const radialGradient = { addColorStop: vi.fn() };
+  const linearGradients = [];
+  const radialGradients = [];
+  const fillStyles = [];
   return {
-    gradient,
-    radialGradient,
-    createLinearGradient: vi.fn(() => gradient),
-    createRadialGradient: vi.fn(() => radialGradient),
+    linearGradients,
+    radialGradients,
+    fillStyles,
+    createLinearGradient: vi.fn(() => {
+      const gradient = { addColorStop: vi.fn() };
+      linearGradients.push(gradient);
+      return gradient;
+    }),
+    createRadialGradient: vi.fn(() => {
+      const gradient = { addColorStop: vi.fn() };
+      radialGradients.push(gradient);
+      return gradient;
+    }),
     fillRect: vi.fn(),
     save: vi.fn(),
     restore: vi.fn(),
@@ -21,7 +31,7 @@ function makeCtx() {
     moveTo: vi.fn(),
     lineTo: vi.fn(),
     stroke: vi.fn(),
-    set fillStyle(_) {},
+    set fillStyle(value) { fillStyles.push(value); },
     set strokeStyle(_) {},
     set lineWidth(_) {},
     set lineCap(_) {},
@@ -46,8 +56,8 @@ describe('WeatherSystem', () => {
     weather.drawBehind(ctx, 400, 300);
 
     expect(ctx.createLinearGradient).toHaveBeenCalledWith(0, 0, 0, 300);
-    expect(ctx.gradient.addColorStop).toHaveBeenNthCalledWith(1, 0, 'rgba(20,15,30,0.45)');
-    expect(ctx.gradient.addColorStop).toHaveBeenNthCalledWith(2, 1, 'rgba(26,26,46,0.45)');
+    expect(ctx.linearGradients[0].addColorStop).toHaveBeenNthCalledWith(1, 0, 'rgba(20,15,30,0.45)');
+    expect(ctx.linearGradients[0].addColorStop).toHaveBeenNthCalledWith(2, 1, 'rgba(26,26,46,0.45)');
     expect(ctx.fillRect).toHaveBeenCalledWith(0, 0, 400, 300);
   });
 
@@ -59,9 +69,31 @@ describe('WeatherSystem', () => {
     weather.drawBehind(ctx, 640, 360);
 
     expect(ctx.createLinearGradient).toHaveBeenCalledWith(0, 0, 0, 360);
-    expect(ctx.gradient.addColorStop).toHaveBeenNthCalledWith(1, 0, 'rgba(80,50,20,0.3)');
-    expect(ctx.gradient.addColorStop).toHaveBeenNthCalledWith(2, 1, 'rgba(50,30,15,0.3)');
+    expect(ctx.linearGradients[0].addColorStop).toHaveBeenNthCalledWith(1, 0, 'rgba(162,98,48,0.42)');
+    expect(ctx.linearGradients[0].addColorStop).toHaveBeenNthCalledWith(2, 1, 'rgba(104,56,26,0.42)');
     expect(ctx.fillRect).toHaveBeenCalledWith(0, 0, 640, 360);
+  });
+
+  it('layers a warm wash and neutral veil during golden hour', () => {
+    const weather = new WeatherSystem();
+    const ctx = makeCtx();
+
+    setState(weather, 'golden');
+    weather.drawFront(ctx, 640, 360);
+
+    expect(ctx.createLinearGradient).toHaveBeenCalledWith(0, 0, 0, 360);
+    expect(ctx.linearGradients[0].addColorStop).toHaveBeenNthCalledWith(1, 0, 'rgba(255,210,140,0.18)');
+    expect(ctx.linearGradients[0].addColorStop).toHaveBeenNthCalledWith(2, 0.55, 'rgba(224,168,112,0.12)');
+    expect(ctx.linearGradients[0].addColorStop).toHaveBeenNthCalledWith(3, 1, 'rgba(140,92,58,0.1)');
+    expect(ctx.createRadialGradient).toHaveBeenCalledWith(352, 50.400000000000006, 0, 352, 50.400000000000006, 448);
+    expect(ctx.radialGradients[0].addColorStop).toHaveBeenNthCalledWith(1, 0, 'rgba(255,220,150,0.22)');
+    expect(ctx.radialGradients[0].addColorStop).toHaveBeenNthCalledWith(2, 0.45, 'rgba(255,168,78,0.14)');
+    expect(ctx.radialGradients[0].addColorStop).toHaveBeenNthCalledWith(3, 1, 'rgba(255,120,20,0)');
+    expect(ctx.fillStyles[1]).toBe('rgba(190,170,155,0.1)');
+    expect(ctx.fillRect).toHaveBeenCalledTimes(3);
+    expect(ctx.fillRect).toHaveBeenNthCalledWith(1, 0, 0, 640, 360);
+    expect(ctx.fillRect).toHaveBeenNthCalledWith(2, 0, 0, 640, 360);
+    expect(ctx.fillRect).toHaveBeenNthCalledWith(3, 0, 0, 640, 360);
   });
 
   it('spawns a splash when rain hits the bottom of travel', () => {

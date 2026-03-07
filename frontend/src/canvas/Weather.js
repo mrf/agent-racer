@@ -34,7 +34,7 @@ const SKY_PALETTES = {
   [CLOUDY]: { top: [50, 50, 60],   bottom: [35, 35, 45], alpha: 0.30 },
   [STORM]:  { top: [20, 15, 30],   bottom: [26, 26, 46], alpha: 0.45 },
   [HAZE]:   { top: [50, 35, 20],   bottom: [26, 26, 46], alpha: 0.20 },
-  [GOLDEN]: { top: [80, 50, 20],   bottom: [50, 30, 15], alpha: 0.30 },
+  [GOLDEN]: { top: [162, 98, 48],  bottom: [104, 56, 26], alpha: 0.42 },
   [FOG]:    { top: [40, 40, 50],   bottom: [30, 30, 40], alpha: 0.40 },
 };
 
@@ -453,14 +453,7 @@ export class WeatherSystem {
     // Golden glow
     const goldenWeight = this._getEffectWeight(GOLDEN);
     if (goldenWeight > 0.01) {
-      const grad = ctx.createRadialGradient(
-        width * 0.5, height * 0.15, 0,
-        width * 0.5, height * 0.15, width * 0.6
-      );
-      grad.addColorStop(0, `rgba(255,180,60,${0.08 * goldenWeight})`);
-      grad.addColorStop(1, `rgba(255,120,20,0)`);
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, width, height);
+      this._drawGoldenHour(ctx, width, height, goldenWeight);
     }
   }
 
@@ -537,6 +530,28 @@ export class WeatherSystem {
       ctx.fill();
     }
     ctx.restore();
+  }
+
+  _drawGoldenHour(ctx, width, height, goldenWeight) {
+    const warmWash = ctx.createLinearGradient(0, 0, 0, height);
+    warmWash.addColorStop(0, `rgba(255,210,140,${0.18 * goldenWeight})`);
+    warmWash.addColorStop(0.55, `rgba(224,168,112,${0.12 * goldenWeight})`);
+    warmWash.addColorStop(1, `rgba(140,92,58,${0.1 * goldenWeight})`);
+    ctx.fillStyle = warmWash;
+    ctx.fillRect(0, 0, width, height);
+
+    ctx.fillStyle = `rgba(190,170,155,${0.1 * goldenWeight})`;
+    ctx.fillRect(0, 0, width, height);
+
+    const glow = ctx.createRadialGradient(
+      width * 0.55, height * 0.14, 0,
+      width * 0.55, height * 0.14, width * 0.7
+    );
+    glow.addColorStop(0, `rgba(255,220,150,${0.22 * goldenWeight})`);
+    glow.addColorStop(0.45, `rgba(255,168,78,${0.14 * goldenWeight})`);
+    glow.addColorStop(1, 'rgba(255,120,20,0)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, width, height);
   }
 
   _getFogCloudFrame(cloud, width, height) {
