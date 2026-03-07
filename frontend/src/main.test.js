@@ -515,6 +515,18 @@ describe('view switching', () => {
     expect(mocks.activeView.setAllRacers).toHaveBeenCalled();
   });
 
+  it('switchView destroys minimap before recreating it', async () => {
+    const { getViewTypes } = await import('./ViewRenderer.js');
+    const { Minimap } = await import('./ui/Minimap.js');
+    getViewTypes.mockReturnValue(['race', 'footrace']);
+
+    const destroySpy = vi.spyOn(Minimap.prototype, 'destroy');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'v' }));
+
+    expect(destroySpy).toHaveBeenCalled();
+    destroySpy.mockRestore();
+  });
+
   it('switchView persists view type to localStorage', async () => {
     const { getViewTypes } = await import('./ViewRenderer.js');
     getViewTypes.mockReturnValue(['race', 'footrace']);
