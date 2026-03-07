@@ -90,8 +90,22 @@ const flyout = createFlyout({ detailFlyout, flyoutContent, canvas });
 const tracker = createSessionTracker(engine);
 const shortcutBar = new ShortcutBar(document.getElementById('shortcut-bar'));
 const helpPopup = new HelpPopup();
-const minimap = new Minimap();
-minimap.raceCanvas = activeView;
+let minimap = new Minimap();
+
+function bindMinimapToActiveView() {
+  minimap.raceCanvas = activeView;
+  minimap.onDotClick = focusRacerFromMinimap;
+}
+
+function recreateMinimap() {
+  const wasVisible = minimap.visible;
+  minimap.destroy();
+  minimap = new Minimap();
+  minimap.setVisible(wasVisible);
+  bindMinimapToActiveView();
+}
+
+bindMinimapToActiveView();
 
 function focusRacerFromMinimap(state) {
   const container = document.getElementById('race-container');
@@ -102,8 +116,6 @@ function focusRacerFromMinimap(state) {
   }
   flyout.show(state, entity.displayX, entity.displayY);
 }
-minimap.onDotClick = focusRacerFromMinimap;
-
 // Commentary system
 const commentary = new CommentaryEngine();
 const ticker = new Ticker();
@@ -332,8 +344,7 @@ function switchView(type) {
   activeView.setConnected(statusDot.className.includes('connected'));
   window.activeView = activeView;
   window.raceCanvas = activeView;
-  minimap.raceCanvas = activeView;
-  minimap.onDotClick = focusRacerFromMinimap;
+  recreateMinimap();
   localStorage.setItem(VIEW_STORAGE_KEY, type);
 }
 
