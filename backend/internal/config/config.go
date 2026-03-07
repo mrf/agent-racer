@@ -150,6 +150,13 @@ type SoundConfig struct {
 	EnableSfx     bool    `yaml:"enable_sfx" json:"enable_sfx"`
 }
 
+var weakAuthTokens = map[string]struct{}{
+	"dev":      {},
+	"test":     {},
+	"changeme": {},
+	"default":  {},
+}
+
 func Load(path string) (*Config, error) {
 	cfg := defaultConfig()
 
@@ -410,6 +417,21 @@ func DefaultConfigPath() string {
 // DefaultReplayDir returns the XDG-compliant path for replay files.
 func DefaultReplayDir() string {
 	return filepath.Join(defaultStateDir(), "agent-racer", "replays")
+}
+
+// NormalizeAuthToken trims surrounding whitespace from a configured auth token.
+func NormalizeAuthToken(token string) string {
+	return strings.TrimSpace(token)
+}
+
+// IsWeakAuthToken reports whether the configured auth token is a known weak placeholder.
+func IsWeakAuthToken(token string) bool {
+	normalized := strings.ToLower(NormalizeAuthToken(token))
+	if normalized == "" {
+		return false
+	}
+	_, ok := weakAuthTokens[normalized]
+	return ok
 }
 
 // GenerateToken returns a cryptographically random 16-byte hex token.

@@ -89,7 +89,15 @@ func main() {
 		}
 	}
 
-	authToken := cfg.Server.AuthToken
+	authToken := config.NormalizeAuthToken(cfg.Server.AuthToken)
+	if config.IsWeakAuthToken(authToken) {
+		log.Println("========================================")
+		log.Printf("  WARNING: Weak auth_token %q is not allowed.", authToken)
+		log.Println("  Generating a random token for this startup.")
+		log.Println("  Use a long random value in server.auth_token to persist.")
+		log.Println("========================================")
+		authToken = ""
+	}
 	if authToken == "" {
 		var err error
 		authToken, err = config.GenerateToken()

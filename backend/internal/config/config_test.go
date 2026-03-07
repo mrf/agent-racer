@@ -327,6 +327,34 @@ func TestGenerateToken(t *testing.T) {
 	}
 }
 
+func TestNormalizeAuthToken(t *testing.T) {
+	if got := NormalizeAuthToken("  abc123  "); got != "abc123" {
+		t.Errorf("NormalizeAuthToken() = %q, want %q", got, "abc123")
+	}
+}
+
+func TestIsWeakAuthToken(t *testing.T) {
+	tests := []struct {
+		token string
+		want  bool
+	}{
+		{token: "dev", want: true},
+		{token: " DEV ", want: true},
+		{token: "test", want: true},
+		{token: "changeme", want: true},
+		{token: "default", want: true},
+		{token: "", want: false},
+		{token: "  ", want: false},
+		{token: "my-actual-secret-token", want: false},
+	}
+
+	for _, tt := range tests {
+		if got := IsWeakAuthToken(tt.token); got != tt.want {
+			t.Errorf("IsWeakAuthToken(%q) = %v, want %v", tt.token, got, tt.want)
+		}
+	}
+}
+
 func TestDiffNoChanges(t *testing.T) {
 	a := defaultConfig()
 	b := defaultConfig()

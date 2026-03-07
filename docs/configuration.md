@@ -34,7 +34,7 @@ server:
   port: 8080
   host: "127.0.0.1"
   allowed_origins: []
-  auth_token: ""  # auto-generated each startup if empty; set to persist
+  auth_token: ""  # auto-generated if empty; weak placeholders (dev/test/changeme/default) are rejected
 ```
 
 ### Monitor Settings

@@ -30,7 +30,7 @@ fi
 # Install default config
 mkdir -p "$CONFIG_DIR"
 if [ ! -f "${CONFIG_DIR}/config.yaml" ]; then
-  cp config.yaml "${CONFIG_DIR}/config.yaml"
+  cp config.example.yaml "${CONFIG_DIR}/config.yaml"
   echo "Installed default config to ${CONFIG_DIR}/config.yaml"
 fi
 

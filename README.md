@@ -261,7 +261,7 @@ server:
   # allowed_origins:  # Optional: restrict browser origins for WS
   #   - "http://localhost:8080"
   #   - "http://127.0.0.1:8080"
-  # auth_token: ""    # Auto-generated each startup if empty; set to persist
+  # auth_token: ""    # Auto-generated if empty; weak placeholders (dev/test/changeme/default) are rejected
 
 sources:
   claude: true        # Claude Code session monitoring (default: true)

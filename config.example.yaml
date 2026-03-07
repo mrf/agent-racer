@@ -8,6 +8,7 @@ server:
   allowed_origins: []
   # Authentication token. If empty, a random token is generated each startup.
   # Set this to a fixed value to persist across restarts.
+  # Weak placeholders like "dev", "test", "changeme", and "default" are rejected.
   auth_token: ""
 
 # Session source configuration
