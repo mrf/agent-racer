@@ -23,6 +23,34 @@ const REACTION_DURATIONS = {
   mexican: 5.0,
 };
 
+function normalizeHex(color) {
+  if (!/^#([\da-f]{3}|[\da-f]{6})$/i.test(color)) return null;
+  if (color.length === 4) {
+    return `#${color[1]}${color[1]}${color[2]}${color[2]}${color[3]}${color[3]}`;
+  }
+  return color.toLowerCase();
+}
+
+function toneColor(color, depth) {
+  const hex = normalizeHex(color);
+  if (!hex) return color;
+
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  const gray = Math.round((r + g + b) / 3);
+  const desaturate = depth * 0.4;
+  const brighten = (1 - depth) * 0.12;
+  const darken = depth * 0.2;
+  const toChannel = channel => {
+    const neutralized = channel + (gray - channel) * desaturate;
+    const lifted = neutralized + (255 - neutralized) * brighten;
+    return Math.max(0, Math.min(255, Math.round(lifted * (1 - darken))));
+  };
+
+  return `#${toChannel(r).toString(16).padStart(2, '0')}${toChannel(g).toString(16).padStart(2, '0')}${toChannel(b).toString(16).padStart(2, '0')}`;
+}
+
 export class Grandstand {
   constructor() {
     this._spectators = [];
@@ -44,6 +72,9 @@ export class Grandstand {
           row,
           skinColor: SKIN_TONES[Math.floor(Math.random() * SKIN_TONES.length)],
           shirtColor: SHIRT_COLORS[Math.floor(Math.random() * SHIRT_COLORS.length)],
+          bodyW: 1.5 + Math.random(),
+          bodyH: 4 + Math.random() * 2,
+          headR: 2 + Math.random(),
           phase: Math.random() * Math.PI * 2,
           cheerThreshold: 0.3 + Math.random() * 0.65,
         });
@@ -90,7 +121,7 @@ export class Grandstand {
     }
 
     this._drawBackdrop(ctx, baseX, standTop, standW, standH + 4);
-    this._drawAllSpectators(ctx, baseX, standBottom, trackBounds.width, excitement);
+    this._drawAllSpectators(ctx, baseX, standBottom, trackBounds.width, rowCount, excitement);
   }
 
   _drawBackdrop(ctx, x, y, w, h) {
@@ -99,18 +130,25 @@ export class Grandstand {
     grad.addColorStop(1, '#252545');
     ctx.fillStyle = grad;
     ctx.fillRect(x, y, w, h);
+    const vignette = ctx.createRadialGradient(x + w / 2, y + h * 0.3, w * 0.12, x + w / 2, y + h * 0.5, w * 0.8);
+    vignette.addColorStop(0, 'rgba(0,0,0,0)');
+    vignette.addColorStop(1, 'rgba(0,0,0,0.18)');
+    ctx.fillStyle = vignette;
+    ctx.fillRect(x, y, w, h);
     ctx.fillStyle = 'rgba(0,0,0,0.35)';
     ctx.fillRect(x, y, w, 3);
   }
 
-  _drawAllSpectators(ctx, baseX, baseY, trackWidth, excitement) {
+  _drawAllSpectators(ctx, baseX, baseY, trackWidth, rowCount, excitement) {
     const clampedExcitement = Math.min(1, Math.max(0, excitement));
     const totalWidth = trackWidth + 20;
 
-    for (const spec of this._spectators) {
+    for (let i = this._spectators.length - 1; i >= 0; i--) {
+      const spec = this._spectators[i];
       const absX = baseX + spec.x;
       const rowY = baseY - spec.row * ROW_STEP;
       const normX = spec.x / totalWidth;
+      const depth = rowCount > 1 ? spec.row / (rowCount - 1) : 0;
 
       let bounce = Math.sin(this._time * 0.5 + spec.phase) * 0.4;
       let armRaise = false;
@@ -173,29 +211,31 @@ export class Grandstand {
         }
       }
 
-      this._drawSpec(ctx, absX, rowY, spec, bounce, armRaise, leansForward);
+      this._drawSpec(ctx, absX, rowY, spec, depth, bounce, armRaise, leansForward);
     }
   }
 
-  _drawSpec(ctx, x, y, spec, bounce, armRaise, leansForward) {
-    const halfW = 2;
-    const bodyH = 5;
-    const headR = 2.5;
+  _drawSpec(ctx, x, y, spec, depth, bounce, armRaise, leansForward) {
+    const halfW = spec.bodyW / 2;
+    const bodyH = spec.bodyH;
+    const headR = spec.headR;
     const armLen = 4;
     const leanX = leansForward ? 2 : 0;
     const feetY = y - bounce;
     const bodyTop = feetY - bodyH;
     const headCY = bodyTop - headR;
+    const shirtColor = toneColor(spec.shirtColor, depth);
+    const skinColor = toneColor(spec.skinColor, depth);
 
-    ctx.fillStyle = spec.shirtColor;
+    ctx.fillStyle = shirtColor;
     ctx.fillRect(x - halfW + leanX, bodyTop, halfW * 2, bodyH);
 
-    ctx.fillStyle = spec.skinColor;
+    ctx.fillStyle = skinColor;
     ctx.beginPath();
     ctx.arc(x + leanX, headCY, headR, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.strokeStyle = spec.skinColor;
+    ctx.strokeStyle = skinColor;
     ctx.lineWidth = 1;
     const shoulderY = bodyTop + 1;
 
