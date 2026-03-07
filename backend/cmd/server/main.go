@@ -107,7 +107,8 @@ func main() {
 		log.Println("========================================")
 		log.Println("  WARNING: No auth_token configured.")
 		log.Printf("  Generated token: %s", authToken)
-		log.Printf("  Open: http://%s:%d/?token=%s", cfg.Server.Host, cfg.Server.Port, authToken)
+		log.Printf("  Open: http://%s:%d/#token=%s", cfg.Server.Host, cfg.Server.Port, authToken)
+		log.Println("  The token is read from URL fragment and then removed from the address bar.")
 		log.Println("  Set server.auth_token in config to persist.")
 		log.Println("========================================")
 	}
