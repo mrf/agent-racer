@@ -46,10 +46,17 @@ func (c *client) writePump() {
 
 func (c *client) close() {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	if !c.closed {
-		c.closed = true
-		close(c.send)
+	if c.closed {
+		c.mu.Unlock()
+		return
+	}
+	c.closed = true
+	close(c.send)
+	conn := c.conn
+	c.mu.Unlock()
+
+	if conn != nil {
+		_ = conn.Close()
 	}
 }
 
@@ -86,6 +93,7 @@ type Broadcaster struct {
 	flushMu        sync.Mutex
 	healthHook     func() []SourceHealthPayload
 	seq            atomic.Uint64
+	stopOnce       sync.Once
 }
 
 func NewBroadcaster(store *session.Store, throttle, snapshotInterval time.Duration, maxConns int) *Broadcaster {
@@ -339,10 +347,30 @@ func (b *Broadcaster) BroadcastMessage(msg WSMessage) {
 	b.broadcast(msg)
 }
 
-// Stop stops the snapshot ticker and terminates the snapshotLoop goroutine.
+// Stop stops the snapshot loop and disconnects all active clients.
 func (b *Broadcaster) Stop() {
-	b.snapshotTicker.Stop()
-	close(b.stop)
+	b.stopOnce.Do(func() {
+		if b.snapshotTicker != nil {
+			b.snapshotTicker.Stop()
+		}
+
+		b.mu.Lock()
+		clients := make([]*client, 0, len(b.clients))
+		for c := range b.clients {
+			clients = append(clients, c)
+		}
+		b.clients = make(map[*client]bool)
+		stop := b.stop
+		b.mu.Unlock()
+
+		for i := 0; i < len(clients); i++ {
+			clients[i].close()
+		}
+
+		if stop != nil {
+			close(stop)
+		}
+	})
 }
 
 func (b *Broadcaster) ClientCount() int {

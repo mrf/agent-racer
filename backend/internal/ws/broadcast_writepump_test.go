@@ -1,10 +1,12 @@
 package ws
 
 import (
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/agent-racer/backend/internal/session"
+	"github.com/gorilla/websocket"
 )
 
 // TestWritePump_RemovesClientOnWriteError verifies that when writePump
@@ -51,4 +53,52 @@ func TestWritePump_RemovesClientOnWriteError(t *testing.T) {
 	}
 
 	t.Fatalf("client not removed after write error; ClientCount = %d", b.ClientCount())
+}
+
+func TestStop_DisconnectsActiveClients(t *testing.T) {
+	srv, clientConn, serverConn := dialTestWSPair(t)
+	defer srv.Close()
+	defer func() { _ = clientConn.Close() }()
+
+	store := session.NewStore()
+	b := NewBroadcaster(store, time.Hour, time.Hour, 0)
+
+	c, err := b.AddClient(serverConn)
+	if err != nil {
+		t.Fatalf("AddClient unexpected error: %v", err)
+	}
+
+	if got := b.ClientCount(); got != 1 {
+		t.Fatalf("expected 1 client before Stop, got %d", got)
+	}
+
+	b.Stop()
+	b.Stop() // idempotent
+
+	if got := b.ClientCount(); got != 0 {
+		t.Fatalf("expected 0 clients after Stop, got %d", got)
+	}
+	if c.trySend([]byte(`{"type":"test"}`)) {
+		t.Fatal("expected trySend to fail after Stop")
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		_ = clientConn.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+		_, _, err := clientConn.ReadMessage()
+		if err == nil {
+			continue
+		}
+
+		var closeErr *websocket.CloseError
+		if errors.As(err, &closeErr) &&
+			closeErr.Code != websocket.CloseNormalClosure &&
+			closeErr.Code != websocket.CloseGoingAway &&
+			closeErr.Code != websocket.CloseAbnormalClosure {
+			t.Fatalf("unexpected close code: %d", closeErr.Code)
+		}
+		return
+	}
+
+	t.Fatal("client connection remained open after Stop")
 }

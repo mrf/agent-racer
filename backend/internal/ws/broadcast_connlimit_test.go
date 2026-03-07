@@ -12,10 +12,9 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// dialTestWS creates a test HTTP server that upgrades to WebSocket and returns
-// the server-side connection. The caller must close both the server and the
-// returned connection.
-func dialTestWS(t *testing.T) (*httptest.Server, *websocket.Conn) {
+// dialTestWSPair creates a test HTTP server that upgrades to WebSocket and
+// returns both ends of the connection.
+func dialTestWSPair(t *testing.T) (*httptest.Server, *websocket.Conn, *websocket.Conn) {
 	t.Helper()
 
 	connCh := make(chan *websocket.Conn, 1)
@@ -35,17 +34,27 @@ func dialTestWS(t *testing.T) (*httptest.Server, *websocket.Conn) {
 		srv.Close()
 		t.Fatalf("dial: %v", err)
 	}
-	// We only need the server-side conn for AddClient; close the client side later.
-	_ = clientConn.Close()
 
 	select {
 	case serverConn := <-connCh:
-		return srv, serverConn
+		return srv, clientConn, serverConn
 	case <-time.After(2 * time.Second):
+		_ = clientConn.Close()
 		srv.Close()
 		t.Fatal("timed out waiting for server-side WebSocket connection")
-		return nil, nil
+		return nil, nil, nil
 	}
+}
+
+// dialTestWS creates a test HTTP server that upgrades to WebSocket and returns
+// the server-side connection. The caller must close both the server and the
+// returned connection.
+func dialTestWS(t *testing.T) (*httptest.Server, *websocket.Conn) {
+	t.Helper()
+
+	srv, clientConn, serverConn := dialTestWSPair(t)
+	_ = clientConn.Close()
+	return srv, serverConn
 }
 
 func TestAddClient_MaxConnections(t *testing.T) {
