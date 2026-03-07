@@ -291,13 +291,12 @@ export class WeatherSystem {
     const botRGB = lerpRGB(fromPal.bottom, toPal.bottom, t);
     const alpha = lerp(fromPal.alpha, toPal.alpha, t);
 
-    // Sky gradient overlay (top portion)
-    const skyH = height * 0.5;
-    const grad = ctx.createLinearGradient(0, 0, 0, skyH);
+    // Atmospheric tint should influence the full scene, not just the sky band.
+    const grad = ctx.createLinearGradient(0, 0, 0, height);
     grad.addColorStop(0, `rgba(${topRGB[0]},${topRGB[1]},${topRGB[2]},${alpha})`);
-    grad.addColorStop(1, `rgba(${botRGB[0]},${botRGB[1]},${botRGB[2]},0)`);
+    grad.addColorStop(1, `rgba(${botRGB[0]},${botRGB[1]},${botRGB[2]},${alpha})`);
     ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, width, skyH);
+    ctx.fillRect(0, 0, width, height);
 
     // Stars (visible in clear/night state)
     const starAlpha = this._getEffectWeight(CLEAR);
