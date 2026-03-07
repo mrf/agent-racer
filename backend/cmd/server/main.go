@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"log"
 	"net/http"
@@ -207,10 +208,12 @@ func main() {
 
 	mux := http.NewServeMux()
 	server.SetupRoutes(mux)
+	httpServer := ws.NewHTTPServer(cfg.Server.Host, cfg.Server.Port, mux)
 
 	// SIGHUP: reload config.yaml and apply changes at runtime.
 	sighupCh := make(chan os.Signal, 1)
 	signal.Notify(sighupCh, syscall.SIGHUP)
+	defer signal.Stop(sighupCh)
 	go func() {
 		for range sighupCh {
 			newCfg, err := config.LoadOrDefault(cfgPath)
@@ -253,21 +256,33 @@ func main() {
 		}
 	}()
 
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		<-sigCh
-		log.Println("Shutting down...")
+	cleanup := func() {
 		cancel()
 		broadcaster.Stop()
 		wg.Wait() // allow stats tracker to flush
 		if rec != nil {
 			rec.Close()
 		}
-		os.Exit(0)
+	}
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
+	go func() {
+		sig := <-sigCh
+		log.Printf("Shutting down after signal: %s", sig)
+		cancel()
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer shutdownCancel()
+		if err := httpServer.Shutdown(shutdownCtx); err != nil {
+			log.Printf("HTTP shutdown error: %v", err)
+		}
 	}()
 
-	if err := ws.ListenAndServe(cfg.Server.Host, cfg.Server.Port, mux); err != nil {
+	log.Printf("Server listening on %s", httpServer.Addr)
+	if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		cleanup()
 		log.Fatalf("Server error: %v", err)
 	}
+	cleanup()
 }

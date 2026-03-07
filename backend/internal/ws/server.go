@@ -36,15 +36,15 @@ func tmuxFocusSession(target string) error {
 }
 
 type Server struct {
-	config          *config.Config
-	store           *session.Store
-	broadcaster     *Broadcaster
-	frontendDir     string
-	dev             bool
-	embeddedHandler http.Handler
-	allowedOrigins  map[string]bool
-	allowedHosts    map[string]bool
-	authToken       string
+	config            *config.Config
+	store             *session.Store
+	broadcaster       *Broadcaster
+	frontendDir       string
+	dev               bool
+	embeddedHandler   http.Handler
+	allowedOrigins    map[string]bool
+	allowedHosts      map[string]bool
+	authToken         string
 	tracker           *gamification.StatsTracker
 	achievementEngine *gamification.AchievementEngine
 	rewardRegistry    *gamification.RewardRegistry
@@ -54,15 +54,15 @@ type Server struct {
 
 func NewServer(cfg *config.Config, store *session.Store, broadcaster *Broadcaster, frontendDir string, dev bool, embeddedHandler http.Handler, allowedOrigins []string, authToken string) *Server {
 	s := &Server{
-		config:          cfg,
-		store:           store,
-		broadcaster:     broadcaster,
-		frontendDir:     frontendDir,
-		dev:             dev,
-		embeddedHandler: embeddedHandler,
-		allowedOrigins:  make(map[string]bool),
-		allowedHosts:    make(map[string]bool),
-		authToken:       authToken,
+		config:            cfg,
+		store:             store,
+		broadcaster:       broadcaster,
+		frontendDir:       frontendDir,
+		dev:               dev,
+		embeddedHandler:   embeddedHandler,
+		allowedOrigins:    make(map[string]bool),
+		allowedHosts:      make(map[string]bool),
+		authToken:         authToken,
 		achievementEngine: gamification.NewAchievementEngine(),
 		rewardRegistry:    gamification.NewRewardRegistry(),
 	}
@@ -606,8 +606,16 @@ func securityHeaders(next http.Handler) http.Handler {
 	})
 }
 
-func ListenAndServe(host string, port int, mux *http.ServeMux) error {
+func NewHTTPServer(host string, port int, mux *http.ServeMux) *http.Server {
 	addr := fmt.Sprintf("%s:%d", host, port)
-	log.Printf("Server listening on %s", addr)
-	return http.ListenAndServe(addr, securityHeaders(mux))
+	return &http.Server{
+		Addr:    addr,
+		Handler: securityHeaders(mux),
+	}
+}
+
+func ListenAndServe(host string, port int, mux *http.ServeMux) error {
+	server := NewHTTPServer(host, port, mux)
+	log.Printf("Server listening on %s", server.Addr)
+	return server.ListenAndServe()
 }
