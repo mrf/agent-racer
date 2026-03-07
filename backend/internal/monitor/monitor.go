@@ -56,12 +56,14 @@ type sessionEndMarker struct {
 	Timestamp      string `json:"timestamp"`
 }
 
+const defaultTmuxResolverTTL = 5 * time.Second
+
 // SnapshotHook is called after each poll with the current snapshot of all sessions.
 // It is called synchronously from the poll goroutine; implementations must not block.
 type SnapshotHook func([]*session.SessionState)
 
 type Monitor struct {
-	mu               sync.RWMutex               // protects cfg, sources, health
+	mu               sync.RWMutex // protects cfg, sources, health
 	cfg              *config.Config
 	store            *session.Store
 	broadcaster      *ws.Broadcaster
@@ -71,12 +73,17 @@ type Monitor struct {
 	removedKeys      map[string]bool // keys removed from store; prevents re-creation while file is still discovered
 	prevCPU          map[int]cpuSample
 	lastProcessPoll  time.Time
-	statsEvents      chan<- session.Event       // nil disables stats event emission
-	statsDropped     int64                      // events dropped since last log
-	statsLastDropLog time.Time                  // last time a drop was logged
-	health           map[string]*sourceHealth   // keyed by source name
-	reconfigureCh    chan struct{}               // signals Start() to recreate its poll ticker
-	snapshotHook     SnapshotHook               // optional hook called after each poll
+	statsEvents      chan<- session.Event     // nil disables stats event emission
+	statsDropped     int64                    // events dropped since last log
+	statsLastDropLog time.Time                // last time a drop was logged
+	health           map[string]*sourceHealth // keyed by source name
+	reconfigureCh    chan struct{}            // signals Start() to recreate its poll ticker
+	snapshotHook     SnapshotHook             // optional hook called after each poll
+	newTmuxResolver  func() *TmuxResolver     // injectable for tests
+	tmuxResolverTTL  time.Duration            // cache TTL; <=0 disables cache
+	tmuxResolver     *TmuxResolver            // cached resolver (nil means tmux unavailable)
+	tmuxResolverNext time.Time                // next refresh time for cached resolver
+	tmuxResolverSet  bool                     // true after first resolver attempt
 }
 
 func NewMonitor(cfg *config.Config, store *session.Store, broadcaster *ws.Broadcaster, sources []Source) *Monitor {
@@ -96,6 +103,8 @@ func NewMonitor(cfg *config.Config, store *session.Store, broadcaster *ws.Broadc
 		lastProcessPoll: time.Now(),
 		health:          healthMap,
 		reconfigureCh:   make(chan struct{}, 1),
+		newTmuxResolver: NewTmuxResolver,
+		tmuxResolverTTL: defaultTmuxResolverTTL,
 	}
 	broadcaster.SetHealthHook(m.sourceHealthSnapshot)
 	return m
@@ -290,16 +299,25 @@ func (m *Monitor) poll() {
 	}
 
 	// Resolve tmux targets for tracked sessions (after PID population).
-	resolver := NewTmuxResolver() // nil if tmux unavailable
+	needsTmuxResolve := false
 	for _, state := range updates {
-		if state.PID == 0 {
-			continue
+		if state.PID > 0 {
+			needsTmuxResolve = true
+			break
 		}
-		target, ok := resolver.Resolve(state.PID)
-		if !ok || state.TmuxTarget == target {
-			continue
+	}
+	if needsTmuxResolve {
+		resolver := m.cachedTmuxResolver(now)
+		for _, state := range updates {
+			if state.PID == 0 {
+				continue
+			}
+			target, ok := resolver.Resolve(state.PID)
+			if !ok || state.TmuxTarget == target {
+				continue
+			}
+			state.TmuxTarget = target
 		}
-		state.TmuxTarget = target
 	}
 
 	// Build a lookup of this cycle's updates for the stale detection
@@ -404,6 +422,22 @@ func (m *Monitor) poll() {
 	if m.snapshotHook != nil {
 		m.snapshotHook(m.store.GetAll())
 	}
+}
+
+func (m *Monitor) cachedTmuxResolver(now time.Time) *TmuxResolver {
+	if m.newTmuxResolver == nil {
+		return nil
+	}
+	if m.tmuxResolverTTL <= 0 {
+		return m.newTmuxResolver()
+	}
+	if m.tmuxResolverSet && now.Before(m.tmuxResolverNext) {
+		return m.tmuxResolver
+	}
+	m.tmuxResolver = m.newTmuxResolver()
+	m.tmuxResolverNext = now.Add(m.tmuxResolverTTL)
+	m.tmuxResolverSet = true
+	return m.tmuxResolver
 }
 
 // pollSource processes a single source within a deferred recover, so that a

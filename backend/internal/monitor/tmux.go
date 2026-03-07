@@ -1,11 +1,17 @@
 package monitor
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 )
+
+const defaultTmuxListTimeout = 2 * time.Second
+
+var execCommandContext = exec.CommandContext
 
 // TmuxPane represents a single tmux pane and its shell PID.
 type TmuxPane struct {
@@ -60,13 +66,28 @@ func (r *TmuxResolver) Resolve(pid int) (string, bool) {
 
 // listTmuxPanes runs tmux list-panes and parses the output.
 func listTmuxPanes() ([]TmuxPane, error) {
-	path, err := exec.LookPath("tmux")
-	if err != nil {
-		return nil, err
-	}
+	return listTmuxPanesWithTimeout(defaultTmuxListTimeout)
+}
 
-	out, err := exec.Command(path, "list-panes", "-a", "-F",
-		"#{pane_pid}\t#{session_name}\t#{window_index}\t#{pane_index}").Output()
+func listTmuxPanesWithTimeout(timeout time.Duration) ([]TmuxPane, error) {
+	if timeout <= 0 {
+		timeout = defaultTmuxListTimeout
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	cmd := execCommandContext(
+		ctx,
+		"tmux",
+		"list-panes",
+		"-a",
+		"-F",
+		"#{pane_pid}\t#{session_name}\t#{window_index}\t#{pane_index}",
+	)
+	out, err := cmd.Output()
+	if ctx.Err() == context.DeadlineExceeded {
+		return nil, ctx.Err()
+	}
 	if err != nil {
 		return nil, err
 	}
