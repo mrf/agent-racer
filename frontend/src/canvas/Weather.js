@@ -96,6 +96,28 @@ function createRainSplash(x, y) {
   };
 }
 
+// ── Fog cloud pool ──────────────────────────────────────────────────
+function generateFogClouds() {
+  const layerPattern = [0, 1, 2, 1];
+  const clouds = [];
+  for (let i = 0; i < layerPattern.length; i++) {
+    const layer = layerPattern[i];
+    clouds.push({
+      layer,
+      startX: Math.random() * (1.25 + layer * 0.12),
+      y: 0.22 + layer * 0.13 + Math.random() * 0.08,
+      width: 0.22 + layer * 0.05 + Math.random() * 0.07,
+      height: 0.11 + layer * 0.02 + Math.random() * 0.04,
+      speed: 0.012 + layer * 0.01 + Math.random() * 0.012,
+      bobAmplitude: 6 + layer * 3 + Math.random() * 4,
+      bobSpeed: 0.15 + Math.random() * 0.18,
+      phase: Math.random() * Math.PI * 2,
+      alpha: 0.14 + layer * 0.03 + Math.random() * 0.05,
+    });
+  }
+  return clouds;
+}
+
 // ── Lightning ───────────────────────────────────────────────────────
 function generateBolt(x, y, maxDepth) {
   const segments = [];
@@ -139,17 +161,8 @@ export class WeatherSystem {
     this._lightning = null;  // { segments, flashAlpha, timer }
     this._lightningCooldown = 0;
 
-    // Fog particles
-    this._fogBands = [];
-    for (let i = 0; i < 5; i++) {
-      this._fogBands.push({
-        y: 0.1 + Math.random() * 0.6,
-        speed: 0.3 + Math.random() * 0.6,
-        phase: Math.random() * Math.PI * 2,
-        alpha: 0.06 + Math.random() * 0.08,
-        height: 0.08 + Math.random() * 0.12,
-      });
-    }
+    // Fog clouds
+    this._fogClouds = generateFogClouds();
 
     // Heat shimmer phase
     this._shimmerPhase = 0;
@@ -415,23 +428,10 @@ export class WeatherSystem {
       ctx.restore();
     }
 
-    // Fog bands
+    // Fog clouds
     const fogWeight = this._getEffectWeight(FOG);
     if (fogWeight > 0.01) {
-      ctx.save();
-      for (let i = 0; i < this._fogBands.length; i++) {
-        const band = this._fogBands[i];
-        const yCenter = band.y * height + Math.sin(this.time * band.speed + band.phase) * 15;
-        const bandH = band.height * height;
-        const grad = ctx.createLinearGradient(0, yCenter - bandH / 2, 0, yCenter + bandH / 2);
-        const a = band.alpha * fogWeight;
-        grad.addColorStop(0, `rgba(180,180,200,0)`);
-        grad.addColorStop(0.5, `rgba(180,180,200,${a})`);
-        grad.addColorStop(1, `rgba(180,180,200,0)`);
-        ctx.fillStyle = grad;
-        ctx.fillRect(0, yCenter - bandH / 2, width, bandH);
-      }
-      ctx.restore();
+      this._drawFogClouds(ctx, width, height, fogWeight);
     }
 
     // Heat shimmer (distortion lines on track surface)
@@ -521,6 +521,34 @@ export class WeatherSystem {
       ctx.fill();
     }
     ctx.restore();
+  }
+
+  _drawFogClouds(ctx, width, height, fogWeight) {
+    ctx.save();
+    ctx.filter = 'blur(18px)';
+    for (let i = 0; i < this._fogClouds.length; i++) {
+      const cloud = this._fogClouds[i];
+      const frame = this._getFogCloudFrame(cloud, width, height);
+      const alpha = cloud.alpha * fogWeight;
+
+      ctx.fillStyle = `rgba(195,200,215,${alpha})`;
+      ctx.beginPath();
+      ctx.ellipse(frame.x, frame.y, frame.width / 2, frame.height / 2, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  _getFogCloudFrame(cloud, width, height) {
+    const travel = 1 + cloud.width * 2;
+    const wrappedX = (cloud.startX + this.time * cloud.speed) % travel;
+
+    return {
+      x: (wrappedX - cloud.width) * width,
+      y: cloud.y * height + Math.sin(this.time * cloud.bobSpeed + cloud.phase) * cloud.bobAmplitude,
+      width: cloud.width * width,
+      height: cloud.height * height,
+    };
   }
 
   _spawnRainSplash(x, y) {
