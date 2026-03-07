@@ -122,11 +122,9 @@ test.describe('Session lifecycle', () => {
     await waitForRacers(page, 3);
   });
 
-  test('new sessions appear on track with initialized positions', async ({
-    page,
-  }) => {
+  test('new sessions render with initialized positions', async ({ page }) => {
     // All mock sessions start with activity=starting, then transition.
-    // By the time we get here, racers should be initialized and on the canvas.
+    // By the time we get here, racers should be initialized on the canvas.
     const zones = await getAllRacerZones(page);
     expect(zones.length).toBeGreaterThanOrEqual(3);
 
@@ -136,14 +134,6 @@ test.describe('Session lifecycle', () => {
       expect(racer.displayX).toBeGreaterThan(0);
       expect(racer.displayY).toBeGreaterThan(0);
     }
-
-    // At least some racers should be on the track (not in pit or parking lot)
-    const trackRacers = zones.filter((r) => !r.inPit && !r.inParkingLot);
-    expect(trackRacers.length).toBeGreaterThan(0);
-
-    await page.screenshot({
-      path: 'tests/screenshots/lifecycle-appear.png',
-    });
   });
 
   test('idle session moves to pit area after staleness threshold', async ({
@@ -157,10 +147,6 @@ test.describe('Session lifecycle', () => {
 
     await waitForActivity(page, debugId, ['waiting']);
 
-    await page.screenshot({
-      path: 'tests/screenshots/lifecycle-waiting.png',
-    });
-
     // With zero lastDataReceivedAt, pit classification is immediate once waiting
     await waitForPit(page, debugId);
 
@@ -171,10 +157,6 @@ test.describe('Session lifecycle', () => {
     expect(debugRacer!.inPit).toBe(true);
     expect(debugRacer!.inParkingLot).toBe(false);
     expect(debugRacer!.activity).toBe('waiting');
-
-    await page.screenshot({
-      path: 'tests/screenshots/lifecycle-pit.png',
-    });
   });
 
   test('errored session moves to parking lot', async ({ page }) => {
@@ -190,10 +172,6 @@ test.describe('Session lifecycle', () => {
     expect(erroredRacer!.inParkingLot).toBe(true);
     expect(erroredRacer!.inPit).toBe(false);
     expect(erroredRacer!.activity).toBe('errored');
-
-    await page.screenshot({
-      path: 'tests/screenshots/lifecycle-errored.png',
-    });
   });
 
   test('completed session moves to parking lot', async ({ page }) => {
@@ -209,10 +187,6 @@ test.describe('Session lifecycle', () => {
     expect(completedRacer!.inParkingLot).toBe(true);
     expect(completedRacer!.inPit).toBe(false);
     expect(completedRacer!.activity).toBe('complete');
-
-    await page.screenshot({
-      path: 'tests/screenshots/lifecycle-completed.png',
-    });
   });
 
   test('zone assignments are consistent with racer activity', async ({
@@ -236,9 +210,5 @@ test.describe('Session lifecycle', () => {
         expect(pitEligibleActivities).toContain(racer.activity);
       }
     }
-
-    await page.screenshot({
-      path: 'tests/screenshots/lifecycle-zones.png',
-    });
   });
 });

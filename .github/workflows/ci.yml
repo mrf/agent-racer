@@ -58,8 +58,11 @@ jobs:
       - name: Install Playwright browsers
         run: cd e2e && npx playwright install --with-deps chromium firefox
 
-      - name: Run E2E tests
-        run: cd e2e && npx playwright test
+      - name: Run lifecycle E2E tests
+        run: cd e2e && npx playwright test tests/session-lifecycle.spec.ts
+
+      - name: Run remaining E2E tests
+        run: cd e2e && npx playwright test --grep-invert "Session lifecycle"
 
       - name: Upload test artifacts
         if: failure()

@@ -2,6 +2,7 @@ import { test, expect, Page } from '@playwright/test';
 import { waitForConnection, gotoApp } from './helpers.js';
 
 const TIMEOUT_SESSIONS = 15_000;
+const TIMEOUT_DASHBOARD_RENDER = 15_000;
 const MIN_MOCK_SESSIONS = 5;
 
 async function waitForSessions(page: Page, minCount: number): Promise<void> {
@@ -12,6 +13,33 @@ async function waitForSessions(page: Page, minCount: number): Promise<void> {
     },
     minCount,
     { timeout: TIMEOUT_SESSIONS },
+  );
+}
+
+async function waitForDashboardContent(page: Page): Promise<void> {
+  await page.waitForFunction(
+    () => {
+      const el = document.getElementById('race-canvas');
+      if (!(el instanceof HTMLCanvasElement)) return false;
+      const ctx = el.getContext('2d');
+      if (!ctx) return false;
+
+      const sampleY = Math.floor(el.height * 0.85);
+      const imageData = ctx.getImageData(0, sampleY, el.width, 1).data;
+
+      let nonBlackPixels = 0;
+      for (let i = 0; i < imageData.length; i += 4) {
+        const r = imageData[i];
+        const g = imageData[i + 1];
+        const b = imageData[i + 2];
+        const a = imageData[i + 3];
+        if (a > 0 && (r > 10 || g > 10 || b > 10)) {
+          nonBlackPixels++;
+        }
+      }
+      return nonBlackPixels > 5;
+    },
+    { timeout: TIMEOUT_DASHBOARD_RENDER },
   );
 }
 
@@ -101,35 +129,9 @@ test.describe('Dashboard leaderboard', () => {
   });
 
   test('dashboard renders visually on canvas', async ({ page }) => {
-    await page.waitForTimeout(500);
-
     const canvas = page.locator('#race-canvas');
     await expect(canvas).toBeVisible();
-
-    const hasDashboardContent = await page.evaluate(() => {
-      const el = document.getElementById('race-canvas') as HTMLCanvasElement;
-      const ctx = el.getContext('2d');
-      if (!ctx) return false;
-
-      const sampleY = Math.floor(el.height * 0.85);
-      const imageData = ctx.getImageData(0, sampleY, el.width, 1).data;
-
-      let nonBlackPixels = 0;
-      for (let i = 0; i < imageData.length; i += 4) {
-        const r = imageData[i];
-        const g = imageData[i + 1];
-        const b = imageData[i + 2];
-        const a = imageData[i + 3];
-        if (a > 0 && (r > 10 || g > 10 || b > 10)) {
-          nonBlackPixels++;
-        }
-      }
-      return nonBlackPixels > 5;
-    });
-
-    expect(hasDashboardContent, 'dashboard area should have visible content').toBe(true);
-
-    await canvas.screenshot({ path: 'tests/screenshots/dashboard-leaderboard.png' });
+    await waitForDashboardContent(page);
   });
 
   test('total tokens stat matches sum of all session tokens', async ({ page }) => {
