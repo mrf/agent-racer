@@ -1,43 +1,113 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
+const AUTH_TOKEN_STORAGE_KEY = 'agent-racer-auth-token';
+
+function makeSessionStorage(initial = {}) {
+  const map = new Map(Object.entries(initial));
+  return {
+    getItem(key) {
+      return map.has(key) ? map.get(key) : null;
+    },
+    setItem(key, value) {
+      map.set(key, String(value));
+    },
+    removeItem(key) {
+      map.delete(key);
+    },
+    clear() {
+      map.clear();
+    },
+  };
+}
 
 // auth.js captures the token at module load time, so we need a fresh import
-// per test to control `location.search` before evaluation.
-async function loadAuth(search = '') {
+// per test to control URL and storage before evaluation.
+async function loadAuth({ pathname = '/', search = '', hash = '', storedToken = '' } = {}) {
   vi.resetModules();
-  vi.stubGlobal('location', { search });
-  return import('./auth.js');
+
+  const replaceState = vi.fn();
+  vi.stubGlobal('location', { pathname, search, hash });
+  vi.stubGlobal('history', { state: {}, replaceState });
+
+  const initialStorage = {};
+  if (storedToken) {
+    initialStorage[AUTH_TOKEN_STORAGE_KEY] = storedToken;
+  }
+  const sessionStorage = makeSessionStorage(initialStorage);
+  vi.stubGlobal('sessionStorage', sessionStorage);
+
+  const mod = await import('./auth.js');
+  return { ...mod, replaceState, sessionStorage };
 }
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response()));
 });
 
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
 describe('getAuthToken', () => {
-  it('returns token from URL search params', async () => {
-    const { getAuthToken } = await loadAuth('?token=abc123');
+  it('returns token from URL hash and scrubs it from browser URL', async () => {
+    const { getAuthToken, replaceState, sessionStorage } = await loadAuth({
+      pathname: '/dashboard',
+      hash: '#token=abc123',
+    });
     expect(getAuthToken()).toBe('abc123');
+    expect(sessionStorage.getItem(AUTH_TOKEN_STORAGE_KEY)).toBe('abc123');
+    expect(replaceState).toHaveBeenCalledTimes(1);
+    expect(replaceState.mock.calls[0][2]).toBe('/dashboard');
   });
 
-  it('returns empty string when no token param is present', async () => {
-    const { getAuthToken } = await loadAuth('');
-    expect(getAuthToken()).toBe('');
-  });
-
-  it('returns empty string when search has other params but no token', async () => {
-    const { getAuthToken } = await loadAuth('?foo=bar&baz=1');
-    expect(getAuthToken()).toBe('');
-  });
-
-  it('handles token with special characters', async () => {
-    const { getAuthToken } = await loadAuth('?token=abc%3D%3D123');
+  it('returns token from URL search params and strips token from URL', async () => {
+    const { getAuthToken, replaceState, sessionStorage } = await loadAuth({
+      pathname: '/dashboard',
+      search: '?token=abc%3D%3D123&foo=bar',
+    });
     expect(getAuthToken()).toBe('abc==123');
+    expect(sessionStorage.getItem(AUTH_TOKEN_STORAGE_KEY)).toBe('abc==123');
+    expect(replaceState).toHaveBeenCalledTimes(1);
+    expect(replaceState.mock.calls[0][2]).toBe('/dashboard?foo=bar');
+  });
+
+  it('prefers hash token when both hash and query contain token', async () => {
+    const { getAuthToken, replaceState } = await loadAuth({
+      pathname: '/dashboard',
+      search: '?token=from-query&foo=bar',
+      hash: '#token=from-hash&tab=1',
+    });
+    expect(getAuthToken()).toBe('from-hash');
+    expect(replaceState).toHaveBeenCalledTimes(1);
+    expect(replaceState.mock.calls[0][2]).toBe('/dashboard?foo=bar#tab=1');
+  });
+
+  it('falls back to session storage when URL has no token', async () => {
+    const { getAuthToken, replaceState } = await loadAuth({
+      pathname: '/dashboard',
+      search: '?foo=bar',
+      storedToken: 'saved-token',
+    });
+    expect(getAuthToken()).toBe('saved-token');
+    expect(replaceState).not.toHaveBeenCalled();
+  });
+
+  it('returns empty string when no token is present anywhere', async () => {
+    const { getAuthToken, replaceState } = await loadAuth({
+      pathname: '/dashboard',
+      search: '?foo=bar&baz=1',
+      hash: '#tab=1',
+    });
+    expect(getAuthToken()).toBe('');
+    expect(replaceState).not.toHaveBeenCalled();
   });
 });
 
 describe('authFetch', () => {
   it('adds Authorization header when token is present', async () => {
-    const { authFetch } = await loadAuth('?token=secret');
+    const { authFetch } = await loadAuth({ hash: '#token=secret' });
 
     await authFetch('/api/data');
 
@@ -48,20 +118,19 @@ describe('authFetch', () => {
   });
 
   it('does not add Authorization header when token is absent', async () => {
-    const { authFetch } = await loadAuth('');
+    const { authFetch } = await loadAuth();
 
     await authFetch('/api/data');
 
     expect(fetch).toHaveBeenCalledTimes(1);
     const [url, options] = fetch.mock.calls[0];
     expect(url).toBe('/api/data');
-    // options may be the original empty object — no headers injected
     const headers = new Headers(options?.headers);
     expect(headers.get('Authorization')).toBeNull();
   });
 
   it('preserves existing headers when adding auth', async () => {
-    const { authFetch } = await loadAuth('?token=tk');
+    const { authFetch } = await loadAuth({ hash: '#token=tk' });
 
     await authFetch('/api/data', {
       headers: { 'Content-Type': 'application/json' },
@@ -74,7 +143,7 @@ describe('authFetch', () => {
   });
 
   it('passes through options like method and body', async () => {
-    const { authFetch } = await loadAuth('?token=tk');
+    const { authFetch } = await loadAuth({ hash: '#token=tk' });
 
     await authFetch('/api/data', { method: 'POST', body: '{}' });
 
@@ -84,7 +153,7 @@ describe('authFetch', () => {
   });
 
   it('works with no options argument', async () => {
-    const { authFetch } = await loadAuth('?token=tk');
+    const { authFetch } = await loadAuth({ hash: '#token=tk' });
 
     await authFetch('/api/data');
 
@@ -97,7 +166,7 @@ describe('authFetch', () => {
     const mockResponse = new Response('ok', { status: 200 });
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(mockResponse));
 
-    const { authFetch } = await loadAuth('?token=tk');
+    const { authFetch } = await loadAuth({ hash: '#token=tk' });
     const result = await authFetch('/api/data');
 
     expect(result).toBe(mockResponse);
