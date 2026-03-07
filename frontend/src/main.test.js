@@ -52,6 +52,7 @@ vi.mock('./audio/SoundEngine.js', () => ({
       playVictory: vi.fn(),
       playCrash: vi.fn(),
       startAmbient: vi.fn(),
+      reconcileViewSwitch: vi.fn(),
       setMuted: vi.fn(),
       updateExcitement: vi.fn(),
       applyConfig: vi.fn(),
@@ -563,6 +564,15 @@ describe('view switching', () => {
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'v' }));
 
     expect(mocks.activeView.setConnected).toHaveBeenCalledWith(true);
+  });
+
+  it('switchView reconciles shared sound engine state', async () => {
+    const { getViewTypes } = await import('./ViewRenderer.js');
+    getViewTypes.mockReturnValue(['race', 'footrace']);
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'v' }));
+
+    expect(mocks.engine.reconcileViewSwitch).toHaveBeenCalledTimes(1);
   });
 
   it('V key cycles through view types', async () => {

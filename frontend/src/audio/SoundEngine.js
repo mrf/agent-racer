@@ -676,6 +676,34 @@ export class SoundEngine {
     }
   }
 
+  reconcileViewSwitch() {
+    const restartAmbient = this.ambientRunning;
+
+    // Reset ambient loop timers and dynamic state from the previous view.
+    this.stopAmbient();
+
+    if (this.duckTimeout) {
+      clearTimeout(this.duckTimeout);
+      this.duckTimeout = null;
+    }
+
+    // Flush pending per-racer grace-stop timers so old view state can't linger.
+    const pendingRacerIds = [...this.engineStopTimeouts.keys()];
+    for (let i = 0; i < pendingRacerIds.length; i++) {
+      const racerId = pendingRacerIds[i];
+      const timeoutId = this.engineStopTimeouts.get(racerId);
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      this.engineStopTimeouts.delete(racerId);
+      this._fadeOutEngine(racerId);
+    }
+
+    if (restartAmbient) {
+      this.startAmbient();
+    }
+  }
+
   destroy() {
     // Stop ambient sounds
     this.stopAmbient();
