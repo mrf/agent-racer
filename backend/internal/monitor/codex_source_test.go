@@ -268,6 +268,29 @@ func TestCodexSourceParseContextWindowFromTokenCount(t *testing.T) {
 	}
 }
 
+func TestCodexSourceParseContextWindowFromTaskStarted(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "rollout-task-started.jsonl")
+
+	content := `{"type":"session_meta","payload":{"session_id":"task-started","model":"gpt-5.4"}}
+{"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-1","model_context_window":258400}}
+`
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	src := NewCodexSource(10 * time.Minute)
+	handle := SessionHandle{SessionID: "task-started", LogPath: path, Source: "codex"}
+
+	update, _, err := src.Parse(handle, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if update.MaxContextTokens != 258400 {
+		t.Errorf("MaxContextTokens = %d, want 258400", update.MaxContextTokens)
+	}
+}
+
 func TestCodexSourceParseNestedTokenFormat(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "rollout-nested.jsonl")

@@ -272,6 +272,8 @@ func parseCodexEnvelope(typ string, payload json.RawMessage) codexParsed {
 				parseCodexTokenCount(tcData, &parsed)
 			case "turn_started":
 				parseCodexTurnStarted(event.Payload, &parsed)
+			case "task_started":
+				parseCodexTurnStarted(payload, &parsed)
 			case "tool_call":
 				parseCodexToolCall(event.Payload, &parsed)
 			case "agent_reasoning":

@@ -21,6 +21,11 @@ const PARKING_LOT_BOTTOM_PADDING = 40;
 const TRACK_GROUP_GAP = 20;
 const TRACK_GROUP_LABEL_HEIGHT = 16;
 
+function clampUnit(value) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(value, 1));
+}
+
 export class Track {
   constructor() {
     this.trackPadding = { left: 65, right: 60, top: 60, bottom: 40 };
@@ -96,12 +101,12 @@ export class Track {
   }
 
   getPositionX(bounds, utilization) {
-    return bounds.x + utilization * bounds.width;
+    return bounds.x + clampUnit(utilization) * bounds.width;
   }
 
   getTokenX(bounds, tokens, globalMaxTokens) {
     if (globalMaxTokens <= 0) return bounds.x;
-    return bounds.x + (tokens / globalMaxTokens) * bounds.width;
+    return bounds.x + clampUnit(tokens / globalMaxTokens) * bounds.width;
   }
 
   getMultiTrackLayout(canvasWidth, groups) {
@@ -666,4 +671,3 @@ export class Track {
   }
 
 }
-

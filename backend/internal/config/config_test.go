@@ -245,19 +245,25 @@ func TestMaxContextTokens(t *testing.T) {
 		},
 		// Prefix matching tests
 		{
-			name:   "prefix match with wildcard",
+			name:   "glob match with trailing wildcard",
 			models: map[string]int{"claude-*": 200000, "default": 128000},
 			model:  "claude-opus-4-5-20251101",
 			want:   200000,
 		},
 		{
-			name:   "longest prefix wins",
+			name:   "glob match with embedded wildcard",
+			models: map[string]int{"gpt-*-codex": 272000, "default": 128000},
+			model:  "gpt-5.2-codex",
+			want:   272000,
+		},
+		{
+			name:   "more specific glob wins",
 			models: map[string]int{"gemini-*": 500000, "gemini-2.5-*": 1048576},
 			model:  "gemini-2.5-pro",
 			want:   1048576,
 		},
 		{
-			name:   "shorter prefix matches when longer doesn't",
+			name:   "less specific glob matches when longer one does not",
 			models: map[string]int{"gemini-*": 500000, "gemini-2.5-*": 1048576},
 			model:  "gemini-3-pro-preview",
 			want:   500000,
@@ -269,13 +275,13 @@ func TestMaxContextTokens(t *testing.T) {
 			want:   300000,
 		},
 		{
-			name:   "prefix with no trailing separator",
+			name:   "glob with no trailing separator",
 			models: map[string]int{"gemini-1.5-pro*": 2097152},
 			model:  "gemini-1.5-pro-latest",
 			want:   2097152,
 		},
 		{
-			name:   "no prefix match falls to default",
+			name:   "no glob match falls to default",
 			models: map[string]int{"claude-*": 200000, "default": 128000},
 			model:  "gpt-4",
 			want:   128000,
@@ -324,6 +330,20 @@ func TestGenerateToken(t *testing.T) {
 	tok2, _ := GenerateToken()
 	if tok == tok2 {
 		t.Error("two generated tokens should not be identical")
+	}
+}
+
+func TestDefaultConfigIncludesCodexFallbacks(t *testing.T) {
+	cfg := defaultConfig()
+
+	if got := cfg.MaxContextTokens("gpt-5.4"); got != 258400 {
+		t.Errorf("MaxContextTokens(gpt-5.4) = %d, want 258400", got)
+	}
+	if got := cfg.MaxContextTokens("gpt-5.2-codex"); got != 272000 {
+		t.Errorf("MaxContextTokens(gpt-5.2-codex) = %d, want 272000", got)
+	}
+	if got := cfg.MaxContextTokens("codex-mini-latest"); got != 200000 {
+		t.Errorf("MaxContextTokens(codex-mini-latest) = %d, want 200000", got)
 	}
 }
 

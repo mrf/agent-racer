@@ -36,15 +36,16 @@ monitor:
   churning_requires_network: false
 
 # Model context token limits
-# Keys ending with * are prefix patterns — longest match wins.
-# Exact names take priority over prefixes.
+# Keys may use shell-style glob patterns (`*`) — the most specific match wins.
+# Exact names take priority over globs.
 models:
   # Claude models (all current variants use 200K)
   claude-*: 200000
   # Codex models (fallback; Codex reports context window dynamically)
+  gpt-5.4: 258400
   gpt-*-codex: 272000
   codex-*: 200000
-  # Gemini models (prefix patterns cover all variants)
+  # Gemini models (globs cover all variants)
   gemini-2.5-*: 1048576
   gemini-2.0-*: 1048576
   gemini-3-*: 1000000
