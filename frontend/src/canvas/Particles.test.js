@@ -302,6 +302,16 @@ describe('ParticleSystem', () => {
       expect(p.gravity).toBe(0.07);
     });
 
+    it('ambientDust stays subtle and front-layered', () => {
+      const p = sys.createParticle('ambientDust', 0, 0);
+      expect(p.layer).toBe('front');
+      expect(p.sizeMultiplier).toBe('bloom');
+      expect(p.baseAlpha).toBeGreaterThanOrEqual(0.22);
+      expect(p.baseAlpha).toBeLessThanOrEqual(0.34);
+      expect(p.decay).toBeGreaterThanOrEqual(0.003);
+      expect(p.decay).toBeLessThanOrEqual(0.005);
+    });
+
     it('tireSmoke has bloom sizeMultiplier', () => {
       const p = sys.createParticle('tireSmoke', 0, 0);
       expect(p.sizeMultiplier).toBe('bloom');

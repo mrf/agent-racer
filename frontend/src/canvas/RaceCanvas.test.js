@@ -656,6 +656,46 @@ describe('RaceCanvas', () => {
     });
   });
 
+  describe('ambient dust', () => {
+    it('emits ambient dust when the scene is idle', () => {
+      const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.5);
+      rc.setAllRacers([makeState({ id: 'idle-1', activity: 'idle', lastDataReceivedAt: agoISO(0) })]);
+
+      rc.update();
+
+      expect(rc.particles.emit).toHaveBeenCalledWith(
+        'ambientDust',
+        expect.any(Number),
+        expect.any(Number),
+        1
+      );
+
+      const call = rc.particles.emit.mock.calls.find(([preset]) => preset === 'ambientDust');
+      expect(call[1]).toBeGreaterThanOrEqual(200);
+      expect(call[1]).toBeLessThanOrEqual(740);
+      expect(call[2]).toBeGreaterThanOrEqual(60);
+      expect(call[2]).toBeLessThanOrEqual(104);
+
+      randomSpy.mockRestore();
+    });
+
+    it('does not emit ambient dust while a racer is active', () => {
+      rc.setAllRacers([makeState({ id: 'busy-1', activity: 'thinking' })]);
+
+      rc.update();
+
+      expect(rc.particles.emit).not.toHaveBeenCalled();
+    });
+
+    it('does not emit ambient dust while a racer is churning', () => {
+      rc.setAllRacers([makeState({ id: 'churn-1', activity: 'idle', isChurning: true, lastDataReceivedAt: agoISO(0) })]);
+
+      rc.update();
+
+      expect(rc.particles.emit).not.toHaveBeenCalled();
+    });
+  });
+
   describe('track grouping by context window', () => {
     it('groups racers with same maxContextTokens into one track group', () => {
       rc.setAllRacers([
