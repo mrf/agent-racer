@@ -14,9 +14,13 @@
     </div>
     <div class="header-right">
       <span id="session-count">0 sessions</span>
-      <span id="connection-status" class="status-dot disconnected"></span>
+      <span class="connection-status-group">
+        <span id="connection-status" class="status-dot disconnected" aria-hidden="true"></span>
+        <span id="connection-status-label" class="connection-status-label">Offline</span>
+      </span>
     </div>
   </header>
+  <div id="connection-help" class="connection-help hidden" role="status" aria-live="polite"></div>
 
   <div id="battlepass-bar"></div>
 

@@ -40,6 +40,19 @@ header {
   color: #888;
 }
 
+.connection-status-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.connection-status-label {
+  color: #b8bfd4;
+  font-size: 11px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
 .status-dot {
   width: 10px;
   height: 10px;
@@ -68,9 +81,37 @@ header {
   box-shadow: 0 0 6px #ff44aa;
 }
 
+.connection-help {
+  position: fixed;
+  top: 56px;
+  right: 20px;
+  z-index: 12;
+  max-width: min(560px, calc(100vw - 40px));
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 68, 170, 0.45);
+  border-radius: 6px;
+  background: rgba(42, 16, 36, 0.96);
+  color: #ffd6e7;
+  font-size: 12px;
+  line-height: 1.4;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.connection-help.hidden {
+  display: none;
+}
+
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
+}
+
+@media (max-width: 720px) {
+  .connection-help {
+    left: 12px;
+    right: 12px;
+    max-width: none;
+  }
 }
 
 #race-container {

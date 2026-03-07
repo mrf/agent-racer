@@ -79,8 +79,14 @@ function setupDOM() {
       <div id="flyout-content"></div>
       <button id="flyout-close"></button>
     </div>
-    <div id="connection-status"></div>
-    <div id="session-count"></div>
+    <div class="header-right">
+      <div id="session-count"></div>
+      <div class="connection-status-group">
+        <div id="connection-status"></div>
+        <div id="connection-status-label"></div>
+      </div>
+    </div>
+    <div id="connection-help" class="hidden"></div>
     <canvas id="race-canvas"></canvas>
     <div id="battlepass-bar"></div>
     <div id="shortcut-bar"></div>
@@ -174,6 +180,36 @@ describe('session count calculation', () => {
       removed: ['s1'],
     });
     expect(el.textContent).toBe('1 active / 2 total');
+  });
+});
+
+describe('connection status UI', () => {
+  it('shows unauthorized guidance near the connection indicator', () => {
+    const dot = document.getElementById('connection-status');
+    const label = document.getElementById('connection-status-label');
+    const help = document.getElementById('connection-help');
+
+    mocks.conn.onStatus('unauthorized');
+
+    expect(dot.className).toContain('unauthorized');
+    expect(dot.title).toBe('Unauthorized');
+    expect(dot.getAttribute('aria-label')).toBe('Connection unauthorized');
+    expect(label.textContent).toBe('Unauthorized');
+    expect(help.textContent).toBe('Open with #token=<token> or refresh with a valid token.');
+    expect(help.className).not.toContain('hidden');
+    expect(mocks.activeView.setConnected).toHaveBeenLastCalledWith(false);
+  });
+
+  it('keeps reconnect states concise by clearing auth guidance once status changes', () => {
+    const label = document.getElementById('connection-status-label');
+    const help = document.getElementById('connection-help');
+
+    mocks.conn.onStatus('unauthorized');
+    mocks.conn.onStatus('connecting');
+
+    expect(label.textContent).toBe('Connecting');
+    expect(help.textContent).toBe('');
+    expect(help.className).toContain('hidden');
   });
 });
 

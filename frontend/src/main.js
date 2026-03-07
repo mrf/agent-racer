@@ -30,6 +30,8 @@ const detailFlyout = document.getElementById('detail-flyout');
 const flyoutContent = document.getElementById('flyout-content');
 const flyoutClose = document.getElementById('flyout-close');
 const statusDot = document.getElementById('connection-status');
+const statusLabel = document.getElementById('connection-status-label');
+const connectionHelp = document.getElementById('connection-help');
 const sessionCount = document.getElementById('session-count');
 const canvas = document.getElementById('race-canvas');
 const trackEditor = new TrackEditor(canvas);
@@ -123,6 +125,25 @@ const announcer = new Announcer();
 
 let commentaryMode = localStorage.getItem(COMMENTARY_STORAGE_KEY) || 'ticker';
 if (!COMMENTARY_MODES.includes(commentaryMode)) commentaryMode = 'ticker';
+
+const CONNECTION_STATUS_UI = {
+  connected: {
+    label: 'Live',
+    help: '',
+  },
+  connecting: {
+    label: 'Connecting',
+    help: '',
+  },
+  disconnected: {
+    label: 'Offline',
+    help: '',
+  },
+  unauthorized: {
+    label: 'Unauthorized',
+    help: 'Open with #token=<token> or refresh with a valid token.',
+  },
+};
 
 commentary.onMessage = (text) => {
   if (commentaryMode === 'ticker') ticker.setMessage(text);
@@ -269,7 +290,16 @@ function handleOvertake(payload) {
 }
 
 function handleStatus(status) {
+  const ui = CONNECTION_STATUS_UI[status] || {
+    label: status,
+    help: '',
+  };
   statusDot.className = `status-dot ${status}`;
+  statusDot.title = ui.label;
+  statusDot.setAttribute('aria-label', `Connection ${ui.label.toLowerCase()}`);
+  statusLabel.textContent = ui.label;
+  connectionHelp.textContent = ui.help;
+  connectionHelp.classList.toggle('hidden', !ui.help);
   activeView.setConnected(status === 'connected');
   log(`Connection: ${status}`, status === 'connected' ? 'info' : 'error');
 }
