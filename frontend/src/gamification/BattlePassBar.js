@@ -188,7 +188,7 @@ export class BattlePassBar {
 
     clearTimeout(this.toastTimer);
     this.toastTimer = setTimeout(() => {
-      this.xpToast.classList.remove('visible');
+      toast.classList.remove('visible');
     }, 3000);
 
     this.toastContainer.appendChild(toast);

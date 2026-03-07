@@ -356,12 +356,10 @@ describe('BattlePassBar', () => {
       expect(bar.toastContainer.querySelectorAll('.bp-xp-toast')).toHaveLength(0);
     });
 
-    it('timer callback throws TypeError due to undefined xpToast reference (known bug)', () => {
-      // The 3-second timer calls this.xpToast.classList.remove('visible'),
-      // but this.xpToast is never assigned — it throws on fire.
+    it('timer callback does not throw when timeout fires', () => {
       const bar = new BattlePassBar(container);
       bar.showXPToast([{ amount: 50, reason: 'session_complete' }]);
-      expect(() => vi.advanceTimersByTime(3000)).toThrow(TypeError);
+      expect(() => vi.advanceTimersByTime(3000)).not.toThrow();
     });
   });
 
