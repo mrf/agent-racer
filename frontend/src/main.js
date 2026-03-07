@@ -325,6 +325,7 @@ wireViewCallbacks(activeView, flyout, unlockToast);
 function switchView(type) {
   flyout.hide();
   activeView.destroy();
+  engine.reconcileViewSwitch();
   currentViewType = type;
   activeView = createView(type, canvas, engine);
   wireViewCallbacks(activeView, flyout, unlockToast);

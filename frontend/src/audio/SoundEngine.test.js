@@ -872,6 +872,51 @@ describe('SoundEngine', () => {
     });
   });
 
+  describe('view switch reconciliation', () => {
+    beforeEach(() => {
+      engine._ensureCtx();
+    });
+
+    it('resets ambient loop state and clears pending engine stop timers', () => {
+      engine.startAmbient();
+      const intervalBefore = engine.excitementUpdateInterval;
+
+      engine.startEngine('r1', 'thinking');
+      engine.stopEngine('r1');
+      expect(engine.engineStopTimeouts.has('r1')).toBe(true);
+
+      engine.duckTimeout = setTimeout(() => {}, 1000);
+
+      const stopAmbientSpy = vi.spyOn(engine, 'stopAmbient');
+      const startAmbientSpy = vi.spyOn(engine, 'startAmbient');
+
+      engine.reconcileViewSwitch();
+
+      expect(stopAmbientSpy).toHaveBeenCalledTimes(1);
+      expect(startAmbientSpy).toHaveBeenCalledTimes(1);
+      expect(engine.engineStopTimeouts.size).toBe(0);
+      expect(engine.engineNodes.has('r1')).toBe(false);
+      expect(engine.duckTimeout).toBe(null);
+      expect(engine.excitementUpdateInterval).not.toBeNull();
+      expect(engine.excitementUpdateInterval).not.toBe(intervalBefore);
+    });
+
+    it('does not restart ambient when it was not running', () => {
+      engine.startEngine('r2', 'thinking');
+      engine.stopEngine('r2');
+      expect(engine.engineStopTimeouts.has('r2')).toBe(true);
+
+      const startAmbientSpy = vi.spyOn(engine, 'startAmbient');
+
+      engine.reconcileViewSwitch();
+
+      expect(startAmbientSpy).not.toHaveBeenCalled();
+      expect(engine.ambientRunning).toBe(false);
+      expect(engine.engineStopTimeouts.size).toBe(0);
+      expect(engine.engineNodes.has('r2')).toBe(false);
+    });
+  });
+
   describe('volume setters', () => {
     beforeEach(() => {
       engine._ensureCtx();
