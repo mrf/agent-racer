@@ -291,6 +291,21 @@ export class ParticleSystem {
           baseAlpha: 0.5,
           sizeMultiplier: 'bloom',
         };
+      case 'ambientDust':
+        return {
+          ...base,
+          vx: -0.08 - Math.random() * 0.2,
+          vy: -0.03 + Math.random() * 0.1,
+          size: 1 + Math.random() * 2,
+          color: { r: 255, g: 240, b: 200 },
+          colorEnd: { r: 255, g: 225, b: 170 },
+          decay: 0.003 + Math.random() * 0.002,
+          flutter: 0.4 + Math.random() * 0.5,
+          flutterSpeed: 0.4 + Math.random() * 0.6,
+          layer: 'front',
+          baseAlpha: 0.22 + Math.random() * 0.12,
+          sizeMultiplier: 'bloom',
+        };
 
       // ── Footrace presets ──────────────────
       case 'dustCloud':

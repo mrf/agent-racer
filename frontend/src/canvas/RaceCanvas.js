@@ -87,6 +87,7 @@ export class RaceCanvas {
     // Grandstand event tracking
     this._racerMilestones = new Map();
     this._prevLeaderOrder = [];
+    this.ambientDustCooldown = 0;
 
     this.resize();
     this._resizeHandler = () => this.resize();
@@ -330,6 +331,7 @@ export class RaceCanvas {
     const lastLayout = layouts[layouts.length - 1];
     const trackZoneBottom = lastLayout.y + lastLayout.height;
     const entryX = this.track.getPitEntryX(layouts[0]);
+    const busyRacerCount = this._countBusyRacers();
 
     for (let gi = 0; gi < sortedGroupEntries.length; gi++) {
       const [groupMaxTokens, groupRacers] = sortedGroupEntries[gi];
@@ -460,6 +462,8 @@ export class RaceCanvas {
       }
     }
 
+    this._updateAmbientDust(dt, layouts[0], trackZoneBottom, busyRacerCount);
+
     // --- Pit crew management ---
     // Detect racers that have left the pit → trigger crew departure
     for (const id of this.prevPitIds) {
@@ -543,6 +547,30 @@ export class RaceCanvas {
     if (this.flashAlpha > 0) {
       this.flashAlpha = Math.max(0, this.flashAlpha - dt * 1.5); // fade over ~0.2s
     }
+  }
+
+  _countBusyRacers() {
+    let busyCount = 0;
+    for (const racer of this.racers.values()) {
+      if (racer.state.activity === 'thinking' || racer.state.activity === 'tool_use' || racer.state.isChurning) {
+        busyCount++;
+      }
+    }
+    return busyCount;
+  }
+
+  _updateAmbientDust(dt, trackBounds, trackZoneBottom, busyRacerCount) {
+    this.ambientDustCooldown = Math.max(0, this.ambientDustCooldown - dt);
+    if (!trackBounds || busyRacerCount > 0 || this.ambientDustCooldown > 0) {
+      return;
+    }
+
+    const litBandHeight = Math.max((trackZoneBottom - trackBounds.y) * 0.55, 1);
+    const x = trackBounds.x + Math.random() * trackBounds.width;
+    const y = trackBounds.y + Math.random() * litBandHeight;
+
+    this.particles.emit('ambientDust', x, y, 1);
+    this.ambientDustCooldown = 0.18 + Math.random() * 0.24;
   }
 
   draw() {
