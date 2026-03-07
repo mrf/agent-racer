@@ -110,6 +110,11 @@ describe('FootraceTrack', () => {
       const bounds = { x: 100, width: 800 };
       expect(track.getTokenX(bounds, 50000, -1)).toBe(100);
     });
+
+    it('clamps tokens beyond max to the finish line', () => {
+      const bounds = { x: 100, width: 800 };
+      expect(track.getTokenX(bounds, 250000, 200000)).toBe(900);
+    });
   });
 
   describe('getPositionX', () => {
@@ -126,6 +131,11 @@ describe('FootraceTrack', () => {
     it('returns midpoint at utilization 0.5', () => {
       const bounds = track.getTrackBounds(CANVAS_W, CANVAS_H, LANE_COUNT);
       expect(track.getPositionX(bounds, 0.5)).toBe(bounds.x + bounds.width / 2);
+    });
+
+    it('clamps utilization beyond 1 to the finish line', () => {
+      const bounds = { x: 200, width: 500 };
+      expect(track.getPositionX(bounds, 1.5)).toBe(700);
     });
   });
 

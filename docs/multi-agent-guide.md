@@ -63,6 +63,7 @@ models:
   claude-sonnet-4-5-20250929: 200000
   claude-haiku-3-5-20241022: 200000
   # Codex (fallback; Codex can report this dynamically)
+  gpt-5.4: 258400
   gpt-5-codex: 272000
   # Gemini (fallback; hardcoded in source)
   gemini-2.5-pro: 1048576

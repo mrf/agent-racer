@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -209,7 +210,10 @@ func defaultConfig() *Config {
 			Gemini: false,
 		},
 		Models: map[string]int{
-			"default": DefaultContextWindow,
+			"gpt-5.4":     258400,
+			"gpt-*-codex": 272000,
+			"codex-*":     200000,
+			"default":     DefaultContextWindow,
 		},
 		Sound: SoundConfig{
 			Enabled:       true,
@@ -236,29 +240,38 @@ func defaultConfig() *Config {
 }
 
 // MaxContextTokens resolves the context window size for a model.
-// Resolution order: exact match → longest prefix match → "default" key → DefaultContextWindow.
-// Config keys ending with "*" are treated as prefix patterns (e.g. "claude-*"
-// matches "claude-opus-4-5-20251101"). The longest matching prefix wins.
+// Resolution order: exact match → most-specific glob match → "default" key →
+// DefaultContextWindow. Config keys may use shell-style wildcards such as "*"
+// (for example, "gpt-*-codex" or "claude-*"). The match with the most literal
+// characters wins.
 func (c *Config) MaxContextTokens(model string) int {
 	// 1. Exact match
 	if n, ok := c.Models[model]; ok {
 		return n
 	}
 
-	// 2. Longest prefix match (keys ending with *)
-	bestLen := 0
+	// 2. Most-specific glob match
+	bestLiteralCount := -1
+	bestPatternLen := -1
 	bestVal := 0
 	for key, val := range c.Models {
-		if !strings.HasSuffix(key, "*") {
+		if !strings.ContainsAny(key, "*?[") {
 			continue
 		}
-		prefix := strings.TrimSuffix(key, "*")
-		if strings.HasPrefix(model, prefix) && len(prefix) > bestLen {
-			bestLen = len(prefix)
+
+		matched, err := path.Match(key, model)
+		if err != nil || !matched {
+			continue
+		}
+
+		literalCount := globLiteralCount(key)
+		if literalCount > bestLiteralCount || (literalCount == bestLiteralCount && len(key) > bestPatternLen) {
+			bestLiteralCount = literalCount
+			bestPatternLen = len(key)
 			bestVal = val
 		}
 	}
-	if bestLen > 0 {
+	if bestLiteralCount >= 0 {
 		return bestVal
 	}
 
@@ -267,6 +280,19 @@ func (c *Config) MaxContextTokens(model string) int {
 		return n
 	}
 	return DefaultContextWindow
+}
+
+func globLiteralCount(pattern string) int {
+	count := 0
+	for _, r := range pattern {
+		switch r {
+		case '*', '?', '[', ']':
+			continue
+		default:
+			count++
+		}
+	}
+	return count
 }
 
 // TokenStrategy returns the configured token normalization strategy for the

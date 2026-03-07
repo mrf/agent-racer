@@ -30,6 +30,11 @@ const CROWD_ROWS = [
   { spacing: 13, offsetY: 0, scale: 0.85, xShift: 6.5 },
 ];
 
+function clampUnit(value) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(value, 1));
+}
+
 export class FootraceTrack {
   constructor() {
     this.trackPadding = { left: 65, right: 60, top: 60, bottom: 40 };
@@ -106,12 +111,12 @@ export class FootraceTrack {
   }
 
   getPositionX(bounds, utilization) {
-    return bounds.x + utilization * bounds.width;
+    return bounds.x + clampUnit(utilization) * bounds.width;
   }
 
   getTokenX(bounds, tokens, globalMaxTokens) {
     if (globalMaxTokens <= 0) return bounds.x;
-    return bounds.x + (tokens / globalMaxTokens) * bounds.width;
+    return bounds.x + clampUnit(tokens / globalMaxTokens) * bounds.width;
   }
 
   getMultiTrackLayout(canvasWidth, groups) {

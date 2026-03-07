@@ -107,9 +107,9 @@ describe('Track', () => {
       expect(track.getPositionX(bounds, 0.75)).toBe(850);
     });
 
-    it('handles utilization beyond 1', () => {
+    it('clamps utilization beyond 1 to the finish line', () => {
       const bounds = { x: 200, width: 500 };
-      expect(track.getPositionX(bounds, 1.5)).toBe(950);
+      expect(track.getPositionX(bounds, 1.5)).toBe(700);
     });
   });
 
@@ -445,6 +445,11 @@ describe('Track', () => {
     it('returns left edge when globalMaxTokens is negative', () => {
       const bounds = { x: 100, width: 800 };
       expect(track.getTokenX(bounds, 50000, -1)).toBe(100);
+    });
+
+    it('clamps tokens beyond max to the finish line', () => {
+      const bounds = { x: 100, width: 800 };
+      expect(track.getTokenX(bounds, 250000, 200000)).toBe(900);
     });
   });
 
