@@ -84,6 +84,18 @@ function createRainDrop(w, h) {
   };
 }
 
+function createRainSplash(x, y) {
+  return {
+    x,
+    y,
+    age: 0,
+    maxAge: 3,
+    spread: 2 + Math.random() * 2,
+    height: 2 + Math.random() * 2,
+    alpha: 0.16 + Math.random() * 0.14,
+  };
+}
+
 // ── Lightning ───────────────────────────────────────────────────────
 function generateBolt(x, y, maxDepth) {
   const segments = [];
@@ -120,6 +132,8 @@ export class WeatherSystem {
     // Rain particles
     this._rain = [];
     this._maxRain = 120;
+    this._rainSplashes = [];
+    this._maxRainSplashes = 48;
 
     // Lightning state
     this._lightning = null;  // { segments, flashAlpha, timer }
@@ -223,7 +237,8 @@ export class WeatherSystem {
       const drop = this._rain[i];
       drop.x += 2.0 * dt * 60;  // diagonal wind
       drop.y += drop.speed * dt * 60;
-      if (drop.y > canvasHeight + 10) {
+      if (drop.y + drop.len >= canvasHeight) {
+        this._spawnRainSplash(drop.x + drop.len * 0.15, canvasHeight - 1);
         if (isStormy) {
           // Recycle
           drop.x = Math.random() * canvasWidth * 1.3 - canvasWidth * 0.15;
@@ -231,6 +246,14 @@ export class WeatherSystem {
         } else {
           this._rain.splice(i, 1);
         }
+      }
+    }
+
+    for (let i = this._rainSplashes.length - 1; i >= 0; i--) {
+      const splash = this._rainSplashes[i];
+      splash.age += dt * 60;
+      if (splash.age >= splash.maxAge) {
+        this._rainSplashes.splice(i, 1);
       }
     }
 
@@ -338,6 +361,31 @@ export class WeatherSystem {
         ctx.beginPath();
         ctx.moveTo(d.x, d.y);
         ctx.lineTo(d.x + d.len * 0.15, d.y + d.len);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    if (this._rainSplashes.length > 0) {
+      const stormWeight = this._getEffectWeight(STORM);
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.lineWidth = 1;
+      for (let i = 0; i < this._rainSplashes.length; i++) {
+        const splash = this._rainSplashes[i];
+        const t = splash.age / splash.maxAge;
+        const spread = splash.spread * (0.7 + t * 0.9);
+        const rise = splash.height * (1 - t * 0.35);
+        const alpha = splash.alpha * (1 - t) * stormWeight;
+        if (alpha <= 0) continue;
+        ctx.strokeStyle = `rgba(190,205,230,${alpha})`;
+        ctx.beginPath();
+        ctx.moveTo(splash.x - spread, splash.y);
+        ctx.lineTo(splash.x - spread * 0.25, splash.y - rise);
+        ctx.moveTo(splash.x, splash.y);
+        ctx.lineTo(splash.x, splash.y - rise * 0.7);
+        ctx.moveTo(splash.x + spread, splash.y);
+        ctx.lineTo(splash.x + spread * 0.25, splash.y - rise);
         ctx.stroke();
       }
       ctx.restore();
@@ -474,5 +522,12 @@ export class WeatherSystem {
       ctx.fill();
     }
     ctx.restore();
+  }
+
+  _spawnRainSplash(x, y) {
+    if (this._rainSplashes.length >= this._maxRainSplashes) {
+      this._rainSplashes.splice(0, 1);
+    }
+    this._rainSplashes.push(createRainSplash(x, y));
   }
 }
