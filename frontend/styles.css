@@ -63,6 +63,11 @@ header {
   animation: pulse 1s infinite;
 }
 
+.status-dot.unauthorized {
+  background: #ff44aa;
+  box-shadow: 0 0 6px #ff44aa;
+}
+
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }

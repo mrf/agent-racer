@@ -587,4 +587,12 @@ describe('view switching', () => {
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'v' }));
     expect(createView).toHaveBeenLastCalledWith('race', expect.anything(), expect.anything());
   });
+
+  it('clears persisted auth token when WS auth fails', () => {
+    sessionStorage.setItem('agent-racer-auth-token', 'bad-token');
+
+    mocks.conn.onAuthFailure();
+
+    expect(sessionStorage.getItem('agent-racer-auth-token')).toBeNull();
+  });
 });

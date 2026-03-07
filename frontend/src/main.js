@@ -8,7 +8,7 @@ import { UnlockToast } from './gamification/UnlockToast.js';
 import { RewardSelector } from './gamification/RewardSelector.js';
 import { BattlePassBar } from './gamification/BattlePassBar.js';
 import { setEquipped } from './gamification/CosmeticRegistry.js';
-import { authFetch, getAuthToken } from './auth.js';
+import { authFetch, clearStoredAuthToken, getAuthToken } from './auth.js';
 import { isTerminalActivity } from './session/constants.js';
 import { createFlyout } from './ui/detailFlyout.js';
 import { createSessionTracker } from './ui/sessionTracker.js';
@@ -477,6 +477,10 @@ const conn = new RaceConnection({
   onEquipped: handleEquipped,
   onBattlePassProgress: handleBattlePassProgress,
   onOvertake: handleOvertake,
+  onAuthFailure: () => {
+    clearStoredAuthToken();
+    log('Authentication failed. Cleared stored token. Re-open with #token=<token>.', 'error');
+  },
 });
 
 conn.connect();

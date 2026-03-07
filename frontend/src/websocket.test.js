@@ -37,8 +37,8 @@ class MockWebSocket {
     this.onmessage?.({ data });
   }
 
-  simulateClose() {
-    this.onclose?.();
+  simulateClose(event = {}) {
+    this.onclose?.(event);
   }
 
   simulateError() {
@@ -53,6 +53,7 @@ function createConnection(overrides = {}) {
     onCompletion: overrides.onCompletion ?? vi.fn(),
     onStatus: overrides.onStatus ?? vi.fn(),
     authToken: overrides.authToken,
+    onAuthFailure: overrides.onAuthFailure ?? vi.fn(),
   });
 }
 
@@ -120,6 +121,30 @@ describe('RaceConnection', () => {
       latestSocket().simulateError();
 
       expect(onStatus).toHaveBeenCalledWith('disconnected');
+    });
+
+    it('fires "unauthorized" on auth policy close and skips reconnect', () => {
+      const onStatus = vi.fn();
+      const conn = createConnection({ onStatus });
+
+      conn.connect();
+      latestSocket().simulateClose({ code: 1008 });
+
+      expect(onStatus).toHaveBeenCalledWith('unauthorized');
+      expect(onStatus).not.toHaveBeenCalledWith('disconnected');
+
+      vi.advanceTimersByTime(30000);
+      expect(MockWebSocket.instances).toHaveLength(1);
+    });
+
+    it('calls onAuthFailure callback on auth policy close', () => {
+      const onAuthFailure = vi.fn();
+      const conn = createConnection({ onAuthFailure });
+
+      conn.connect();
+      latestSocket().simulateClose({ code: 1008 });
+
+      expect(onAuthFailure).toHaveBeenCalledTimes(1);
     });
   });
 

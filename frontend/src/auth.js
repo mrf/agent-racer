@@ -61,3 +61,9 @@ export function authFetch(url, options = {}) {
 export function getAuthToken() {
   return authToken;
 }
+
+export function clearStoredAuthToken() {
+  if (typeof sessionStorage !== 'undefined') {
+    sessionStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+  }
+}

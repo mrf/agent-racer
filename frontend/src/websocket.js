@@ -1,5 +1,5 @@
 export class RaceConnection {
-  constructor({ onSnapshot, onDelta, onCompletion, onStatus, authToken, onSourceHealth, onAchievementUnlocked, onEquipped, onBattlePassProgress, onOvertake }) {
+  constructor({ onSnapshot, onDelta, onCompletion, onStatus, authToken, onSourceHealth, onAchievementUnlocked, onEquipped, onBattlePassProgress, onOvertake, onAuthFailure }) {
     this.onSnapshot = onSnapshot;
     this.onDelta = onDelta;
     this.onCompletion = onCompletion;
@@ -10,6 +10,7 @@ export class RaceConnection {
     this.onEquipped = onEquipped || (() => {});
     this.onBattlePassProgress = onBattlePassProgress || (() => {});
     this.onOvertake = onOvertake || (() => {});
+    this.onAuthFailure = onAuthFailure || (() => {});
     this.ws = null;
     this.reconnectDelay = 1000;
     this.maxReconnectDelay = 30000;
@@ -84,7 +85,12 @@ export class RaceConnection {
       }
     };
 
-    this.ws.onclose = () => {
+    this.ws.onclose = (event) => {
+      if (event && event.code === 1008) {
+        this.onStatus('unauthorized');
+        this.onAuthFailure();
+        return;
+      }
       this.onStatus('disconnected');
       this.scheduleReconnect();
     };

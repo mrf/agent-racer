@@ -172,3 +172,15 @@ describe('authFetch', () => {
     expect(result).toBe(mockResponse);
   });
 });
+
+describe('clearStoredAuthToken', () => {
+  it('removes persisted token from session storage', async () => {
+    const { clearStoredAuthToken, sessionStorage } = await loadAuth({
+      storedToken: 'saved-token',
+    });
+
+    expect(sessionStorage.getItem(AUTH_TOKEN_STORAGE_KEY)).toBe('saved-token');
+    clearStoredAuthToken();
+    expect(sessionStorage.getItem(AUTH_TOKEN_STORAGE_KEY)).toBeNull();
+  });
+});
