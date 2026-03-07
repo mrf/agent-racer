@@ -1,7 +1,11 @@
 package monitor
 
 import (
+	"context"
+	"errors"
+	"os/exec"
 	"testing"
+	"time"
 )
 
 func TestParseTmuxPanes(t *testing.T) {
@@ -142,5 +146,20 @@ func TestResolve_NilResolver(t *testing.T) {
 	target, ok := resolver.Resolve(100)
 	if ok {
 		t.Errorf("nil resolver: Resolve(100) = (%q, true), want (\"\", false)", target)
+	}
+}
+
+func TestListTmuxPanesWithTimeout(t *testing.T) {
+	origExec := execCommandContext
+	execCommandContext = func(ctx context.Context, name string, arg ...string) *exec.Cmd {
+		return origExec(ctx, "sh", "-c", "sleep 1")
+	}
+	t.Cleanup(func() {
+		execCommandContext = origExec
+	})
+
+	_, err := listTmuxPanesWithTimeout(20 * time.Millisecond)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("listTmuxPanesWithTimeout() error = %v, want context deadline exceeded", err)
 	}
 }
