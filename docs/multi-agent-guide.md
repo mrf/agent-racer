@@ -7,7 +7,7 @@ Agent Racer monitors AI coding agent sessions and visualizes them as cars racing
 | CLI | Status | Default | Session Logs | Token Data |
 |-----|--------|---------|--------------|------------|
 | **Claude Code** | Stable | Enabled | `~/.claude/projects/<encoded-path>/*.jsonl` | Real usage from API responses |
-| **OpenAI Codex CLI** | Pre-alpha | Disabled | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` | Cumulative snapshots via `token_count` events |
+| **OpenAI Codex CLI** | Pre-alpha | Disabled | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` | `token_count` events with lifetime totals plus current-turn snapshots |
 | **Google Gemini CLI** | Pre-alpha | Disabled | `~/.gemini/tmp/<sha256-hash>/chats/session-*.json` | Per-message `tokens` or `usageMetadata` fields |
 
 ### Claude Code
@@ -27,7 +27,7 @@ Codex CLI stores session logs as JSONL rollout files, organized by date. Like Cl
 - **Working directory**: Extracted from `env_context` or `turn_context` entries in the rollout file (contains a `cwd` field).
 - **Session ID**: Derived from the UUID portion of the rollout filename.
 - **Log format note**: The parser handles both the older bare-JSON format and the newer `RolloutLine` envelope format (`type`/`payload` wrapper introduced in PR #3380).
-- **Token tracking**: Cumulative `token_count` events with `input_tokens` and `output_tokens`. Codex can also report `model_context_window` dynamically.
+- **Token tracking**: Current logs can include both `info.total_token_usage` (lifetime totals) and `info.last_token_usage` (live turn snapshot). Context utilization should use the live snapshot when present. Codex can also report `model_context_window` dynamically.
 
 ### Google Gemini CLI
 
@@ -78,7 +78,7 @@ Controls how context utilization is derived per source:
 token_normalization:
   strategies:
     claude: usage       # Real token counts from API
-    codex: usage        # Cumulative token_count events
+    codex: usage        # Real token_count usage snapshots
     gemini: usage       # Token data from session messages
     default: estimate   # Fallback: estimate from message count
   tokens_per_message: 2000  # Used by estimate/message_count strategies
