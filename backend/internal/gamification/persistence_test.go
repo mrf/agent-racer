@@ -5,40 +5,10 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
-
-type stubTempSyncFile struct {
-	name     string
-	calls    *[]string
-	writeErr error
-	syncErr  error
-	closeErr error
-}
-
-func (f *stubTempSyncFile) Name() string {
-	return f.name
-}
-
-func (f *stubTempSyncFile) Write(p []byte) (int, error) {
-	*f.calls = append(*f.calls, "write")
-	if f.writeErr != nil {
-		return 0, f.writeErr
-	}
-	return len(p), nil
-}
-
-func (f *stubTempSyncFile) Sync() error {
-	*f.calls = append(*f.calls, "sync")
-	return f.syncErr
-}
-
-func (f *stubTempSyncFile) Close() error {
-	*f.calls = append(*f.calls, "close")
-	return f.closeErr
-}
 
 func TestNewStore_DefaultDir(t *testing.T) {
 	s := NewStore("")
@@ -282,71 +252,143 @@ func TestStore_SaveSetsVersionAndTimestamp(t *testing.T) {
 	}
 }
 
-func TestStore_SaveSyncsTempFileBeforeRename(t *testing.T) {
-	originalCreate := createTempStatsFile
-	originalRename := renameStatsFile
+func TestStore_SaveSyncsTempFileBeforeRenameAndDirAfterRename(t *testing.T) {
+	dir := t.TempDir()
+	s := NewStore(dir)
+
+	originalSyncOSFile := syncOSFile
+	originalRenameFile := renameFile
 	t.Cleanup(func() {
-		createTempStatsFile = originalCreate
-		renameStatsFile = originalRename
+		syncOSFile = originalSyncOSFile
+		renameFile = originalRenameFile
 	})
 
-	calls := make([]string, 0, 4)
-	createTempStatsFile = func(dir, pattern string) (tempSyncFile, error) {
-		return &stubTempSyncFile{
-			name:  filepath.Join(dir, "stats.tmp"),
-			calls: &calls,
-		}, nil
-	}
-	renameStatsFile = func(oldPath, newPath string) error {
-		calls = append(calls, "rename")
+	calls := make([]string, 0, 3)
+	syncOSFile = func(f *os.File) error {
+		info, err := f.Stat()
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			calls = append(calls, "sync-dir")
+			return nil
+		}
+		calls = append(calls, "sync-temp")
 		return nil
 	}
+	renameFile = func(oldPath, newPath string) error {
+		calls = append(calls, "rename")
+		return os.Rename(oldPath, newPath)
+	}
 
-	s := NewStore(t.TempDir())
-	if err := s.Save(newStats()); err != nil {
+	st := newStats()
+	st.TotalSessions = 7
+	if err := s.Save(st); err != nil {
 		t.Fatalf("Save() error: %v", err)
 	}
 
-	want := []string{"write", "sync", "close", "rename"}
-	if !reflect.DeepEqual(calls, want) {
-		t.Fatalf("call order = %v, want %v", calls, want)
+	want := []string{"sync-temp", "rename", "sync-dir"}
+	if len(calls) != len(want) {
+		t.Fatalf("calls = %v, want %v", calls, want)
+	}
+	for i := 0; i < len(want); i++ {
+		if calls[i] != want[i] {
+			t.Fatalf("calls = %v, want %v", calls, want)
+		}
 	}
 }
 
-func TestStore_SaveReturnsSyncError(t *testing.T) {
-	originalCreate := createTempStatsFile
-	originalRename := renameStatsFile
+func TestStore_SaveReturnsErrorIfTempFileSyncFailsBeforeRename(t *testing.T) {
+	dir := t.TempDir()
+	s := NewStore(dir)
+
+	originalSyncOSFile := syncOSFile
+	originalRenameFile := renameFile
 	t.Cleanup(func() {
-		createTempStatsFile = originalCreate
-		renameStatsFile = originalRename
+		syncOSFile = originalSyncOSFile
+		renameFile = originalRenameFile
 	})
 
-	calls := make([]string, 0, 4)
-	createTempStatsFile = func(dir, pattern string) (tempSyncFile, error) {
-		return &stubTempSyncFile{
-			name:    filepath.Join(dir, "stats.tmp"),
-			calls:   &calls,
-			syncErr: errors.New("sync failed"),
-		}, nil
-	}
 	renameCalled := false
-	renameStatsFile = func(oldPath, newPath string) error {
+	syncOSFile = func(f *os.File) error {
+		info, err := f.Stat()
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		return errors.New("sync failed")
+	}
+	renameFile = func(oldPath, newPath string) error {
 		renameCalled = true
+		return os.Rename(oldPath, newPath)
+	}
+
+	err := s.Save(newStats())
+	if err == nil {
+		t.Fatal("Save() error = nil, want temp sync error")
+	}
+	if !strings.Contains(err.Error(), "syncing temp file: sync failed") {
+		t.Fatalf("Save() error = %q, want temp sync failure", err)
+	}
+	if renameCalled {
+		t.Fatal("rename should not be called after temp sync failure")
+	}
+}
+
+func TestStore_SaveReturnsErrorIfDirSyncFailsAfterRename(t *testing.T) {
+	dir := t.TempDir()
+	s := NewStore(dir)
+
+	initial := newStats()
+	initial.TotalSessions = 1
+	if err := s.Save(initial); err != nil {
+		t.Fatalf("initial Save() error: %v", err)
+	}
+
+	originalSyncOSFile := syncOSFile
+	t.Cleanup(func() {
+		syncOSFile = originalSyncOSFile
+	})
+
+	syncOSFile = func(f *os.File) error {
+		info, err := f.Stat()
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return errors.New("dir sync failed")
+		}
 		return nil
 	}
 
-	s := NewStore(t.TempDir())
-	err := s.Save(newStats())
+	updated := newStats()
+	updated.TotalSessions = 2
+	err := s.Save(updated)
 	if err == nil {
-		t.Fatal("Save() error = nil, want sync error")
+		t.Fatal("Save() error = nil, want dir sync error")
 	}
-	if renameCalled {
-		t.Fatal("rename should not be called after sync failure")
+	if !strings.Contains(err.Error(), "syncing stats dir: dir sync failed") {
+		t.Fatalf("Save() error = %q, want dir sync failure", err)
 	}
 
-	want := []string{"write", "sync", "close"}
-	if !reflect.DeepEqual(calls, want) {
-		t.Fatalf("call order = %v, want %v", calls, want)
+	loaded, loadErr := s.Load()
+	if loadErr != nil {
+		t.Fatalf("Load() error: %v", loadErr)
+	}
+	if loaded.TotalSessions != 2 {
+		t.Fatalf("TotalSessions = %d, want 2 after renamed file is published", loaded.TotalSessions)
+	}
+
+	entries, readErr := os.ReadDir(dir)
+	if readErr != nil {
+		t.Fatalf("ReadDir() error: %v", readErr)
+	}
+	for i := 0; i < len(entries); i++ {
+		if entries[i].Name() != statsFileName {
+			t.Fatalf("unexpected file left behind: %s", entries[i].Name())
+		}
 	}
 }
 
