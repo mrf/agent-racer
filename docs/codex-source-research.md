@@ -120,7 +120,7 @@ categories observed in rollout files:
 |-----------------|-------------|
 | `user_message` | User input text |
 | `agent_message` | Agent response text |
-| `token_count` | Cumulative token usage snapshot |
+| `token_count` | Token usage snapshot (`info.total_token_usage` lifetime totals, `info.last_token_usage` current-turn/live context) |
 | `session_configured` | Session configuration event (model, reasoning effort, rollout path) |
 
 **response_item variants:**
@@ -137,16 +137,29 @@ categories observed in rollout files:
 
 ### Token Count Fields
 
-Each `token_count` event reports **cumulative** totals (delta must be computed
-by subtracting previous values):
+Current Codex CLI logs can report two token views inside `payload.info`:
 
 | Field | Description |
 |-------|-------------|
-| `input_tokens` | Total input tokens consumed |
+| `total_token_usage.*` | Lifetime cumulative totals across the whole session |
+| `last_token_usage.*` | Latest live/request snapshot for the current turn |
+| `model_context_window` | Dynamic context ceiling reported by Codex for the current turn |
+
+Within each usage object, the observed fields are:
+
+| Field | Description |
+|-------|-------------|
+| `input_tokens` | Input tokens counted for that scope |
 | `cached_input_tokens` | Input tokens served from cache |
-| `output_tokens` | Total output tokens generated |
+| `output_tokens` | Output tokens generated for that scope |
 | `reasoning_output_tokens` | Reasoning tokens (subset of output, not double-counted) |
 | `total_tokens` | Sum of input + output (recomputed if absent) |
+
+Important interpretation note from March 8, 2026 regression diagnosis:
+
+- `total_token_usage` is a lifetime counter and can grow far beyond the current context window.
+- `last_token_usage` stays near the active turn's real context occupancy and is the correct numerator for UI context-utilization displays.
+- Using `total_token_usage.input_tokens / model_context_window` makes long-running sessions clamp to 100% far too early.
 
 **Important:** Token count events were only added in commit `0269096` (2025-09-06).
 Earlier sessions have no token metrics. Sessions from early September 2025 may
