@@ -44,25 +44,21 @@ function makeCtx() {
 }
 
 function makeCanvas(context, overrides = {}) {
-  return {
-    width: 1600,
-    height: 1200,
-    style: {},
-    getContext: vi.fn(() => context),
-    getBoundingClientRect: vi.fn(() => ({
-      left: 100,
-      top: 50,
-      width: 800,
-      height: 600,
-      right: 900,
-      bottom: 650,
-      x: 100,
-      y: 50,
-    })),
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    ...overrides,
-  };
+  const element = document.createElement('canvas');
+  element.width = 1600;
+  element.height = 1200;
+  element.getContext = vi.fn(() => context);
+  element.getBoundingClientRect = vi.fn(() => ({
+    left: 100,
+    top: 50,
+    width: 800,
+    height: 600,
+    right: 900,
+    bottom: 650,
+    x: 100,
+    y: 50,
+  }));
+  return Object.assign(element, overrides);
 }
 
 beforeEach(() => {
