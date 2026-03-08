@@ -1181,6 +1181,79 @@ func TestStatsTracker_WeeklySnapshot_NotResetOnFirstTerminal(t *testing.T) {
 	}
 }
 
+func TestStatsTracker_RotateChallengesLocked_MarksDirtyForSaveTicker(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStore(dir)
+
+	tracker, _, err := NewStatsTracker(store, 0, nil)
+	if err != nil {
+		t.Fatalf("NewStatsTracker error: %v", err)
+	}
+
+	now := time.Date(2026, time.January, 13, 15, 30, 0, 0, time.UTC)
+	oldWeek := weekStart(now.AddDate(0, 0, -7))
+
+	tracker.mu.Lock()
+	tracker.stats.WeeklyChallenges.WeekStart = oldWeek
+	tracker.stats.WeeklyChallenges.ActiveIDs = []string{"stale"}
+	tracker.stats.WeeklyChallenges.Snapshot.TotalSessions = 42
+	tracker.stats.WeeklyChallenges.XPAwarded = map[string]bool{"stale": true}
+	tracker.dirty = false
+
+	rotated := tracker.rotateChallengesLocked(now)
+	dirty := tracker.dirty
+	gotWeekStart := tracker.stats.WeeklyChallenges.WeekStart
+	gotActiveIDs := len(tracker.stats.WeeklyChallenges.ActiveIDs)
+	gotSessions := tracker.stats.WeeklyChallenges.Snapshot.TotalSessions
+	gotAwards := len(tracker.stats.WeeklyChallenges.XPAwarded)
+	tracker.mu.Unlock()
+
+	if !rotated {
+		t.Fatal("rotateChallengesLocked() = false, want true")
+	}
+	if !dirty {
+		t.Fatal("dirty = false, want true after weekly rotation")
+	}
+	if !gotWeekStart.Equal(weekStart(now)) {
+		t.Errorf("WeekStart = %v, want %v", gotWeekStart, weekStart(now))
+	}
+	if gotActiveIDs != challengesPerWeek {
+		t.Errorf("len(ActiveIDs) = %d, want %d", gotActiveIDs, challengesPerWeek)
+	}
+	if gotSessions != 0 {
+		t.Errorf("Snapshot.TotalSessions = %d, want 0 after rotation", gotSessions)
+	}
+	if gotAwards != 0 {
+		t.Errorf("len(XPAwarded) = %d, want 0 after rotation", gotAwards)
+	}
+
+	tracker.save()
+
+	loaded, err := store.Load()
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if !loaded.WeeklyChallenges.WeekStart.Equal(weekStart(now)) {
+		t.Errorf("persisted WeekStart = %v, want %v", loaded.WeeklyChallenges.WeekStart, weekStart(now))
+	}
+	if len(loaded.WeeklyChallenges.ActiveIDs) != challengesPerWeek {
+		t.Errorf("persisted len(ActiveIDs) = %d, want %d", len(loaded.WeeklyChallenges.ActiveIDs), challengesPerWeek)
+	}
+
+	tracker.mu.Lock()
+	tracker.dirty = false
+	rotated = tracker.rotateChallengesLocked(now.Add(24 * time.Hour))
+	dirty = tracker.dirty
+	tracker.mu.Unlock()
+
+	if rotated {
+		t.Fatal("rotateChallengesLocked() = true, want false for same ISO week")
+	}
+	if dirty {
+		t.Fatal("dirty = true, want false when no weekly rotation occurs")
+	}
+}
+
 func TestSeasonRotation_PersistsToDisk(t *testing.T) {
 	dir := t.TempDir()
 	store := NewStore(dir)
