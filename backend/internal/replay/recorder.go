@@ -3,6 +3,7 @@ package replay
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -14,15 +15,21 @@ import (
 
 // Snapshot is a point-in-time capture of all active session states.
 type Snapshot struct {
-	Timestamp time.Time              `json:"t"`
+	Timestamp time.Time               `json:"t"`
 	Sessions  []*session.SessionState `json:"s"`
+}
+
+type snapshotFile interface {
+	io.Writer
+	Sync() error
+	Close() error
 }
 
 // Recorder appends session snapshots to a JSONL replay file.
 // One file is created per server run; old files are pruned on startup.
 type Recorder struct {
 	mu      sync.Mutex
-	file    *os.File
+	file    snapshotFile
 	encoder *json.Encoder
 }
 
@@ -63,6 +70,10 @@ func (r *Recorder) WriteSnapshot(sessions []*session.SessionState) {
 	}
 	if err := r.encoder.Encode(snap); err != nil {
 		log.Printf("replay: write snapshot: %v", err)
+		return
+	}
+	if err := r.file.Sync(); err != nil {
+		log.Printf("replay: sync snapshot: %v", err)
 	}
 }
 
@@ -71,6 +82,9 @@ func (r *Recorder) Close() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.file != nil {
+		if err := r.file.Sync(); err != nil {
+			log.Printf("replay: sync close: %v", err)
+		}
 		_ = r.file.Close()
 		r.file = nil
 	}

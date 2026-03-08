@@ -18,6 +18,19 @@ const (
 	appDirName    = "agent-racer"
 )
 
+type tempSyncFile interface {
+	Name() string
+	Write([]byte) (int, error)
+	Sync() error
+	Close() error
+}
+
+var createTempStatsFile = func(dir, pattern string) (tempSyncFile, error) {
+	return os.CreateTemp(dir, pattern)
+}
+
+var renameStatsFile = os.Rename
+
 // Stats is the persistent aggregate data for the gamification system.
 // It is loaded from and saved to ~/.local/state/agent-racer/stats.json
 // (respecting XDG_STATE_HOME).
@@ -171,7 +184,7 @@ func (s *Store) Save(st *Stats) error {
 	}
 	data = append(data, '\n')
 
-	tmp, err := os.CreateTemp(s.dir, ".stats-*.tmp")
+	tmp, err := createTempStatsFile(s.dir, ".stats-*.tmp")
 	if err != nil {
 		return fmt.Errorf("creating temp file: %w", err)
 	}
@@ -187,10 +200,14 @@ func (s *Store) Save(st *Stats) error {
 		_ = tmp.Close()
 		return fmt.Errorf("writing temp file: %w", err)
 	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("syncing temp file: %w", err)
+	}
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("closing temp file: %w", err)
 	}
-	if err := os.Rename(tmpPath, s.Path()); err != nil {
+	if err := renameStatsFile(tmpPath, s.Path()); err != nil {
 		return fmt.Errorf("renaming stats file: %w", err)
 	}
 	committed = true
