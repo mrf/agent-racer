@@ -82,14 +82,14 @@ describe('WeatherSystem', () => {
     weather.drawFront(ctx, 640, 360);
 
     expect(ctx.createLinearGradient).toHaveBeenCalledWith(0, 0, 0, 360);
-    expect(ctx.linearGradients[0].addColorStop).toHaveBeenNthCalledWith(1, 0, 'rgba(255,210,140,0.18)');
-    expect(ctx.linearGradients[0].addColorStop).toHaveBeenNthCalledWith(2, 0.55, 'rgba(224,168,112,0.12)');
-    expect(ctx.linearGradients[0].addColorStop).toHaveBeenNthCalledWith(3, 1, 'rgba(140,92,58,0.1)');
+    expect(ctx.linearGradients[0].addColorStop).toHaveBeenNthCalledWith(1, 0, 'rgba(255,210,140,0.12)');
+    expect(ctx.linearGradients[0].addColorStop).toHaveBeenNthCalledWith(2, 0.55, 'rgba(224,168,112,0.08)');
+    expect(ctx.linearGradients[0].addColorStop).toHaveBeenNthCalledWith(3, 1, 'rgba(140,92,58,0.06)');
     expect(ctx.createRadialGradient).toHaveBeenCalledWith(352, 50.400000000000006, 0, 352, 50.400000000000006, 448);
-    expect(ctx.radialGradients[0].addColorStop).toHaveBeenNthCalledWith(1, 0, 'rgba(255,220,150,0.22)');
-    expect(ctx.radialGradients[0].addColorStop).toHaveBeenNthCalledWith(2, 0.45, 'rgba(255,168,78,0.14)');
+    expect(ctx.radialGradients[0].addColorStop).toHaveBeenNthCalledWith(1, 0, 'rgba(255,220,150,0.14)');
+    expect(ctx.radialGradients[0].addColorStop).toHaveBeenNthCalledWith(2, 0.45, 'rgba(255,168,78,0.08)');
     expect(ctx.radialGradients[0].addColorStop).toHaveBeenNthCalledWith(3, 1, 'rgba(255,120,20,0)');
-    expect(ctx.fillStyles[1]).toBe('rgba(190,170,155,0.1)');
+    expect(ctx.fillStyles[1]).toBe('rgba(190,170,155,0.06)');
     expect(ctx.fillRect).toHaveBeenCalledTimes(3);
     expect(ctx.fillRect).toHaveBeenNthCalledWith(1, 0, 0, 640, 360);
     expect(ctx.fillRect).toHaveBeenNthCalledWith(2, 0, 0, 640, 360);

@@ -534,21 +534,21 @@ export class WeatherSystem {
 
   _drawGoldenHour(ctx, width, height, goldenWeight) {
     const warmWash = ctx.createLinearGradient(0, 0, 0, height);
-    warmWash.addColorStop(0, `rgba(255,210,140,${0.18 * goldenWeight})`);
-    warmWash.addColorStop(0.55, `rgba(224,168,112,${0.12 * goldenWeight})`);
-    warmWash.addColorStop(1, `rgba(140,92,58,${0.1 * goldenWeight})`);
+    warmWash.addColorStop(0, `rgba(255,210,140,${0.12 * goldenWeight})`);
+    warmWash.addColorStop(0.55, `rgba(224,168,112,${0.08 * goldenWeight})`);
+    warmWash.addColorStop(1, `rgba(140,92,58,${0.06 * goldenWeight})`);
     ctx.fillStyle = warmWash;
     ctx.fillRect(0, 0, width, height);
 
-    ctx.fillStyle = `rgba(190,170,155,${0.1 * goldenWeight})`;
+    ctx.fillStyle = `rgba(190,170,155,${0.06 * goldenWeight})`;
     ctx.fillRect(0, 0, width, height);
 
     const glow = ctx.createRadialGradient(
       width * 0.55, height * 0.14, 0,
       width * 0.55, height * 0.14, width * 0.7
     );
-    glow.addColorStop(0, `rgba(255,220,150,${0.22 * goldenWeight})`);
-    glow.addColorStop(0.45, `rgba(255,168,78,${0.14 * goldenWeight})`);
+    glow.addColorStop(0, `rgba(255,220,150,${0.14 * goldenWeight})`);
+    glow.addColorStop(0.45, `rgba(255,168,78,${0.08 * goldenWeight})`);
     glow.addColorStop(1, 'rgba(255,120,20,0)');
     ctx.fillStyle = glow;
     ctx.fillRect(0, 0, width, height);
