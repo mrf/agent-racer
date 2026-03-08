@@ -17,8 +17,8 @@ jobs:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
 
-      - name: Run tests
-        run: cd backend && go test ./...
+      - name: Run race-enabled backend tests
+        run: make test-race
 
       - name: Vet
         run: cd backend && go vet ./...
