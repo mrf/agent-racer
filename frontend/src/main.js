@@ -471,6 +471,7 @@ document.addEventListener('keydown', (e) => {
       }
       break;
     case 'r':
+      if (trackEditor.active) break;
       if (replayActive) closeReplay();
       else openReplay();
       break;
