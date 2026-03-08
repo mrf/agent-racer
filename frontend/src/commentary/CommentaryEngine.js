@@ -103,7 +103,7 @@ export class CommentaryEngine {
       }
 
       // Subagent spawn detection
-      const subagentCount = session.subAgents ? session.subAgents.length : 0;
+      const subagentCount = session.subagents ? session.subagents.length : 0;
       const prevCount = this._prevSubagentCounts.get(session.id) || 0;
       if (subagentCount > prevCount) {
         this._enqueue('subagent_spawn', { name });
