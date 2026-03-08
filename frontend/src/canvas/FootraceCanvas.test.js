@@ -97,6 +97,21 @@ vi.mock('./Dashboard.js', () => ({
   }),
 }));
 
+vi.mock('./Weather.js', () => ({
+  WeatherSystem: vi.fn(function () {
+    this.enabled = true;
+    this.toggle = vi.fn(function () {
+      this.enabled = !this.enabled;
+      return this.enabled;
+    });
+    this.getStateLabel = vi.fn(() => 'Clear');
+    this.updateMetrics = vi.fn();
+    this.update = vi.fn();
+    this.drawBehind = vi.fn();
+    this.drawFront = vi.fn();
+  }),
+}));
+
 vi.mock('../entities/Character.js', () => ({
   Character: vi.fn(function (state) {
     this.id = state.id;
@@ -227,6 +242,10 @@ describe('FootraceCanvas', () => {
   describe('construction', () => {
     it('creates a FootraceTrack instance', () => {
       expect(fc.track).toBeDefined();
+    });
+
+    it('creates a WeatherSystem instance', () => {
+      expect(fc.weather).toBeDefined();
     });
 
     it('starts the animation loop', () => {
@@ -582,6 +601,24 @@ describe('FootraceCanvas', () => {
     it('zone counts are zero with no characters', () => {
       fc.update();
       expect(fc._zoneCounts).toEqual({ racing: 0, pit: 0, parked: 0 });
+    });
+  });
+
+  describe('weather integration', () => {
+    it('updates weather metrics from character state each frame', () => {
+      fc.setAllRacers([makeState({ id: 'a', activity: 'thinking' }), makeState({ id: 'b', activity: 'complete' })]);
+      fc.update();
+      expect(fc.weather.updateMetrics).toHaveBeenCalledWith([
+        expect.objectContaining({ id: 'a', activity: 'thinking' }),
+        expect.objectContaining({ id: 'b', activity: 'complete' }),
+      ]);
+      expect(fc.weather.update).toHaveBeenCalledWith(fc.dt, fc.width, fc.height);
+    });
+
+    it('draws weather behind and in front of the scene', () => {
+      fc.draw();
+      expect(fc.weather.drawBehind).toHaveBeenCalledWith(fc.ctx, fc.width, fc.height);
+      expect(fc.weather.drawFront).toHaveBeenCalledWith(fc.ctx, fc.width, fc.height);
     });
   });
 
