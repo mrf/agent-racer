@@ -396,10 +396,20 @@ describe('SoundEngine', () => {
       expect(engine.engineNodes.size).toBe(2);
 
       engine.setMuted(true);
-      // Grace period keeps nodes alive briefly
-      expect(engine.engineStopTimeouts.size).toBe(2);
-      vi.advanceTimersByTime(1500);
+      expect(engine.engineStopTimeouts.size).toBe(0);
       expect(engine.engineNodes.size).toBe(0);
+    });
+
+    it('bypasses the grace period when muting an engine already pending stop', () => {
+      engine.startEngine('r1', 'thinking');
+      engine.stopEngine('r1');
+      expect(engine.engineStopTimeouts.has('r1')).toBe(true);
+      expect(engine.engineNodes.has('r1')).toBe(true);
+
+      engine.setMuted(true);
+
+      expect(engine.engineStopTimeouts.has('r1')).toBe(false);
+      expect(engine.engineNodes.has('r1')).toBe(false);
     });
 
     it('prevents startEngine from creating nodes when muted', () => {
@@ -850,15 +860,14 @@ describe('SoundEngine', () => {
     it('engine restartable after rapid mute then unmute', () => {
       engine.startEngine('r1', 'thinking');
 
-      engine.setMuted(true);   // triggers stopEngine (grace period starts)
+      engine.setMuted(true);
       engine.setMuted(false);  // unmuted
 
-      // Restart engine — should cancel the pending stop
+      // Restart engine after the explicit mute stop.
       engine.startEngine('r1', 'thinking');
       expect(engine.engineStopTimeouts.has('r1')).toBe(false);
       expect(engine.engineNodes.has('r1')).toBe(true);
 
-      // Past when the original grace period would have expired
       vi.advanceTimersByTime(2000);
       expect(engine.engineNodes.has('r1')).toBe(true);
     });
