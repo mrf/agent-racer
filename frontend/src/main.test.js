@@ -529,6 +529,17 @@ describe('flyout boundary clamping', () => {
 // ── View switching ────────────────────────────────────────────────────
 
 describe('view switching', () => {
+  it('R key does not open replay while the track editor is active', () => {
+    const replayShortcut = document.querySelector('[data-id="replay"]');
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'e' }));
+    expect(document.getElementById('track-editor-toolbar')).not.toBeNull();
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'r' }));
+
+    expect(replayShortcut.classList.contains('active')).toBe(false);
+  });
+
   it('V key does nothing when only one view type is registered', async () => {
     const viewBefore = mocks.activeView;
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'v' }));
