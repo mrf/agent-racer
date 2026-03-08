@@ -347,6 +347,44 @@ describe('FootraceCanvas', () => {
     });
   });
 
+  describe('hit testing and interaction', () => {
+    function clickEvent(clientX, clientY) {
+      return { clientX, clientY };
+    }
+
+    function placeCharacter(overrides = {}) {
+      fc.setAllRacers([makeState({ id: 'c1', ...overrides })]);
+      fc.update();
+      const character = fc.characters.get('c1');
+      character.displayX = 400;
+      character.displayY = 300;
+      return character;
+    }
+
+    it('returns character hits with the subclass-specific result key', () => {
+      const character = placeCharacter();
+      const result = fc._hitTest(clickEvent(400, 300));
+      expect(result).toEqual({ type: 'character', character });
+    });
+
+    it('handleClick invokes onRacerClick for character hits', () => {
+      const cb = vi.fn();
+      fc.onRacerClick = cb;
+      const character = placeCharacter();
+
+      fc.handleClick(clickEvent(400, 300));
+      expect(cb).toHaveBeenCalledWith(character.state);
+    });
+
+    it('handleMouseMove updates hovered state and pointer cursor', () => {
+      const character = placeCharacter({ tmuxTarget: 'pane-1' });
+
+      fc.handleMouseMove({ clientX: 410, clientY: 300 });
+      expect(character.hovered).toBe(true);
+      expect(canvas.style.cursor).toBe('pointer');
+    });
+  });
+
   describe('event effects', () => {
     it('onComplete sets flashAlpha', () => {
       fc.setAllRacers([makeState({ id: 'a' })]);
