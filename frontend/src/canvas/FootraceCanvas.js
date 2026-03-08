@@ -1,6 +1,7 @@
 import { ParticleSystem } from './Particles.js';
 import { FootraceTrack } from './FootraceTrack.js';
 import { Dashboard } from './Dashboard.js';
+import { WeatherSystem } from './Weather.js';
 import { Character } from '../entities/Character.js';
 import { getModelColor, hexToRgb } from '../session/colors.js';
 import { authFetch } from '../auth.js';
@@ -31,6 +32,7 @@ export class FootraceCanvas {
     this.track = new FootraceTrack();
     this.dashboard = new Dashboard();
     this.particles = new ParticleSystem();
+    this.weather = new WeatherSystem();
     this.characters = new Map();
     this.connected = false;
     this.animFrameId = null;
@@ -335,6 +337,8 @@ export class FootraceCanvas {
     }
 
     this.particles.update(dt);
+    this.weather.updateMetrics([...this.characters.values()].map(ch => ch.state));
+    this.weather.update(dt, this.width, this.height);
 
     if (this.shakeTimer < this.shakeDuration) {
       this.shakeTimer += dt;
@@ -362,6 +366,7 @@ export class FootraceCanvas {
     // Background — earthy dark green
     ctx.fillStyle = '#1a2e1a';
     ctx.fillRect(-10, -10, this.width + 20, this.height + 20);
+    this.weather.drawBehind(ctx, this.width, this.height);
 
     const pitLaneCount = this._pitLaneCount;
     const parkingLotLaneCount = this._parkingLotLaneCount;
@@ -396,6 +401,7 @@ export class FootraceCanvas {
 
     // Particles in front
     this.particles.drawFront(ctx);
+    this.weather.drawFront(ctx, this.width, this.height);
 
     // Bloom
     this._drawBloom(ctx);
