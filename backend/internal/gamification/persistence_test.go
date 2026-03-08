@@ -2,11 +2,43 @@ package gamification
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 )
+
+type stubTempSyncFile struct {
+	name     string
+	calls    *[]string
+	writeErr error
+	syncErr  error
+	closeErr error
+}
+
+func (f *stubTempSyncFile) Name() string {
+	return f.name
+}
+
+func (f *stubTempSyncFile) Write(p []byte) (int, error) {
+	*f.calls = append(*f.calls, "write")
+	if f.writeErr != nil {
+		return 0, f.writeErr
+	}
+	return len(p), nil
+}
+
+func (f *stubTempSyncFile) Sync() error {
+	*f.calls = append(*f.calls, "sync")
+	return f.syncErr
+}
+
+func (f *stubTempSyncFile) Close() error {
+	*f.calls = append(*f.calls, "close")
+	return f.closeErr
+}
 
 func TestNewStore_DefaultDir(t *testing.T) {
 	s := NewStore("")
@@ -247,6 +279,74 @@ func TestStore_SaveSetsVersionAndTimestamp(t *testing.T) {
 	}
 	if st.LastUpdated.Before(before) || st.LastUpdated.After(after) {
 		t.Errorf("LastUpdated %v not in range [%v, %v]", st.LastUpdated, before, after)
+	}
+}
+
+func TestStore_SaveSyncsTempFileBeforeRename(t *testing.T) {
+	originalCreate := createTempStatsFile
+	originalRename := renameStatsFile
+	t.Cleanup(func() {
+		createTempStatsFile = originalCreate
+		renameStatsFile = originalRename
+	})
+
+	calls := make([]string, 0, 4)
+	createTempStatsFile = func(dir, pattern string) (tempSyncFile, error) {
+		return &stubTempSyncFile{
+			name:  filepath.Join(dir, "stats.tmp"),
+			calls: &calls,
+		}, nil
+	}
+	renameStatsFile = func(oldPath, newPath string) error {
+		calls = append(calls, "rename")
+		return nil
+	}
+
+	s := NewStore(t.TempDir())
+	if err := s.Save(newStats()); err != nil {
+		t.Fatalf("Save() error: %v", err)
+	}
+
+	want := []string{"write", "sync", "close", "rename"}
+	if !reflect.DeepEqual(calls, want) {
+		t.Fatalf("call order = %v, want %v", calls, want)
+	}
+}
+
+func TestStore_SaveReturnsSyncError(t *testing.T) {
+	originalCreate := createTempStatsFile
+	originalRename := renameStatsFile
+	t.Cleanup(func() {
+		createTempStatsFile = originalCreate
+		renameStatsFile = originalRename
+	})
+
+	calls := make([]string, 0, 4)
+	createTempStatsFile = func(dir, pattern string) (tempSyncFile, error) {
+		return &stubTempSyncFile{
+			name:    filepath.Join(dir, "stats.tmp"),
+			calls:   &calls,
+			syncErr: errors.New("sync failed"),
+		}, nil
+	}
+	renameCalled := false
+	renameStatsFile = func(oldPath, newPath string) error {
+		renameCalled = true
+		return nil
+	}
+
+	s := NewStore(t.TempDir())
+	err := s.Save(newStats())
+	if err == nil {
+		t.Fatal("Save() error = nil, want sync error")
+	}
+	if renameCalled {
+		t.Fatal("rename should not be called after sync failure")
+	}
+
+	want := []string{"write", "sync", "close"}
+	if !reflect.DeepEqual(calls, want) {
+		t.Fatalf("call order = %v, want %v", calls, want)
 	}
 }
 
