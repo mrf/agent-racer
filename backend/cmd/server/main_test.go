@@ -242,7 +242,9 @@ func TestListenAndServe_AcceptsConnections(t *testing.T) {
 		t.Fatalf("net.Listen: %v", err)
 	}
 	port := ln.Addr().(*net.TCPAddr).Port
-	ln.Close()
+	if err := ln.Close(); err != nil {
+		t.Fatalf("ln.Close: %v", err)
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -257,7 +259,9 @@ func TestListenAndServe_AcceptsConnections(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		resp, err = http.Get(addr)
 		if err == nil {
-			resp.Body.Close()
+			if closeErr := resp.Body.Close(); closeErr != nil {
+				t.Fatalf("resp.Body.Close: %v", closeErr)
+			}
 			break
 		}
 		time.Sleep(10 * time.Millisecond)

@@ -170,7 +170,7 @@ func TestWSConnectAndDisconnect(t *testing.T) {
 		}
 		connReady <- conn
 		conn.ReadMessage() //nolint:errcheck
-		conn.Close()
+		_ = conn.Close()
 	}))
 	defer srv.Close()
 
@@ -189,8 +189,10 @@ func TestWSConnectAndDisconnect(t *testing.T) {
 
 	// Close the server-side connection to trigger a disconnect.
 	srvConn := <-connReady
-	srvConn.WriteMessage(websocket.CloseMessage,
-		websocket.FormatCloseMessage(websocket.CloseNormalClosure, "bye"))
+	if err := srvConn.WriteMessage(websocket.CloseMessage,
+		websocket.FormatCloseMessage(websocket.CloseNormalClosure, "bye")); err != nil {
+		t.Fatalf("srvConn.WriteMessage: %v", err)
+	}
 
 	// ReadLoop should detect the close and return WSDisconnectedMsg.
 	readCmd := c.ReadLoop(ctx)
@@ -211,10 +213,14 @@ func TestWSReconnectOnDisconnect(t *testing.T) {
 			return
 		}
 		connCount++
-		conn.WriteMessage(websocket.TextMessage, makeSnapshot(uint64(connCount)))
-		conn.WriteMessage(websocket.CloseMessage,
-			websocket.FormatCloseMessage(websocket.CloseNormalClosure, "done"))
-		conn.Close()
+		if err := conn.WriteMessage(websocket.TextMessage, makeSnapshot(uint64(connCount))); err != nil {
+			t.Errorf("conn.WriteMessage snapshot: %v", err)
+		}
+		if err := conn.WriteMessage(websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseNormalClosure, "done")); err != nil {
+			t.Errorf("conn.WriteMessage close: %v", err)
+		}
+		_ = conn.Close()
 	}))
 	defer srv.Close()
 

@@ -190,14 +190,6 @@ func (m *Model) Tick() tea.Cmd {
 	return nil
 }
 
-// animatedPct returns the spring-animated context utilization for a session.
-func (m Model) animatedPct(id string) float64 {
-	if spr, ok := m.springs[id]; ok {
-		return spr.pos
-	}
-	return 0
-}
-
 // View renders the full track view.
 func (m Model) View() string {
 	width := m.Width

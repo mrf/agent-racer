@@ -186,9 +186,10 @@ func (m Model) renderInner(s *client.SessionState) string {
 	if s.LastAssistantText != "" {
 		b.WriteString("\n")
 		label := "Last Message"
-		if s.Activity == client.ActivityErrored {
+		switch s.Activity {
+		case client.ActivityErrored:
 			label = "Error"
-		} else if s.Activity == client.ActivityComplete {
+		case client.ActivityComplete:
 			label = "Summary"
 		}
 		b.WriteString(styleSectionHeader.Render(label) + "\n")

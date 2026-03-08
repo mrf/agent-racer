@@ -111,7 +111,9 @@ func (h *Handler) handleGet(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to open replay", http.StatusInternalServerError)
 		return
 	}
-	defer f.Close()
+	defer func() {
+		_ = f.Close()
+	}()
 
 	w.Header().Set("Content-Type", "application/x-ndjson")
 	w.Header().Set("Cache-Control", "no-cache")
