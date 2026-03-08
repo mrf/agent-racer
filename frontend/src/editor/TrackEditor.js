@@ -136,10 +136,22 @@ export class TrackEditor {
     return result;
   }
 
-  _cellAt(e) {
+  _canvasMetrics() {
+    const dpr = window.devicePixelRatio || 1;
     const rect = this.canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    return {
+      rect,
+      width: this.canvas.width / dpr,
+      height: this.canvas.height / dpr,
+    };
+  }
+
+  _cellAt(e) {
+    const { rect, width, height } = this._canvasMetrics();
+    const scaleX = rect.width > 0 ? width / rect.width : 1;
+    const scaleY = rect.height > 0 ? height / rect.height : 1;
+    const x = (e.clientX - rect.left) * scaleX;
+    const y = (e.clientY - rect.top) * scaleY;
     const col = Math.floor(x / CELL_SIZE);
     const row = Math.floor(y / CELL_SIZE);
     if (row < 0 || row >= this.height || col < 0 || col >= this.width) return null;
@@ -363,11 +375,10 @@ export class TrackEditor {
   draw() {
     if (!this.active) return;
     const ctx = this.ctx;
-    const cw = this.canvas.width;
-    const ch = this.canvas.height;
+    const { width, height } = this._canvasMetrics();
 
     ctx.fillStyle = 'rgba(10,10,20,0.88)';
-    ctx.fillRect(0, 0, cw, ch);
+    ctx.fillRect(0, 0, width, height);
 
     for (let r = 0; r < this.height; r++) {
       for (let c = 0; c < this.width; c++) {
