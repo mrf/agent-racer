@@ -23,8 +23,9 @@ export class ShortcutBar {
     this.container = container;
     this.items = new Map();
     this.narrowEls = [];
+    this._resizeHandler = () => this.updateLayout();
     this.render();
-    window.addEventListener('resize', () => this.updateLayout());
+    window.addEventListener('resize', this._resizeHandler);
   }
 
   render() {
@@ -64,5 +65,9 @@ export class ShortcutBar {
   setActive(id, active) {
     const el = this.items.get(id);
     if (el) el.classList.toggle('active', active);
+  }
+
+  destroy() {
+    window.removeEventListener('resize', this._resizeHandler);
   }
 }
