@@ -468,6 +468,16 @@ describe('RaceCanvas', () => {
       rc.handleClick(clickEvent(9999, 9999));
       expect(cb).not.toHaveBeenCalled();
     });
+
+    it('lets the dashboard consume clicks before racer hit testing', () => {
+      const cb = vi.fn();
+      rc.onRacerClick = cb;
+      rc.dashboard.handleClick.mockReturnValue(true);
+      placeRacer();
+
+      rc.handleClick(clickEvent(400, 300));
+      expect(cb).not.toHaveBeenCalled();
+    });
   });
 
   describe('canvas resize', () => {
