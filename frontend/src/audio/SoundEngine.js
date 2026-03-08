@@ -379,8 +379,18 @@ export class SoundEngine {
     this.engineNodes.set(racerId, { osc1, osc2, filter, gain });
   }
 
-  stopEngine(racerId) {
+  stopEngine(racerId, { immediate = false } = {}) {
     if (!this.engineNodes.has(racerId)) return;
+
+    if (immediate) {
+      const pendingStop = this.engineStopTimeouts.get(racerId);
+      if (pendingStop) {
+        clearTimeout(pendingStop);
+        this.engineStopTimeouts.delete(racerId);
+      }
+      this._fadeOutEngine(racerId);
+      return;
+    }
 
     // If a grace timeout is already pending, let it run
     if (this.engineStopTimeouts.has(racerId)) return;
@@ -671,7 +681,7 @@ export class SoundEngine {
     if (muted) {
       // Stop all engine hums
       for (const id of [...this.engineNodes.keys()]) {
-        this.stopEngine(id);
+        this.stopEngine(id, { immediate: true });
       }
     }
   }
@@ -691,12 +701,7 @@ export class SoundEngine {
     const pendingRacerIds = [...this.engineStopTimeouts.keys()];
     for (let i = 0; i < pendingRacerIds.length; i++) {
       const racerId = pendingRacerIds[i];
-      const timeoutId = this.engineStopTimeouts.get(racerId);
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
-      this.engineStopTimeouts.delete(racerId);
-      this._fadeOutEngine(racerId);
+      this.stopEngine(racerId, { immediate: true });
     }
 
     if (restartAmbient) {
