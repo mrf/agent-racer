@@ -26,7 +26,11 @@ export class TrackEditor {
     this._validationEl = null;
     this._trackListEl = null;
     this._currentTrackId = null;
+    this._currentTrackName = null;
     this._lastValidation = null;
+    this._saveNameInputEl = null;
+    this._saveStatusEl = null;
+    this._saveSubmitBtn = null;
 
     this._mouseDownHandler = (e) => this._onMouseDown(e);
     this._mouseMoveHandler = (e) => this._onMouseMove(e);
@@ -81,6 +85,7 @@ export class TrackEditor {
       background: 'rgba(20,20,30,0.95)', border: '1px solid #666',
       borderRadius: '8px', padding: '8px 12px', display: 'flex', gap: '6px',
       alignItems: 'center', zIndex: '1001', font: '12px Courier New',
+      flexWrap: 'wrap',
     });
 
     const label = document.createElement('span');
@@ -105,11 +110,69 @@ export class TrackEditor {
     addBtn('Undo', 'Ctrl+Z', () => this.undo());
     addBtn('Redo', 'Ctrl+Shift+Z', () => this.redo());
     addBtn('Clear', 'Clear all tiles', () => this._clearAll());
-    addBtn('Save', 'Save track to server', () => this._saveTrack());
     addBtn('Tracks', 'Load a track', () => this._showTrackList());
     addBtn('Export', 'Download as JSON', () => this._exportJSON());
     addBtn('Import', 'Upload JSON file', () => this._importJSON());
     addBtn('Close [E]', 'Exit editor', () => this.deactivate());
+
+    const saveForm = document.createElement('form');
+    saveForm.id = 'track-editor-save-form';
+    Object.assign(saveForm.style, {
+      display: 'flex',
+      gap: '6px',
+      alignItems: 'center',
+      marginLeft: '8px',
+    });
+    saveForm.addEventListener('submit', (event) => {
+      event.preventDefault();
+      this._saveTrack();
+    });
+
+    const saveLabel = document.createElement('span');
+    saveLabel.textContent = 'Name';
+    saveLabel.style.color = '#9ca3af';
+    saveForm.appendChild(saveLabel);
+
+    this._saveNameInputEl = document.createElement('input');
+    this._saveNameInputEl.type = 'text';
+    this._saveNameInputEl.value = this._currentTrackName || this._currentTrackId || 'My Track';
+    this._saveNameInputEl.placeholder = 'Track name';
+    Object.assign(this._saveNameInputEl.style, {
+      background: '#10101a',
+      border: '1px solid #555',
+      color: '#f3f4f6',
+      padding: '3px 6px',
+      borderRadius: '3px',
+      font: '11px Courier New',
+      minWidth: '140px',
+    });
+    this._saveNameInputEl.addEventListener('input', () => this._setSaveStatus(''));
+    saveForm.appendChild(this._saveNameInputEl);
+
+    this._saveSubmitBtn = document.createElement('button');
+    this._saveSubmitBtn.type = 'submit';
+    this._saveSubmitBtn.textContent = 'Save';
+    this._saveSubmitBtn.title = 'Save track to server';
+    Object.assign(this._saveSubmitBtn.style, {
+      background: '#2a2a3a',
+      border: '1px solid #555',
+      color: '#ccc',
+      padding: '3px 8px',
+      cursor: 'pointer',
+      borderRadius: '3px',
+      font: '11px Courier New',
+    });
+    saveForm.appendChild(this._saveSubmitBtn);
+
+    this._saveStatusEl = document.createElement('span');
+    this._saveStatusEl.id = 'track-editor-save-status';
+    Object.assign(this._saveStatusEl.style, {
+      color: '#9ca3af',
+      minWidth: '120px',
+    });
+    saveForm.appendChild(this._saveStatusEl);
+
+    this._toolbar.appendChild(saveForm);
 
     document.body.appendChild(this._toolbar);
   }
@@ -123,6 +186,29 @@ export class TrackEditor {
       font: '12px Courier New', pointerEvents: 'none',
     });
     document.body.appendChild(this._validationEl);
+  }
+
+  _setSaveStatus(message, tone = 'idle') {
+    if (!this._saveStatusEl) return;
+    this._saveStatusEl.textContent = message;
+    const colorMap = {
+      idle: '#9ca3af',
+      progress: '#93c5fd',
+      success: '#4ade80',
+      error: '#f87171',
+    };
+    this._saveStatusEl.style.color = colorMap[tone] || colorMap.idle;
+  }
+
+  _setSavePending(pending) {
+    if (this._saveNameInputEl) {
+      this._saveNameInputEl.disabled = pending;
+    }
+    if (this._saveSubmitBtn) {
+      this._saveSubmitBtn.disabled = pending;
+      this._saveSubmitBtn.textContent = pending ? 'Saving...' : 'Save';
+      this._saveSubmitBtn.style.cursor = pending ? 'wait' : 'pointer';
+    }
   }
 
   _validate() {
@@ -223,10 +309,16 @@ export class TrackEditor {
   }
 
   async _saveTrack() {
-    const name = window.prompt('Track name:', this._currentTrackId || 'My Track');
-    if (!name) return;
+    const name = this._saveNameInputEl ? this._saveNameInputEl.value.trim() : '';
+    if (!name) {
+      this._setSaveStatus('Enter a track name.', 'error');
+      if (this._saveNameInputEl) this._saveNameInputEl.focus();
+      return;
+    }
     const id = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'custom';
     const track = { id, name, width: this.width, height: this.height, tiles: this.tiles };
+    this._setSavePending(true);
+    this._setSaveStatus('Saving track...', 'progress');
     try {
       const isUpdate = this._currentTrackId === id;
       const url = isUpdate ? '/api/tracks/' + id : '/api/tracks';
@@ -238,12 +330,15 @@ export class TrackEditor {
       });
       if (resp.ok) {
         this._currentTrackId = id;
-        alert('Saved: ' + name);
+        this._currentTrackName = name;
+        this._setSaveStatus('Saved: ' + name, 'success');
       } else {
-        alert('Save failed: ' + resp.status);
+        this._setSaveStatus('Save failed: ' + resp.status, 'error');
       }
     } catch (err) {
-      alert('Save failed: ' + err.message);
+      this._setSaveStatus('Save failed: ' + err.message, 'error');
+    } finally {
+      this._setSavePending(false);
     }
   }
 
@@ -319,6 +414,11 @@ export class TrackEditor {
     this.height = t.height || DEFAULT_HEIGHT;
     this.tiles = t.tiles || this._emptyGrid(this.width, this.height);
     this._currentTrackId = t.id || null;
+    this._currentTrackName = t.name || t.id || null;
+    if (this._saveNameInputEl) {
+      this._saveNameInputEl.value = this._currentTrackName || 'My Track';
+    }
+    this._setSaveStatus('');
     this._validate();
   }
 
