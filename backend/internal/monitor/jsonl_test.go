@@ -229,6 +229,33 @@ func TestDecodeProjectPathComponentBoundaries(t *testing.T) {
 	}
 }
 
+func TestDecodeProjectPathLongHyphenChain(t *testing.T) {
+	tmpBase := t.TempDir()
+	parent := filepath.Join(tmpBase, "projects")
+	if err := os.MkdirAll(parent, 0755); err != nil {
+		t.Fatalf("failed to create parent directory: %v", err)
+	}
+
+	parts := make([]string, 36)
+	for i := 0; i < len(parts); i++ {
+		parts[i] = fmt.Sprintf("part%d", i)
+	}
+
+	longComponent := strings.Join(parts, "-")
+	origPath := filepath.Join(parent, longComponent)
+	if err := os.MkdirAll(origPath, 0755); err != nil {
+		t.Fatalf("failed to create long hyphen path: %v", err)
+	}
+
+	encoded := encodeProjectPath(origPath)
+	decoded := DecodeProjectPath(encoded)
+
+	if decoded != origPath {
+		t.Errorf("long hyphen chain decode failed:\n  original: %q\n  encoded:  %q\n  decoded:  %q",
+			origPath, encoded, decoded)
+	}
+}
+
 func TestParseSessionJSONL(t *testing.T) {
 	// Create a temp JSONL file with test data
 	dir := t.TempDir()
@@ -709,11 +736,11 @@ func TestParseMultipleProgressEntries(t *testing.T) {
 // entries that match (or do not match) the subagent's parentToolUseID.
 func TestCheckSubagentCompletion(t *testing.T) {
 	tests := []struct {
-		name        string
-		toolUseID   string
-		parentID    string
-		resultID    string // tool_use_id in the tool_result entry
-		wantDone    bool
+		name      string
+		toolUseID string
+		parentID  string
+		resultID  string // tool_use_id in the tool_result entry
+		wantDone  bool
 	}{
 		{
 			name:      "matching tool_result marks subagent completed",

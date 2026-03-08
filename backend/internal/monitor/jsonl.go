@@ -21,6 +21,10 @@ const (
 	// maxLineLength is the maximum length of a single JSONL line (1 MB).
 	// Lines exceeding this are skipped to prevent excessive memory use.
 	maxLineLength = 1024 * 1024
+
+	// maxDecodePathCandidates bounds ambiguous decode search so a long
+	// hyphen chain cannot grow without limit.
+	maxDecodePathCandidates = 4096
 )
 
 type TokenUsage struct {
@@ -599,9 +603,7 @@ func DecodeProjectPath(encoded string) string {
 
 	parts := strings.Split(decoded[1:], "-") // skip leading dash
 
-	// Recursive search: the first part always follows the root slash.
-	// Remaining dashes can be either slashes or literal hyphens.
-	if result := decodeTryPaths(parts, 1, "/"+parts[0]); result != "" {
+	if result := decodeTryPaths(parts); result != "" {
 		return result
 	}
 
@@ -609,28 +611,112 @@ func DecodeProjectPath(encoded string) string {
 	return "/" + strings.Join(parts, "/")
 }
 
-// decodeTryPaths recursively builds candidate paths by choosing slash or
-// hyphen at each boundary between parts. Returns the first path that exists
-// on the filesystem, or "" if none match.
-func decodeTryPaths(parts []string, idx int, prefix string) string {
-	if idx >= len(parts) {
-		if _, err := os.Stat(prefix); err == nil {
-			return prefix
-		}
+// decodeTryPaths iteratively builds candidate paths by choosing slash or
+// hyphen at each boundary between parts. Candidates are kept in the same
+// slash-first order as the prior recursive search, but we prune any branch
+// whose fixed parent path cannot exist and cap the frontier size.
+func decodeTryPaths(parts []string) string {
+	if len(parts) == 0 {
 		return ""
 	}
 
-	// Option 1: this dash was a path separator (slash)
-	if result := decodeTryPaths(parts, idx+1, prefix+"/"+parts[idx]); result != "" {
-		return result
+	candidates := []decodePathState{{components: []string{parts[0]}}}
+	parentExistsCache := make(map[string]bool)
+	pathExistsCache := make(map[string]bool)
+
+	for idx := 1; idx < len(parts); idx++ {
+		nextCandidates := make([]decodePathState, 0, len(candidates)*2)
+		seen := make(map[string]struct{}, len(candidates)*2)
+
+		for i := 0; i < len(candidates); i++ {
+			slashCandidate := candidates[i].withSlash(parts[idx])
+			if decodePathParentExists(slashCandidate.components, parentExistsCache) {
+				path := slashCandidate.path()
+				if _, ok := seen[path]; !ok {
+					nextCandidates = append(nextCandidates, slashCandidate)
+					seen[path] = struct{}{}
+				}
+			}
+
+			hyphenCandidate := candidates[i].withHyphen(parts[idx])
+			if decodePathParentExists(hyphenCandidate.components, parentExistsCache) {
+				path := hyphenCandidate.path()
+				if _, ok := seen[path]; !ok {
+					nextCandidates = append(nextCandidates, hyphenCandidate)
+					seen[path] = struct{}{}
+				}
+			}
+
+			if len(nextCandidates) > maxDecodePathCandidates {
+				log.Printf("[jsonl] Aborting ambiguous path decode after %d candidates for %q",
+					len(nextCandidates), "/"+strings.Join(parts, "-"))
+				return ""
+			}
+		}
+
+		if len(nextCandidates) == 0 {
+			return ""
+		}
+		candidates = nextCandidates
 	}
 
-	// Option 2: this dash was a literal hyphen (join with previous component)
-	if result := decodeTryPaths(parts, idx+1, prefix+"-"+parts[idx]); result != "" {
-		return result
+	for i := 0; i < len(candidates); i++ {
+		path := candidates[i].path()
+		if decodePathExists(path, pathExistsCache) {
+			return path
+		}
 	}
 
 	return ""
+}
+
+type decodePathState struct {
+	components []string
+}
+
+func (s decodePathState) withSlash(part string) decodePathState {
+	next := make([]string, len(s.components)+1)
+	copy(next, s.components)
+	next[len(s.components)] = part
+	return decodePathState{components: next}
+}
+
+func (s decodePathState) withHyphen(part string) decodePathState {
+	next := make([]string, len(s.components))
+	copy(next, s.components)
+	next[len(next)-1] = next[len(next)-1] + "-" + part
+	return decodePathState{components: next}
+}
+
+func (s decodePathState) path() string {
+	return "/" + strings.Join(s.components, "/")
+}
+
+func decodePathParentExists(components []string, cache map[string]bool) bool {
+	if len(components) <= 1 {
+		return true
+	}
+
+	parent := "/" + strings.Join(components[:len(components)-1], "/")
+	if exists, ok := cache[parent]; ok {
+		return exists
+	}
+
+	_, err := os.Stat(parent)
+	exists := err == nil
+	cache[parent] = exists
+	return exists
+}
+
+func decodePathExists(path string, cache map[string]bool) bool {
+	if exists, ok := cache[path]; ok {
+		return exists
+	}
+
+	_, err := os.Stat(path)
+	exists := err == nil
+	cache[path] = exists
+	return exists
 }
 
 // FindSessionForProcess tries to find the most recent session file
