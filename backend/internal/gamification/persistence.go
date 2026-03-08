@@ -18,6 +18,16 @@ const (
 	appDirName    = "agent-racer"
 )
 
+var (
+	syncOSFile = func(f *os.File) error {
+		return f.Sync()
+	}
+	renameFile = os.Rename
+	openDir    = func(path string) (*os.File, error) {
+		return os.Open(path)
+	}
+)
+
 // Stats is the persistent aggregate data for the gamification system.
 // It is loaded from and saved to ~/.local/state/agent-racer/stats.json
 // (respecting XDG_STATE_HOME).
@@ -187,15 +197,32 @@ func (s *Store) Save(st *Stats) error {
 		_ = tmp.Close()
 		return fmt.Errorf("writing temp file: %w", err)
 	}
+	if err := syncOSFile(tmp); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("syncing temp file: %w", err)
+	}
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("closing temp file: %w", err)
 	}
-	if err := os.Rename(tmpPath, s.Path()); err != nil {
+	if err := renameFile(tmpPath, s.Path()); err != nil {
 		return fmt.Errorf("renaming stats file: %w", err)
 	}
 	committed = true
+	if err := syncDir(s.dir); err != nil {
+		return fmt.Errorf("syncing stats dir: %w", err)
+	}
 
 	return nil
+}
+
+func syncDir(path string) error {
+	dir, err := openDir(path)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+
+	return syncOSFile(dir)
 }
 
 // newStats returns a Stats with initialized maps and the current version.

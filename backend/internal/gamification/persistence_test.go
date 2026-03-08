@@ -2,8 +2,10 @@ package gamification
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -247,6 +249,107 @@ func TestStore_SaveSetsVersionAndTimestamp(t *testing.T) {
 	}
 	if st.LastUpdated.Before(before) || st.LastUpdated.After(after) {
 		t.Errorf("LastUpdated %v not in range [%v, %v]", st.LastUpdated, before, after)
+	}
+}
+
+func TestStore_SaveSyncsTempFileBeforeRenameAndDirAfterRename(t *testing.T) {
+	dir := t.TempDir()
+	s := NewStore(dir)
+
+	originalSyncOSFile := syncOSFile
+	originalRenameFile := renameFile
+	t.Cleanup(func() {
+		syncOSFile = originalSyncOSFile
+		renameFile = originalRenameFile
+	})
+
+	calls := make([]string, 0, 3)
+	syncOSFile = func(f *os.File) error {
+		info, err := f.Stat()
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			calls = append(calls, "sync-dir")
+			return nil
+		}
+		calls = append(calls, "sync-temp")
+		return nil
+	}
+	renameFile = func(oldPath, newPath string) error {
+		calls = append(calls, "rename")
+		return os.Rename(oldPath, newPath)
+	}
+
+	st := newStats()
+	st.TotalSessions = 7
+	if err := s.Save(st); err != nil {
+		t.Fatalf("Save() error: %v", err)
+	}
+
+	want := []string{"sync-temp", "rename", "sync-dir"}
+	if len(calls) != len(want) {
+		t.Fatalf("calls = %v, want %v", calls, want)
+	}
+	for i := 0; i < len(want); i++ {
+		if calls[i] != want[i] {
+			t.Fatalf("calls = %v, want %v", calls, want)
+		}
+	}
+}
+
+func TestStore_SaveReturnsErrorIfDirSyncFailsAfterRename(t *testing.T) {
+	dir := t.TempDir()
+	s := NewStore(dir)
+
+	initial := newStats()
+	initial.TotalSessions = 1
+	if err := s.Save(initial); err != nil {
+		t.Fatalf("initial Save() error: %v", err)
+	}
+
+	originalSyncOSFile := syncOSFile
+	t.Cleanup(func() {
+		syncOSFile = originalSyncOSFile
+	})
+
+	syncOSFile = func(f *os.File) error {
+		info, err := f.Stat()
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return errors.New("dir sync failed")
+		}
+		return nil
+	}
+
+	updated := newStats()
+	updated.TotalSessions = 2
+	err := s.Save(updated)
+	if err == nil {
+		t.Fatal("Save() error = nil, want dir sync error")
+	}
+	if !strings.Contains(err.Error(), "syncing stats dir: dir sync failed") {
+		t.Fatalf("Save() error = %q, want dir sync failure", err)
+	}
+
+	loaded, loadErr := s.Load()
+	if loadErr != nil {
+		t.Fatalf("Load() error: %v", loadErr)
+	}
+	if loaded.TotalSessions != 2 {
+		t.Fatalf("TotalSessions = %d, want 2 after renamed file is published", loaded.TotalSessions)
+	}
+
+	entries, readErr := os.ReadDir(dir)
+	if readErr != nil {
+		t.Fatalf("ReadDir() error: %v", readErr)
+	}
+	for i := 0; i < len(entries); i++ {
+		if entries[i].Name() != statsFileName {
+			t.Fatalf("unexpected file left behind: %s", entries[i].Name())
+		}
 	}
 }
 
