@@ -899,22 +899,20 @@ func (m *Monitor) calculateBurnRate(ts *trackedSession, currentTokens int, now t
 	// Trim snapshots older than window
 	cutoff := now.Add(-burnRateWindow)
 	startIdx := 0
-	for i, snap := range ts.tokenSnapshots {
-		if snap.timestamp.After(cutoff) {
+	for i := 0; i < len(ts.tokenSnapshots); i++ {
+		if ts.tokenSnapshots[i].timestamp.After(cutoff) {
 			startIdx = i
 			break
 		}
 		startIdx = i + 1
 	}
-	if startIdx > 0 && startIdx < len(ts.tokenSnapshots) {
+	if startIdx > 0 {
 		ts.tokenSnapshots = ts.tokenSnapshots[startIdx:]
-	} else if startIdx >= len(ts.tokenSnapshots) {
-		ts.tokenSnapshots = ts.tokenSnapshots[:0]
 	}
 
 	// Hard cap to prevent unbounded growth if time-based trim is insufficient
 	if len(ts.tokenSnapshots) > maxTokenSnapshots {
-		ts.tokenSnapshots = append([]tokenSnapshot(nil), ts.tokenSnapshots[len(ts.tokenSnapshots)-maxTokenSnapshots:]...)
+		ts.tokenSnapshots = ts.tokenSnapshots[len(ts.tokenSnapshots)-maxTokenSnapshots:]
 	}
 
 	// Need at least 2 snapshots for rate calculation

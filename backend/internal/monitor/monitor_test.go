@@ -811,6 +811,31 @@ func TestCalculateBurnRate(t *testing.T) {
 		}
 	})
 
+	t.Run("all_expired_snapshots_are_dropped", func(t *testing.T) {
+		now := time.Now()
+		ts := &trackedSession{
+			tokenSnapshots: []tokenSnapshot{
+				{tokens: 1000, timestamp: now.Add(-3 * time.Minute)},
+				{tokens: 2000, timestamp: now.Add(-2 * time.Minute)},
+			},
+		}
+
+		rate := m.calculateBurnRate(ts, 3000, now)
+
+		if rate != 0 {
+			t.Errorf("calculateBurnRate() = %f, want 0 (only one fresh snapshot remains)", rate)
+		}
+		if len(ts.tokenSnapshots) != 1 {
+			t.Fatalf("tokenSnapshots len = %d, want 1", len(ts.tokenSnapshots))
+		}
+		if ts.tokenSnapshots[0].tokens != 3000 {
+			t.Errorf("remaining snapshot tokens = %d, want 3000", ts.tokenSnapshots[0].tokens)
+		}
+		if !ts.tokenSnapshots[0].timestamp.Equal(now) {
+			t.Errorf("remaining snapshot timestamp = %v, want %v", ts.tokenSnapshots[0].timestamp, now)
+		}
+	})
+
 	t.Run("hard_cap_limits_snapshot_count", func(t *testing.T) {
 		ts := &trackedSession{}
 		now := time.Now()
@@ -829,6 +854,35 @@ func TestCalculateBurnRate(t *testing.T) {
 		expectedTokens := 1000 * total
 		if last.tokens != expectedTokens {
 			t.Errorf("last snapshot tokens = %d, want %d", last.tokens, expectedTokens)
+		}
+	})
+
+	t.Run("hard_cap_reuses_backing_array_when_capacity_allows", func(t *testing.T) {
+		now := time.Now()
+		snapshots := make([]tokenSnapshot, maxTokenSnapshots, maxTokenSnapshots+8)
+		for i := 0; i < maxTokenSnapshots; i++ {
+			snapshots[i] = tokenSnapshot{
+				tokens:    1000 * (i + 1),
+				timestamp: now.Add(time.Duration(i) * 100 * time.Millisecond),
+			}
+		}
+
+		ts := &trackedSession{tokenSnapshots: snapshots}
+		expectedFirst := &ts.tokenSnapshots[1]
+
+		m.calculateBurnRate(ts, 1000*(maxTokenSnapshots+1), now.Add(maxTokenSnapshots*100*time.Millisecond))
+
+		if len(ts.tokenSnapshots) != maxTokenSnapshots {
+			t.Fatalf("tokenSnapshots len = %d, want %d", len(ts.tokenSnapshots), maxTokenSnapshots)
+		}
+		if &ts.tokenSnapshots[0] != expectedFirst {
+			t.Errorf("hard cap allocated a new backing array; want in-place reslice")
+		}
+		if ts.tokenSnapshots[0].tokens != 2000 {
+			t.Errorf("first snapshot tokens = %d, want 2000", ts.tokenSnapshots[0].tokens)
+		}
+		if ts.tokenSnapshots[len(ts.tokenSnapshots)-1].tokens != 1000*(maxTokenSnapshots+1) {
+			t.Errorf("last snapshot tokens = %d, want %d", ts.tokenSnapshots[len(ts.tokenSnapshots)-1].tokens, 1000*(maxTokenSnapshots+1))
 		}
 	})
 
