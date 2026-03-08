@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { FootraceTrack } from './FootraceTrack.js';
 
 describe('FootraceTrack', () => {
@@ -354,6 +354,33 @@ describe('FootraceTrack', () => {
     it('returns raw number below 1000', () => {
       expect(track._formatTokenLabel(500)).toBe('500');
       expect(track._formatTokenLabel(0)).toBe('0');
+    });
+  });
+
+  describe('_drawTreeLine', () => {
+    it('draws triangle trunks and varies canopy radius deterministically', () => {
+      const ctx = {
+        beginPath: vi.fn(),
+        moveTo: vi.fn(),
+        lineTo: vi.fn(),
+        closePath: vi.fn(),
+        fill: vi.fn(),
+        arc: vi.fn(),
+        fillStyle: '',
+        globalAlpha: 1,
+      };
+
+      track.time = 0;
+      track._drawTreeLine(ctx, { x: 10, y: 100, width: 200 });
+
+      expect(ctx.arc.mock.calls).toHaveLength(5);
+      expect(ctx.arc.mock.calls.map(([, , radius]) => radius)).toEqual([3, 5, 7, 4, 6]);
+
+      expect(ctx.moveTo).toHaveBeenNthCalledWith(1, 30, 84);
+      expect(ctx.lineTo).toHaveBeenNthCalledWith(1, 28, 94);
+      expect(ctx.lineTo).toHaveBeenNthCalledWith(2, 32, 94);
+      expect(ctx.closePath).toHaveBeenCalledTimes(5);
+      expect(ctx.fill).toHaveBeenCalledTimes(10);
     });
   });
 

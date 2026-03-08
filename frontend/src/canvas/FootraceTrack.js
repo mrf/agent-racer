@@ -646,6 +646,10 @@ export class FootraceTrack {
     return markers;
   }
 
+  _getTreeCanopyRadius(index) {
+    return 3 + (index * 2) % 5;
+  }
+
   _drawTreeLine(ctx, bounds) {
     // Small trees/bushes above the track instead of pennants
     const spacing = 40;
@@ -655,20 +659,25 @@ export class FootraceTrack {
     for (let i = 0; i < count; i++) {
       const tx = bounds.x + i * spacing + spacing / 2;
       const wave = Math.sin(this.time * 1.5 + i * 0.7) * 1;
+      const canopyRadius = this._getTreeCanopyRadius(i);
+      const canopyY = lineY - 6 + wave;
+      const trunkBaseY = lineY + 6;
+      const trunkHalfWidth = Math.max(2, canopyRadius - 3);
 
-      // Trunk
-      ctx.strokeStyle = '#6b4423';
-      ctx.lineWidth = 2;
+      // Slight triangular trunk peeking out from the canopy.
+      ctx.fillStyle = '#6b4423';
       ctx.beginPath();
-      ctx.moveTo(tx, lineY + 4);
-      ctx.lineTo(tx, lineY - 4 + wave);
-      ctx.stroke();
+      ctx.moveTo(tx, canopyY + canopyRadius - 1);
+      ctx.lineTo(tx - trunkHalfWidth, trunkBaseY);
+      ctx.lineTo(tx + trunkHalfWidth, trunkBaseY);
+      ctx.closePath();
+      ctx.fill();
 
       // Canopy
       ctx.fillStyle = CANOPY_COLORS[i % 3];
       ctx.globalAlpha = 0.8;
       ctx.beginPath();
-      ctx.arc(tx, lineY - 6 + wave, 5, 0, Math.PI * 2);
+      ctx.arc(tx, canopyY, canopyRadius, 0, Math.PI * 2);
       ctx.fill();
       ctx.globalAlpha = 1.0;
     }
