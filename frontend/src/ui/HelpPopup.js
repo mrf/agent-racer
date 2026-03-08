@@ -91,7 +91,6 @@ function buildDOM() {
             <tr><td class="help-shortcut-key">R</td><td>Replay mode — browse &amp; scrub recorded sessions</td></tr>
             <tr><td class="help-shortcut-key">W</td><td>Toggle weather effects</td></tr>
             <tr><td class="help-shortcut-key">V</td><td>Toggle view (Race / Footrace)</td></tr>
-            <tr><td class="help-shortcut-key">M</td><td>Mute / unmute sound</td></tr>
             <tr><td class="help-shortcut-key">Shift+F</td><td>Toggle fullscreen</td></tr>
             <tr><td class="help-shortcut-key">Esc</td><td>Close open panel</td></tr>
             <tr><td class="help-shortcut-key">Click</td><td>Car details flyout</td></tr>
