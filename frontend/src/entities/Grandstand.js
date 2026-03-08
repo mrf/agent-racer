@@ -14,6 +14,7 @@ const GRANDSTAND_BOTTOM = 14; // px above trackBounds.y where front-row feet sit
 const WAVE_SPEED = 200;
 // Radius in which 'cheer' reaction affects nearby spectators (px)
 const CHEER_RADIUS = 90;
+const MEXICAN_WAVE_RADIUS = 0.09;
 
 const REACTION_DURATIONS = {
   cheer: 1.2,
@@ -201,8 +202,8 @@ export class Grandstand {
           case 'mexican': {
             const dist = Math.abs(normX - this._mexicanPhase);
             const wrapDist = Math.min(dist, 1 - dist);
-            if (wrapDist < 0.05) {
-              const intensity = Math.max(0, 1 - wrapDist / 0.05);
+            if (wrapDist < MEXICAN_WAVE_RADIUS) {
+              const intensity = Math.max(0, 1 - wrapDist / MEXICAN_WAVE_RADIUS);
               bounce += intensity * 5;
               if (intensity > 0.5) armRaise = true;
             }
