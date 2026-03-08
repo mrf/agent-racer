@@ -150,12 +150,9 @@ func (t *StatsTracker) Run(ctx context.Context) {
 			t.drainEvents()
 			close(done)
 		case <-ticker.C:
-			// Check for challenge rotation periodically via the save ticker (outside lock).
+			now := time.Now()
 			t.mu.Lock()
-			wc := &t.stats.WeeklyChallenges
-			t.mu.Unlock()
-			RotateChallengesIfNeeded(wc, time.Now())
-			t.mu.Lock()
+			t.rotateChallengesLocked(now)
 			dirty := t.dirty
 			t.mu.Unlock()
 			if dirty {
@@ -193,7 +190,22 @@ func (t *StatsTracker) Stats() *Stats {
 	return t.stats.clone()
 }
 
+// rotateChallengesLocked rotates weekly challenges and marks the tracker dirty.
+// Caller must hold t.mu.
+func (t *StatsTracker) rotateChallengesLocked(now time.Time) bool {
+	if !RotateChallengesIfNeeded(&t.stats.WeeklyChallenges, now) {
+		return false
+	}
+	t.dirty = true
+	return true
+}
+
 func (t *StatsTracker) processEvent(ev session.Event) {
+	var rotateNow time.Time
+	if ev.Type == session.EventTerminal {
+		rotateNow = time.Now()
+	}
+
 	t.mu.Lock()
 
 	s := ev.State
@@ -270,7 +282,7 @@ func (t *StatsTracker) processEvent(ev session.Event) {
 
 	case session.EventTerminal:
 		// Check for challenge rotation on terminal events (cheaper than every event).
-		RotateChallengesIfNeeded(&t.stats.WeeklyChallenges, time.Now())
+		t.rotateChallengesLocked(rotateNow)
 
 		switch s.Activity {
 		case session.Complete:
@@ -361,9 +373,10 @@ func (t *StatsTracker) processEvent(ev session.Event) {
 
 // Challenges returns the current weekly challenge progress.
 func (t *StatsTracker) Challenges() []ChallengeProgress {
+	now := time.Now()
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	RotateChallengesIfNeeded(&t.stats.WeeklyChallenges, time.Now())
+	t.rotateChallengesLocked(now)
 	return EvaluateChallenges(&t.stats.WeeklyChallenges)
 }
 
