@@ -1,5 +1,61 @@
 import { authFetch } from '../auth.js';
 
+function parseSnapshotLine(line) {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const obj = JSON.parse(trimmed);
+  return { t: new Date(obj.t), s: obj.s || [] };
+}
+
+async function readReplaySnapshots(response) {
+  if (!response.body || typeof response.body.getReader !== 'function') {
+    const text = await response.text();
+    return text
+      .split('\n')
+      .map(line => parseSnapshotLine(line))
+      .filter(snapshot => snapshot !== null);
+  }
+
+  const snapshots = [];
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) {
+        break;
+      }
+
+      buffer += decoder.decode(value, { stream: true });
+
+      let newlineIndex = buffer.indexOf('\n');
+      while (newlineIndex !== -1) {
+        const snapshot = parseSnapshotLine(buffer.slice(0, newlineIndex));
+        if (snapshot) {
+          snapshots.push(snapshot);
+        }
+        buffer = buffer.slice(newlineIndex + 1);
+        newlineIndex = buffer.indexOf('\n');
+      }
+    }
+
+    buffer += decoder.decode();
+    const finalSnapshot = parseSnapshotLine(buffer);
+    if (finalSnapshot) {
+      snapshots.push(finalSnapshot);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  return snapshots;
+}
+
 /**
  * ReplayPlayer manages loading and playback of a recorded session replay.
  *
@@ -47,14 +103,7 @@ export class ReplayPlayer {
     const res = await authFetch(`/api/replays/${encodeURIComponent(id)}`);
     if (!res.ok) throw new Error(`Failed to load replay: ${res.status}`);
 
-    const text = await res.text();
-    this.snapshots = text
-      .split('\n')
-      .filter(line => line.trim())
-      .map(line => {
-        const obj = JSON.parse(line);
-        return { t: new Date(obj.t), s: obj.s || [] };
-      });
+    this.snapshots = await readReplaySnapshots(res);
 
     this.onLoaded && this.onLoaded(id, id, this.snapshots.length);
     this._emit(0);
