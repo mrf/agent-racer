@@ -196,6 +196,10 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	if !s.authorize(r) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -207,6 +211,10 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	if !s.authorize(r) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -470,6 +478,10 @@ func (s *Server) handleFocus(w http.ResponseWriter, r *http.Request, sessionID s
 }
 
 func (s *Server) handleTail(w http.ResponseWriter, r *http.Request, sessionID string) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	state, ok := s.store.Get(sessionID)
 	if !ok {
 		http.Error(w, "session not found", http.StatusNotFound)
