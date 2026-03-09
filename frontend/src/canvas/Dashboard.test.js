@@ -287,6 +287,14 @@ describe('Dashboard', () => {
       expect(styles).toContain('#d97706');
       expect(styles).not.toContain('#e94560');
     });
+
+    it('uses completion green instead of red for completed sessions at 100%', () => {
+      const { ctx, rects } = stubTrackingCtx();
+      dashboard.draw(ctx, DEFAULT_BOUNDS, [makeSession({ activity: 'complete', contextUtilization: 1 })]);
+      const styles = rects.map((rect) => rect.style);
+      expect(styles).toContain('#16a34a');
+      expect(styles).not.toContain('#e94560');
+    });
   });
 
   describe('context bar visibility', () => {
@@ -363,6 +371,63 @@ describe('Dashboard', () => {
 
       expect(backgroundRect?.y).toBe(94);
       expect(fillRect?.y).toBe(95);
+    });
+  });
+
+  describe('completed session styling', () => {
+    it('renders a green-tinted row background for completed sessions', () => {
+      const { ctx, rects } = stubTrackingCtx();
+
+      dashboard._drawLeaderboardRow(
+        ctx,
+        {
+          rank: 20,
+          badge: 46,
+          name: 68,
+          model: 240,
+          tokens: 320,
+          bar: 400,
+          barWidth: 100,
+          pct: 520,
+          elapsed: 700,
+        },
+        100,
+        1,
+        makeSession({ activity: 'complete', contextUtilization: 1 }),
+        null,
+        null,
+      );
+
+      expect(rects.some((rect) => rect.kind === 'fill' && rect.style === 'rgba(34,197,94,0.12)')).toBe(true);
+      expect(rects.some((rect) => rect.kind === 'stroke' && rect.style === 'rgba(134,239,172,0.32)')).toBe(true);
+    });
+
+    it('labels the context column as DONE for completed sessions', () => {
+      const ctx = stubCtx();
+
+      dashboard._drawLeaderboardRow(
+        ctx,
+        {
+          rank: 20,
+          badge: 46,
+          name: 68,
+          model: 240,
+          tokens: 320,
+          bar: 400,
+          barWidth: 100,
+          pct: 520,
+          elapsed: 700,
+        },
+        100,
+        1,
+        makeSession({ activity: 'complete', contextUtilization: 1 }),
+        null,
+        null,
+      );
+
+      const labels = ctx.fillText.mock.calls.map(([value]) => value);
+      expect(labels).toContain('DONE');
+      expect(labels).not.toContain('100%');
     });
   });
 

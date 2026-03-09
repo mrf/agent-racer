@@ -48,6 +48,41 @@ function makeInfoCtx(width = 800, height = 400) {
   };
 }
 
+function makeDrawCtx() {
+  const gradient = { addColorStop: vi.fn() };
+  return {
+    save: vi.fn(),
+    restore: vi.fn(),
+    translate: vi.fn(),
+    rotate: vi.fn(),
+    scale: vi.fn(),
+    beginPath: vi.fn(),
+    moveTo: vi.fn(),
+    lineTo: vi.fn(),
+    quadraticCurveTo: vi.fn(),
+    closePath: vi.fn(),
+    fill: vi.fn(),
+    stroke: vi.fn(),
+    arc: vi.fn(),
+    ellipse: vi.fn(),
+    fillRect: vi.fn(),
+    strokeRect: vi.fn(),
+    roundRect: vi.fn(),
+    fillText: vi.fn(),
+    measureText: vi.fn(() => ({ width: 48 })),
+    createRadialGradient: vi.fn(() => gradient),
+    createLinearGradient: vi.fn(() => gradient),
+    fillStyle: '',
+    strokeStyle: '',
+    lineWidth: 0,
+    font: '',
+    textAlign: 'left',
+    textBaseline: 'alphabetic',
+    globalAlpha: 1,
+    filter: 'none',
+  };
+}
+
 /** Run a tool_use racer at high speed and return the RGB passed to speedLines. */
 function extractSpeedLineColor(model, source) {
   const particles = makeParticles();
@@ -656,7 +691,12 @@ describe('Racer._buildMetricsLabel', () => {
         contextUtilization: 0.5,
         burnRatePerMinute: 566093.5,
       });
-      expect(label).toContain('50%');
+      if (activity === 'complete') {
+        expect(label).toContain('DONE');
+        expect(label).not.toContain('50%');
+      } else {
+        expect(label).toContain('50%');
+      }
       expect(label).toContain('· -');
       expect(label).not.toContain('566K/min');
     },
@@ -706,7 +746,44 @@ describe('Racer._buildMetricsLabel', () => {
         burnRatePerMinute: 43955.1,
         startedAt: '2025-01-01T00:00:00Z',
       });
-      expect(label).toBe('50% · 5K/100K · - · 5m');
+      expect(label).toBe('DONE · 5K/100K · - · 5m');
     });
+  });
+});
+
+describe('completed track rendering', () => {
+  it('treats completed track racers as a distinct visual state', () => {
+    const racer = new Racer(makeState({ activity: 'complete', contextUtilization: 1, tokensUsed: 5000 }));
+    racer.initialized = true;
+    racer.displayX = 120;
+    racer.displayY = 80;
+    racer.targetX = 120;
+    racer.targetY = 80;
+
+    const ctx = makeDrawCtx();
+    const completionBadge = vi.spyOn(racer, '_drawCompletionBadge').mockImplementation(() => {});
+    const checkerFlag = vi.spyOn(racer, '_drawCheckerFlag').mockImplementation(() => {});
+    vi.spyOn(racer, 'drawCar').mockImplementation(() => {});
+    vi.spyOn(racer, 'drawInfo').mockImplementation(() => {});
+
+    racer.draw(ctx);
+
+    expect(completionBadge).toHaveBeenCalled();
+    expect(checkerFlag).not.toHaveBeenCalled();
+    expect(ctx.globalAlpha).toBeCloseTo(0.72);
+    expect(ctx.filter).toBe('grayscale(0.35) saturate(0.45)');
+  });
+
+  it('uses DONE instead of 100% in completed metrics labels', () => {
+    const racer = new Racer(makeState());
+    const label = racer._buildMetricsLabel({
+      activity: 'complete',
+      contextUtilization: 1,
+      tokensUsed: 5000,
+      maxContextTokens: 5000,
+    });
+
+    expect(label).toContain('DONE');
+    expect(label).not.toContain('100%');
   });
 });
