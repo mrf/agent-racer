@@ -69,7 +69,7 @@ func parseArgs(args []string, output io.Writer) (serverOptions, error) {
 }
 
 func printVersion(output io.Writer) {
-	fmt.Fprintln(output, version)
+	_, _ = fmt.Fprintln(output, version)
 }
 
 func main() {

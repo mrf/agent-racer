@@ -88,11 +88,15 @@ describe('isPitRacer', () => {
   });
 
   it('boundary: exactly at DATA_FRESHNESS_MS threshold goes to pit', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2025-01-01T00:00:00Z'));
     // age === DATA_FRESHNESS_MS means age < DATA_FRESHNESS_MS is false → pit
     expect(isPitRacer(makeState({ activity: 'idle', lastDataReceivedAt: agoISO(DATA_FRESHNESS_MS) }))).toBe(true);
   });
 
   it('boundary: 1ms under DATA_FRESHNESS_MS threshold stays on track', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2025-01-01T00:00:00Z'));
     expect(isPitRacer(makeState({ activity: 'idle', lastDataReceivedAt: agoISO(DATA_FRESHNESS_MS - 1) }))).toBe(false);
   });
 });
