@@ -389,6 +389,27 @@ describe('RaceCanvas', () => {
 
       expect(rc.pitCrews.has('pit-1')).toBe(false);
     });
+
+    it('removes crews after racers are removed from the session', () => {
+      const pitState = makeState({ id: 'pit-1', activity: 'idle', lastDataReceivedAt: agoISO(31_000) });
+      rc.dt = 0.25;
+
+      rc.setAllRacers([pitState]);
+      rc.update();
+      rc.update();
+
+      expect(rc.pitCrews.has('pit-1')).toBe(true);
+
+      rc.removeRacer('pit-1');
+
+      expect(rc.pitCrews.get('pit-1')?.leaving).toBe(true);
+
+      for (let i = 0; i < 6; i++) {
+        rc.update();
+      }
+
+      expect(rc.pitCrews.has('pit-1')).toBe(false);
+    });
   });
 
   describe('hit testing (rectangular hitbox)', () => {
