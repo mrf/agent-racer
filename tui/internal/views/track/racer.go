@@ -10,7 +10,10 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-const nameWidth = 20
+const (
+	nameWidth         = 20
+	activityGlyphWide = 2
+)
 
 // sparkBlocks maps normalized values to Unicode block characters for sparklines.
 var sparkBlocks = []rune("▁▂▃▄▅▆▇█")
@@ -58,10 +61,36 @@ func displayName(s *client.SessionState, maxLen int) string {
 	if name == "" && len(s.ID) >= 8 {
 		name = s.ID[:8]
 	}
-	if len(name) > maxLen {
-		name = name[:maxLen-1] + "…"
+	return truncateDisplayWidth(name, maxLen)
+}
+
+// truncateDisplayWidth trims a string to a target display width and appends an
+// ellipsis when truncation is required.
+func truncateDisplayWidth(s string, maxWidth int) string {
+	if maxWidth <= 0 {
+		return ""
 	}
-	return name
+	if lipgloss.Width(s) <= maxWidth {
+		return s
+	}
+	if maxWidth == 1 {
+		return "…"
+	}
+
+	runes := []rune(s)
+	var b strings.Builder
+	width := 0
+	for i := 0; i < len(runes); i++ {
+		runeWidth := lipgloss.Width(string(runes[i]))
+		if width+runeWidth > maxWidth-1 {
+			break
+		}
+		b.WriteRune(runes[i])
+		width += runeWidth
+	}
+	b.WriteRune('…')
+
+	return b.String()
 }
 
 // formatTokens renders a token count in human-readable form.
@@ -135,7 +164,7 @@ func linePrefix(b *strings.Builder, idx int, activity client.Activity, source, m
 
 	glyphStyle := lipgloss.NewStyle().Foreground(theme.ActivityColor(string(activity)))
 	b.WriteString(glyphStyle.Render(activityGlyph(activity)))
-	if glyphWidth(activity) < 2 {
+	for i := glyphWidth(activity); i < activityGlyphWide; i++ {
 		b.WriteByte(' ')
 	}
 	b.WriteByte(' ')
@@ -145,8 +174,8 @@ func linePrefix(b *strings.Builder, idx int, activity client.Activity, source, m
 
 	modelStyle := lipgloss.NewStyle().Foreground(theme.ModelColor(model))
 	b.WriteString(modelStyle.Render(name))
-	if len(name) < nameWidth {
-		b.WriteString(strings.Repeat(" ", nameWidth-len(name)))
+	if width := lipgloss.Width(name); width < nameWidth {
+		b.WriteString(strings.Repeat(" ", nameWidth-width))
 	}
 	if indicator != "" {
 		b.WriteString(indicator)
@@ -173,7 +202,7 @@ func renderRacingLine(idx int, s *client.SessionState, selected bool, width int,
 
 	// Layout: prefix(2) + num(2) + sep(2) + glyph(1-2) + space(1) + badge(3) + space(1) + name(<=20) + indicator + space(1) + [track] + rightSide + spark
 	rightSide := fmt.Sprintf(" %s  %5s  %4s  %s ", pctStr, tokens, elapsed, burnStr)
-	fixedWidth := 2 + 2 + 2 + glyphWidth(s.Activity) + 1 + 3 + 1 + len(name) + len(indicatorRaw) + 1 + len(rightSide) + maxBurnSamples
+	fixedWidth := 2 + 2 + 2 + activityGlyphWide + 1 + 3 + 1 + nameWidth + len(indicatorRaw) + 1 + len(rightSide) + maxBurnSamples
 	trackWidth := width - fixedWidth
 	if trackWidth < 10 {
 		trackWidth = 10
@@ -290,7 +319,7 @@ func renderSubagentLine(sub *client.SubagentState, isLast bool) string {
 	var b strings.Builder
 	b.WriteString(theme.StyleDimmed.Render("      " + connector))
 	b.WriteString(glyphStyle.Render(glyph))
-	if glyphWidth(sub.Activity) < 2 {
+	for i := glyphWidth(sub.Activity); i < activityGlyphWide; i++ {
 		b.WriteByte(' ')
 	}
 	b.WriteByte(' ')
