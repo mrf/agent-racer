@@ -24,6 +24,7 @@ export class TimelineScrubber {
     this._onClose = onClose;
 
     this._selectorEl = null;
+    this._selectorDialogEl = null;
     this._barEl = null;
     this._heatmapCtx = null;
     this._heatmapOffscreen = null;
@@ -34,6 +35,8 @@ export class TimelineScrubber {
     this._timeEl = null;
     this._messageEl = null;
     this._speedBtns = [];
+    this._returnFocus = null;
+    this._selectorKeyDown = (event) => this._handleSelectorKeyDown(event);
 
     // Wire player callbacks.
     player.onSeek = (index, total) => this._onSeek(index, total);
@@ -44,7 +47,9 @@ export class TimelineScrubber {
 
   /** Show the replay file selector. */
   async open() {
+    this._returnFocus = document.activeElement;
     this._buildSelector();
+    this._focusSelectorClose();
     try {
       const replays = await this._player.listReplays();
       this._populateSelector(replays);
@@ -58,6 +63,7 @@ export class TimelineScrubber {
     this._player.stop();
     this._removeSelector();
     this._removeBar();
+    this._restoreFocus();
     this._onClose && this._onClose();
   }
 
@@ -67,15 +73,25 @@ export class TimelineScrubber {
     this._selectorEl = document.createElement('div');
     this._selectorEl.style.cssText = [
       'position:fixed',
-      'top:50%',
-      'left:50%',
-      'transform:translate(-50%,-50%)',
+      'inset:0',
+      'background:rgba(0,0,0,0.72)',
+      'display:flex',
+      'align-items:center',
+      'justify-content:center',
+      'padding:16px',
+      'z-index:9100',
+    ].join(';');
+    this._selectorEl.setAttribute('role', 'dialog');
+    this._selectorEl.setAttribute('aria-label', 'Replay selector');
+    this._selectorEl.setAttribute('aria-modal', 'true');
+
+    this._selectorDialogEl = document.createElement('div');
+    this._selectorDialogEl.style.cssText = [
       'background:rgba(10,10,20,0.95)',
       'border:1px solid rgba(100,160,255,0.4)',
       'border-radius:8px',
       'padding:20px',
-      'z-index:9100',
-      'min-width:380px',
+      'width:min(560px, calc(100vw - 32px))',
       'max-width:560px',
       'max-height:70vh',
       'display:flex',
@@ -94,6 +110,7 @@ export class TimelineScrubber {
     title.textContent = '\u23FA Replay Mode — Select Recording';
 
     const closeBtn = this._btn('✕', () => this.close());
+    closeBtn.setAttribute('aria-label', 'Close replay selector');
     closeBtn.style.cssText = 'background:rgba(255,80,80,0.2);border:1px solid rgba(255,80,80,0.5);color:#faa;padding:2px 8px;cursor:pointer;font-size:12px;border-radius:3px;';
 
     header.appendChild(title);
@@ -103,8 +120,15 @@ export class TimelineScrubber {
     this._listEl.style.cssText = 'overflow-y:auto;display:flex;flex-direction:column;gap:6px;';
     this._listEl.textContent = 'Loading replays…';
 
-    this._selectorEl.appendChild(header);
-    this._selectorEl.appendChild(this._listEl);
+    this._selectorDialogEl.appendChild(header);
+    this._selectorDialogEl.appendChild(this._listEl);
+    this._selectorEl.appendChild(this._selectorDialogEl);
+    this._selectorEl.addEventListener('click', (event) => {
+      if (event.target === this._selectorEl) {
+        this.close();
+      }
+    });
+    this._selectorEl.addEventListener('keydown', this._selectorKeyDown);
     document.body.appendChild(this._selectorEl);
   }
 
@@ -171,6 +195,7 @@ export class TimelineScrubber {
   async _selectReplay(replay) {
     this._removeSelector();
     this._buildBar();
+    this._playBtn?.focus();
     if (this._nameEl) {
       this._nameEl.textContent = replay.name;
     }
@@ -187,9 +212,12 @@ export class TimelineScrubber {
 
   _removeSelector() {
     if (this._selectorEl) {
+      this._selectorEl.removeEventListener('keydown', this._selectorKeyDown);
       this._selectorEl.remove();
       this._selectorEl = null;
     }
+    this._selectorDialogEl = null;
+    this._listEl = null;
   }
 
   // ---- Playback bar ----
@@ -228,6 +256,7 @@ export class TimelineScrubber {
     this._timeEl.style.color = '#888';
 
     const exitBtn = this._btn('✕ Exit Replay', () => this.close());
+    exitBtn.setAttribute('aria-label', 'Exit replay mode');
     exitBtn.style.cssText = 'background:rgba(255,60,60,0.2);border:1px solid rgba(255,60,60,0.5);color:#faa;padding:3px 10px;cursor:pointer;font-size:11px;border-radius:3px;font-family:monospace;';
 
     topRow.appendChild(label);
@@ -254,15 +283,19 @@ export class TimelineScrubber {
     ctrlRow.style.cssText = 'display:flex;align-items:center;gap:6px;';
 
     const stepBack = this._btn('⏮', () => this._player.stepBackward());
+    stepBack.setAttribute('aria-label', 'Step backward one replay frame');
     this._playBtn = this._btn('▶', () => this._togglePlay());
+    this._playBtn.setAttribute('aria-label', 'Play replay');
     this._playBtn.style.minWidth = '36px';
     const stepFwd = this._btn('⏭', () => this._player.stepForward());
+    stepFwd.setAttribute('aria-label', 'Step forward one replay frame');
 
     this._slider = document.createElement('input');
     this._slider.type = 'range';
     this._slider.min = '0';
     this._slider.max = '0';
     this._slider.value = '0';
+    this._slider.setAttribute('aria-label', 'Replay timeline position');
     this._slider.style.cssText = 'flex:1;accent-color:#48f;cursor:pointer;';
     this._slider.oninput = () => {
       const idx = parseInt(this._slider.value, 10);
@@ -275,6 +308,7 @@ export class TimelineScrubber {
         this._speedBtns.forEach(b => { b.style.background = 'rgba(255,255,255,0.08)'; });
         btn.style.background = 'rgba(68,136,255,0.35)';
       });
+      btn.setAttribute('aria-label', `Set replay speed to ${s}x`);
       return btn;
     });
     // Mark 1x active initially.
@@ -329,7 +363,9 @@ export class TimelineScrubber {
   }
 
   _onPlayState(isPlaying) {
-    if (this._playBtn) this._playBtn.textContent = isPlaying ? '\u23F8' : '\u25B6';
+    if (!this._playBtn) return;
+    this._playBtn.textContent = isPlaying ? '\u23F8' : '\u25B6';
+    this._playBtn.setAttribute('aria-label', isPlaying ? 'Pause replay' : 'Play replay');
   }
 
   _togglePlay() {
@@ -384,6 +420,51 @@ export class TimelineScrubber {
   }
 
   // ---- Helpers ----
+
+  _getSelectorFocusable() {
+    if (!this._selectorEl) return [];
+    return Array.from(
+      this._selectorEl.querySelectorAll(
+        'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex="0"]',
+      ),
+    );
+  }
+
+  _handleSelectorKeyDown(event) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      this.close();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+
+    const focusable = this._getSelectorFocusable();
+    if (!focusable.length) return;
+
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey) {
+      if (document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      }
+      return;
+    }
+    if (document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
+  _focusSelectorClose() {
+    if (!this._selectorEl) return;
+    this._selectorEl.querySelector('button')?.focus();
+  }
+
+  _restoreFocus() {
+    this._returnFocus?.focus();
+    this._returnFocus = null;
+  }
 
   _btn(label, onClick) {
     const btn = document.createElement('button');
