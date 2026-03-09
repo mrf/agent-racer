@@ -5,6 +5,8 @@ export function formatTokens(tokens) {
 
 export function formatBurnRate(rate) {
   if (!rate || rate <= 0) return '-';
+  if (rate >= 1_000_000) return `${(rate / 1_000_000).toFixed(1)}M/min`;
+  if (rate >= 100_000) return `${Math.round(rate / 1000)}K/min`;
   if (rate >= 1000) return `${(rate / 1000).toFixed(1)}K/min`;
   return `${Math.round(rate)}/min`;
 }

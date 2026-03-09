@@ -3,6 +3,7 @@ import { SpeechBubble } from './SpeechBubble.js';
 import { getEquippedPaint, getEquippedBody, getEquippedBadge } from '../gamification/CosmeticRegistry.js';
 import { TERMINAL_ACTIVITIES, isTerminalActivity } from '../session/constants.js';
 import { MODEL_COLORS, DEFAULT_COLOR, SOURCE_COLORS, DEFAULT_SOURCE, getModelColor, hexToRgb, lightenHex, shortModelName } from '../session/colors.js';
+import { formatBurnRate } from '../ui/formatters.js';
 
 const CAR_SCALE = 2.3;
 const LIMO_STRETCH = 35;
@@ -1650,6 +1651,10 @@ export class Racer {
       } else {
         parts.push(usedFormatted);
       }
+    }
+
+    if (state.burnRatePerMinute) {
+      parts.push(formatBurnRate(state.burnRatePerMinute));
     }
 
     // Session duration

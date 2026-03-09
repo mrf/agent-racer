@@ -556,6 +556,14 @@ describe('Racer._buildMetricsLabel', () => {
     expect(label).not.toContain('/');
   });
 
+  it('includes formatted burn rate', () => {
+    const label = racer._buildMetricsLabel({
+      contextUtilization: 0.5,
+      burnRatePerMinute: 566093.5,
+    });
+    expect(label).toContain('566K/min');
+  });
+
   describe('with fake timers', () => {
     beforeEach(() => { vi.useFakeTimers(); });
     afterEach(() => { vi.useRealTimers(); });
@@ -584,9 +592,10 @@ describe('Racer._buildMetricsLabel', () => {
         contextUtilization: 0.5,
         tokensUsed: 5000,
         maxContextTokens: 100000,
+        burnRatePerMinute: 43955.1,
         startedAt: '2025-01-01T00:00:00Z',
       });
-      expect(label).toBe('50% · 5K/100K · 5m');
+      expect(label).toBe('50% · 5K/100K · 44.0K/min · 5m');
     });
   });
 });
