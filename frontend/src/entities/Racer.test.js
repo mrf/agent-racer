@@ -16,6 +16,38 @@ function makeParticles() {
   return { emit: vi.fn(), emitWithColor: vi.fn() };
 }
 
+function makeInfoCtx(width = 800, height = 400) {
+  let font = '';
+
+  return {
+    canvas: {
+      width,
+      height,
+      getBoundingClientRect: () => ({ width, height }),
+    },
+    beginPath: vi.fn(),
+    moveTo: vi.fn(),
+    lineTo: vi.fn(),
+    stroke: vi.fn(),
+    arc: vi.fn(),
+    fill: vi.fn(),
+    closePath: vi.fn(),
+    fillText: vi.fn(),
+    measureText: vi.fn((text) => ({ width: text.length * 7 })),
+    set font(value) {
+      font = value;
+    },
+    get font() {
+      return font;
+    },
+    set fillStyle(_) {},
+    set strokeStyle(_) {},
+    set lineWidth(_) {},
+    set textAlign(_) {},
+    set textBaseline(_) {},
+  };
+}
+
 /** Run a tool_use racer at high speed and return the RGB passed to speedLines. */
 function extractSpeedLineColor(model, source) {
   const particles = makeParticles();
@@ -444,6 +476,58 @@ describe('activity transition detection', () => {
 
     expect(racer.transitionTimer).toBe(0);
     expect(racer.prevActivity).toBe('thinking');
+  });
+});
+
+describe('directory flag rendering', () => {
+  it('prefers the branch name when the worktree basename already embeds it', () => {
+    const racer = new Racer(makeState({
+      name: 'agent-racer--feature-fast-flags',
+      workingDir: '/tmp/agent-racer--feature-fast-flags',
+      branch: 'feature-fast-flags',
+    }));
+
+    expect(racer._getDirectoryFlagLabel()).toBe('feature-fast-flags');
+  });
+
+  it('keeps the pennant inside the canvas on narrow viewports', () => {
+    const racer = new Racer(makeState({
+      name: 'very-long-directory-name-for-session-alpha',
+      workingDir: '/tmp/very-long-directory-name-for-session-alpha',
+      branch: 'feature-with-an-even-longer-name-for-visibility',
+    }));
+    const ctx = makeInfoCtx(300, 140);
+    const layout = racer._getDirectoryFlagLayout(ctx, 90, 38, racer._getDirectoryFlagLabel());
+
+    expect(layout.flagLeft).toBeGreaterThanOrEqual(6);
+    expect(layout.flagRight).toBeLessThanOrEqual(294);
+    expect(layout.flagTop).toBeGreaterThanOrEqual(6);
+    expect(layout.label).toContain('...');
+  });
+
+  it('scales the pennant font up on wider viewports', () => {
+    const racer = new Racer(makeState({
+      name: 'session-a',
+      workingDir: '/tmp/session-a',
+    }));
+
+    const narrow = racer._getDirectoryFlagLayout(makeInfoCtx(320, 180), 220, 90, racer._getDirectoryFlagLabel());
+    const wide = racer._getDirectoryFlagLayout(makeInfoCtx(1440, 180), 220, 90, racer._getDirectoryFlagLabel());
+
+    expect(wide.fontSize).toBeGreaterThan(narrow.fontSize);
+  });
+
+  it('draws the compacted directory label on the pennant', () => {
+    const racer = new Racer(makeState({
+      name: 'agent-racer--feature-fast-flags',
+      workingDir: '/tmp/agent-racer--feature-fast-flags',
+      branch: 'feature-fast-flags',
+    }));
+    const ctx = makeInfoCtx(1200, 220);
+
+    racer.drawInfo(ctx, 220, 90, { name: 'claude' }, 'thinking');
+
+    expect(ctx.fillText).toHaveBeenCalledWith('feature-fast-flags', expect.any(Number), expect.any(Number));
   });
 });
 
