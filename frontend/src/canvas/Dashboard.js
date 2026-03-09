@@ -25,6 +25,9 @@ const ACTIVITY_COLORS = {
   lost: '#374151',
 };
 
+const COMPLETED_ROW_BG = 'rgba(34,197,94,0.12)';
+const COMPLETED_ROW_BORDER = 'rgba(134,239,172,0.32)';
+
 function formatTokens(tokens) {
   if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
   if (tokens >= 1000) return `${Math.round(tokens / 1000)}K`;
@@ -276,8 +279,21 @@ export class Dashboard {
   _drawLeaderboardRow(ctx, cols, cy, rank, session, badge, title) {
     const util = Math.max(0, Math.min(session.contextUtilization || 0, 1));
     const pct = (util * 100).toFixed(0);
+    const isComplete = session.activity === 'complete';
     const isTerminal = TERMINAL_ACTIVITIES.has(session.activity);
-    const alpha = isTerminal ? 0.4 : 0.85;
+    const alpha = isComplete ? 0.95 : isTerminal ? 0.4 : 0.85;
+
+    if (isComplete) {
+      const rowLeft = cols.rank - 8;
+      const rowTop = Math.round(cy - LEADERBOARD_ROW_HEIGHT / 2 + 2);
+      const rowWidth = cols.elapsed - rowLeft + 8;
+      const rowHeight = LEADERBOARD_ROW_HEIGHT - 4;
+      ctx.fillStyle = COMPLETED_ROW_BG;
+      ctx.fillRect(rowLeft, rowTop, rowWidth, rowHeight);
+      ctx.strokeStyle = COMPLETED_ROW_BORDER;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(rowLeft + 0.5, rowTop + 0.5, rowWidth - 1, rowHeight - 1);
+    }
 
     ctx.globalAlpha = alpha;
 
@@ -305,11 +321,15 @@ export class Dashboard {
     }
 
     // Activity dot
-    const dotColor = ACTIVITY_COLORS[session.activity] || '#4b5563';
-    ctx.beginPath();
-    ctx.arc(cols.name - 8, cy, 3, 0, Math.PI * 2);
-    ctx.fillStyle = dotColor;
-    ctx.fill();
+    if (isComplete) {
+      this._drawCompletedFlagIcon(ctx, cols.name - 8, cy);
+    } else {
+      const dotColor = ACTIVITY_COLORS[session.activity] || '#4b5563';
+      ctx.beginPath();
+      ctx.arc(cols.name - 8, cy, 3, 0, Math.PI * 2);
+      ctx.fillStyle = dotColor;
+      ctx.fill();
+    }
 
     // Session name (with optional title prefix)
     ctx.font = '12px Courier New';
@@ -318,20 +338,20 @@ export class Dashboard {
       ctx.fillStyle = '#d4a017';
       ctx.fillText(title, cols.name, cy);
       const titleWidth = ctx.measureText(title + ' ').width;
-      ctx.fillStyle = '#bbb';
+      ctx.fillStyle = isComplete ? '#dcfce7' : '#bbb';
       ctx.fillText(shortName(session.name, 18), cols.name + titleWidth, cy);
     } else {
-      ctx.fillStyle = '#bbb';
+      ctx.fillStyle = isComplete ? '#dcfce7' : '#bbb';
       ctx.fillText(shortName(session.name), cols.name, cy);
     }
 
     // Model
-    ctx.fillStyle = '#666';
+    ctx.fillStyle = isComplete ? '#86efac' : '#666';
     ctx.font = '11px Courier New';
     ctx.fillText(shortModel(session.model), cols.model, cy);
 
     // Tokens
-    ctx.fillStyle = '#888';
+    ctx.fillStyle = isComplete ? '#bbf7d0' : '#888';
     ctx.font = '11px Courier New';
     ctx.fillText(formatTokens(session.tokensUsed || 0), cols.tokens, cy);
 
@@ -353,7 +373,8 @@ export class Dashboard {
 
     // Bar fill — red above 80%, amber above 50%, green otherwise
     let barColor = '#22c55e';
-    if (util > 0.8) barColor = '#e94560';
+    if (isComplete) barColor = '#16a34a';
+    else if (util > 0.8) barColor = '#e94560';
     else if (util > 0.5) barColor = '#d97706';
     if (util > 0 && innerWidth > 0 && innerHeight > 0) {
       const fillWidth = Math.min(
@@ -365,17 +386,36 @@ export class Dashboard {
     }
 
     // Percentage
-    ctx.fillStyle = '#777';
+    ctx.fillStyle = isComplete ? '#dcfce7' : '#777';
     ctx.font = '11px Courier New';
-    ctx.fillText(`${pct}%`, cols.pct, cy);
+    ctx.fillText(isComplete ? 'DONE' : `${pct}%`, cols.pct, cy);
 
     // Elapsed time
-    ctx.fillStyle = '#555';
+    ctx.fillStyle = isComplete ? '#86efac' : '#555';
     ctx.font = '11px Courier New';
     ctx.textAlign = 'right';
     ctx.fillText(elapsed(session.startedAt), cols.elapsed, cy);
 
     ctx.textAlign = 'left';
     ctx.globalAlpha = 1.0;
+  }
+
+  _drawCompletedFlagIcon(ctx, x, y) {
+    const poleX = x - 4;
+    const poleTop = y - 6;
+    ctx.strokeStyle = '#86efac';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(poleX, y + 5);
+    ctx.lineTo(poleX, poleTop);
+    ctx.stroke();
+
+    const size = 2.5;
+    for (let row = 0; row < 3; row++) {
+      for (let col = 0; col < 4; col++) {
+        ctx.fillStyle = (row + col) % 2 === 0 ? '#f8fafc' : '#111827';
+        ctx.fillRect(poleX + col * size, poleTop + row * size, size, size);
+      }
+    }
   }
 }

@@ -8,6 +8,7 @@ import { formatBurnRate } from '../ui/formatters.js';
 const CAR_SCALE = 2.3;
 const LIMO_STRETCH = 35;
 const FLAG_COLORS = { bg: '#ffffff', text: '#000', stripe: '#cccccc', pole: '#aaa', cap: '#ccc' };
+const TRACK_COMPLETE_ALPHA = 0.72;
 
 /**
  * Returns the index of the vertex with the smallest y value (visually highest).
@@ -647,11 +648,15 @@ export class Racer {
     // Zone dimming: subtle opacity reduction so details remain readable
     const pitAlpha = 1 - this.pitDim * 0.15;
     const parkingAlpha = 1 - this.parkingLotDim * 0.2;
-    ctx.globalAlpha = this.opacity * pitAlpha * parkingAlpha;
+    const isTrackComplete = this._isTrackComplete();
+    const completionAlpha = isTrackComplete ? TRACK_COMPLETE_ALPHA : 1;
+    ctx.globalAlpha = this.opacity * pitAlpha * parkingAlpha * completionAlpha;
 
     // Parking lot: mild desaturation so completed sessions are still legible
     if (this.parkingLotDim > 0.01) {
       ctx.filter = `saturate(${1 - this.parkingLotDim * 0.3})`;
+    } else if (isTrackComplete) {
+      ctx.filter = 'grayscale(0.35) saturate(0.45)';
     } else {
       ctx.filter = 'none';
     }
@@ -693,7 +698,7 @@ export class Racer {
     const carLength = 17 + LIMO_STRETCH + 23;
     const shadowRx = carLength / 2 * S;
     const shadowCx = x + (23 - 17 - LIMO_STRETCH) / 2 * S + 2;
-    ctx.fillStyle = 'rgba(0,0,0,0.2)';
+    ctx.fillStyle = isTrackComplete ? 'rgba(34,197,94,0.16)' : 'rgba(0,0,0,0.2)';
     ctx.beginPath();
     ctx.ellipse(shadowCx, y + 12 * S, shadowRx, 3 * S, 0, 0, Math.PI * 2);
     ctx.fill();
@@ -712,6 +717,9 @@ export class Racer {
     }
 
     this.drawCar(ctx, x, y + yOff, color, activity);
+    if (isTrackComplete) {
+      this._drawCompletionBadge(ctx, x, y + yOff);
+    }
 
     // Damage overlay (scratches, dents, cracks)
     if (this.damage > 0.01) {
@@ -1079,7 +1087,9 @@ export class Racer {
         break;
 
       case 'complete':
-        this._drawCheckerFlag(ctx, x, y);
+        if (!this._isTrackComplete()) {
+          this._drawCheckerFlag(ctx, x, y);
+        }
         break;
     }
 
@@ -1291,6 +1301,59 @@ export class Racer {
     ctx.beginPath();
     ctx.arc(x, y, glowR, 0, Math.PI * 2);
     ctx.fill();
+  }
+
+  _drawCompletionBadge(ctx, x, y) {
+    const outerR = 16;
+    const innerR = 12;
+    const badgeX = x + 3;
+    const badgeY = y - 1;
+
+    ctx.save();
+
+    const halo = ctx.createRadialGradient(badgeX, badgeY, 0, badgeX, badgeY, 30);
+    halo.addColorStop(0, 'rgba(34,197,94,0.22)');
+    halo.addColorStop(1, 'rgba(34,197,94,0)');
+    ctx.fillStyle = halo;
+    ctx.beginPath();
+    ctx.arc(badgeX, badgeY, 30, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = 'rgba(20,83,45,0.92)';
+    ctx.beginPath();
+    ctx.arc(badgeX, badgeY, outerR, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(220,252,231,0.95)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(badgeX, badgeY, outerR - 1, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.fillStyle = 'rgba(240,253,244,0.96)';
+    ctx.beginPath();
+    ctx.arc(badgeX, badgeY, innerR, 0, Math.PI * 2);
+    ctx.fill();
+
+    const poleX = badgeX - 8;
+    const poleTop = badgeY - 7;
+    const cell = 3;
+
+    ctx.strokeStyle = '#166534';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(poleX, badgeY + 8);
+    ctx.lineTo(poleX, poleTop);
+    ctx.stroke();
+
+    for (let row = 0; row < 3; row++) {
+      for (let col = 0; col < 4; col++) {
+        ctx.fillStyle = (row + col) % 2 === 0 ? '#ffffff' : '#111827';
+        ctx.fillRect(poleX + col * cell, poleTop + row * cell, cell, cell);
+      }
+    }
+
+    ctx.restore();
   }
 
   _drawHammer(ctx, x, y) {
@@ -1619,8 +1682,9 @@ export class Racer {
     const textH = 10;
     const padX = 4;
     const padY = 3;
+    const isComplete = state.activity === 'complete';
 
-    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.fillStyle = isComplete ? 'rgba(20,83,45,0.58)' : 'rgba(0,0,0,0.25)';
     ctx.beginPath();
     ctx.roundRect(
       labelX - textW / 2 - padX,
@@ -1631,7 +1695,7 @@ export class Racer {
     );
     ctx.fill();
 
-    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx.fillStyle = isComplete ? 'rgba(220,252,231,0.96)' : 'rgba(255,255,255,0.9)';
     ctx.fillText(label, labelX, labelY);
   }
 
@@ -1639,8 +1703,12 @@ export class Racer {
     const parts = [];
 
     // Context utilization percentage
-    const pct = Math.round((state.contextUtilization || 0) * 100);
-    parts.push(`${pct}%`);
+    if (state.activity === 'complete') {
+      parts.push('DONE');
+    } else {
+      const pct = Math.round((state.contextUtilization || 0) * 100);
+      parts.push(`${pct}%`);
+    }
 
     // Token usage
     if (state.tokensUsed) {
@@ -1678,6 +1746,10 @@ export class Racer {
       return `${Math.round(count / 1000)}K`;
     }
     return `${count}`;
+  }
+
+  _isTrackComplete() {
+    return this.state.activity === 'complete' && !this.inPit && !this.inParkingLot;
   }
 
   drawTowRope(ctx, hamster) {
