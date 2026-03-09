@@ -212,6 +212,12 @@ export class RaceCanvas extends BaseCanvas {
       }
     }
 
+    for (const [id, crew] of this.pitCrews) {
+      if (!currentPitIds.has(id)) {
+        crew.update(dt);
+      }
+    }
+
     // Remove crews that have fully departed
     for (const [id, crew] of this.pitCrews) {
       if (crew.isDone()) this.pitCrews.delete(id);

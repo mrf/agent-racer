@@ -367,6 +367,30 @@ describe('RaceCanvas', () => {
     });
   });
 
+  describe('pit crew management', () => {
+    it('removes crews after racers leave the pit', () => {
+      const pitState = makeState({ id: 'pit-1', activity: 'idle', lastDataReceivedAt: agoISO(31_000) });
+      rc.dt = 0.25;
+
+      rc.setAllRacers([pitState]);
+      rc.update();
+      rc.update();
+
+      expect(rc.pitCrews.has('pit-1')).toBe(true);
+
+      rc.setAllRacers([makeState({ id: 'pit-1', activity: 'thinking', lastDataReceivedAt: agoISO(0) })]);
+      rc.update();
+
+      expect(rc.pitCrews.get('pit-1')?.leaving).toBe(true);
+
+      for (let i = 0; i < 6; i++) {
+        rc.update();
+      }
+
+      expect(rc.pitCrews.has('pit-1')).toBe(false);
+    });
+  });
+
   describe('hit testing (rectangular hitbox)', () => {
     function clickEvent(clientX, clientY) {
       return { clientX, clientY };
