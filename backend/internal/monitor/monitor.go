@@ -497,6 +497,9 @@ func (m *Monitor) pollSource(src Source, cfg *config.Config, sh *sourceHealth, n
 		sh.recordParseSuccess(key)
 		ts.fileOffset = newOffset
 		hasNewData := newOffset > oldOffset || update.HasData()
+		if update.WorkingDir != "" && ts.handle.WorkingDir == "" {
+			ts.handle.WorkingDir = update.WorkingDir
+		}
 		if hasNewData && newOffset > oldOffset {
 			log.Printf("[%s] Parsed %d new bytes from %s (offset %d→%d)", src.Name(), newOffset-oldOffset, h.LogPath, oldOffset, newOffset)
 		}
@@ -533,12 +536,13 @@ func (m *Monitor) pollSource(src Source, cfg *config.Config, sh *sourceHealth, n
 
 		if !existed {
 			// Skip sessions that are already stale on initial discovery.
-			// This prevents dead session files from briefly appearing as
-			// active on server startup.
+			// Keep the tracked offset so a resumed session can reappear
+			// without re-reading the whole file from byte 0.
 			if !update.LastTime.IsZero() && cfg.Monitor.SessionStaleAfter > 0 {
 				if now.Sub(update.LastTime) > cfg.Monitor.SessionStaleAfter {
-					delete(m.tracked, key)
 					m.removedKeys[key] = true
+					log.Printf("[%s] Suppressing stale session on initial discovery: %s (lastData=%s)",
+						src.Name(), h.SessionID, update.LastTime.Format(time.RFC3339Nano))
 					continue
 				}
 			}
@@ -547,6 +551,9 @@ func (m *Monitor) pollSource(src Source, cfg *config.Config, sh *sourceHealth, n
 				startedAt = now
 			}
 			workingDir := h.WorkingDir
+			if workingDir == "" {
+				workingDir = ts.handle.WorkingDir
+			}
 			if workingDir == "" {
 				workingDir = update.WorkingDir
 			}
