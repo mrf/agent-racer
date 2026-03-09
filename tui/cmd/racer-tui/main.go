@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"strings"
@@ -13,14 +14,48 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+var version = "dev"
+
+type cliOptions struct {
+	configPath  string
+	wsURL       string
+	token       string
+	showVersion bool
+}
+
+func parseArgs(args []string, output io.Writer) (cliOptions, error) {
+	var opts cliOptions
+
+	fs := flag.NewFlagSet("agent-racer", flag.ContinueOnError)
+	fs.SetOutput(output)
+	fs.StringVar(&opts.configPath, "config", "", "Path to config file (defaults to ~/.config/agent-racer/config.yaml)")
+	fs.StringVar(&opts.wsURL, "url", "", "WebSocket URL of the Agent Racer backend (overrides config)")
+	fs.StringVar(&opts.token, "token", "", "Auth token (overrides config)")
+	fs.BoolVar(&opts.showVersion, "version", false, "Print version information and exit")
+
+	if err := fs.Parse(args); err != nil {
+		return cliOptions{}, err
+	}
+
+	return opts, nil
+}
+
+func printVersion(output io.Writer) {
+	fmt.Fprintln(output, version)
+}
+
 func main() {
-	configPath := flag.String("config", "", "Path to config file (defaults to ~/.config/agent-racer/config.yaml)")
-	wsURL := flag.String("url", "", "WebSocket URL of the Agent Racer backend (overrides config)")
-	token := flag.String("token", "", "Auth token (overrides config)")
-	flag.Parse()
+	opts, err := parseArgs(os.Args[1:], os.Stderr)
+	if err != nil {
+		os.Exit(2)
+	}
+	if opts.showVersion {
+		printVersion(os.Stdout)
+		return
+	}
 
 	// Load configuration from file.
-	cfgPath := *configPath
+	cfgPath := opts.configPath
 	if cfgPath == "" {
 		cfgPath = config.DefaultConfigPath()
 	}
@@ -28,14 +63,14 @@ func main() {
 
 	// Resolve WebSocket URL: CLI flag > config file > hardcoded default.
 	effectiveURL := cfg.WebSocketURL()
-	if *wsURL != "" {
-		effectiveURL = *wsURL
+	if opts.wsURL != "" {
+		effectiveURL = opts.wsURL
 	}
 
 	// Resolve auth token: CLI flag > config file.
 	effectiveToken := cfg.Server.AuthToken
-	if *token != "" {
-		effectiveToken = *token
+	if opts.token != "" {
+		effectiveToken = opts.token
 	}
 
 	// Derive HTTP base URL from WebSocket URL.

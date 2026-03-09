@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -24,6 +26,16 @@ import (
 	"github.com/agent-racer/backend/internal/ws"
 )
 
+var version = "dev"
+
+type serverOptions struct {
+	mockMode    bool
+	devMode     bool
+	configPath  string
+	port        int
+	showVersion bool
+}
+
 func buildSources(cfg *config.Config) []monitor.Source {
 	var sources []monitor.Source
 	if cfg.Sources.Claude {
@@ -38,15 +50,40 @@ func buildSources(cfg *config.Config) []monitor.Source {
 	return sources
 }
 
+func parseArgs(args []string, output io.Writer) (serverOptions, error) {
+	var opts serverOptions
+
+	fs := flag.NewFlagSet("agent-racer-server", flag.ContinueOnError)
+	fs.SetOutput(output)
+	fs.BoolVar(&opts.mockMode, "mock", false, "Use mock session data")
+	fs.BoolVar(&opts.devMode, "dev", false, "Development mode (serve frontend from filesystem)")
+	fs.StringVar(&opts.configPath, "config", "", "Path to config file (defaults to ~/.config/agent-racer/config.yaml)")
+	fs.IntVar(&opts.port, "port", 0, "Override server port")
+	fs.BoolVar(&opts.showVersion, "version", false, "Print version information and exit")
+
+	if err := fs.Parse(args); err != nil {
+		return serverOptions{}, err
+	}
+
+	return opts, nil
+}
+
+func printVersion(output io.Writer) {
+	fmt.Fprintln(output, version)
+}
+
 func main() {
-	mockMode := flag.Bool("mock", false, "Use mock session data")
-	devMode := flag.Bool("dev", false, "Development mode (serve frontend from filesystem)")
-	configPath := flag.String("config", "", "Path to config file (defaults to ~/.config/agent-racer/config.yaml)")
-	port := flag.Int("port", 0, "Override server port")
-	flag.Parse()
+	opts, err := parseArgs(os.Args[1:], os.Stderr)
+	if err != nil {
+		os.Exit(2)
+	}
+	if opts.showVersion {
+		printVersion(os.Stdout)
+		return
+	}
 
 	// Use XDG config directory if no config path specified
-	cfgPath := *configPath
+	cfgPath := opts.configPath
 	if cfgPath == "" {
 		cfgPath = config.DefaultConfigPath()
 	}
@@ -56,8 +93,8 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	if *port > 0 {
-		cfg.Server.Port = *port
+	if opts.port > 0 {
+		cfg.Server.Port = opts.port
 	}
 
 	store := session.NewStore()
@@ -65,7 +102,7 @@ func main() {
 	broadcaster.SetPrivacyFilter(cfg.Privacy.NewPrivacyFilter())
 
 	frontendDir := ""
-	if *devMode {
+	if opts.devMode {
 		exe, _ := os.Executable()
 		frontendDir = filepath.Join(filepath.Dir(exe), "..", "..", "frontend")
 		// If running with go run, the exe path is in a temp dir, use CWD instead
@@ -78,7 +115,7 @@ func main() {
 	// Embedded frontend handler: when built with -tags embed, serves from binary.
 	// Otherwise falls back to serving from the filesystem.
 	var embeddedHandler http.Handler
-	if !*devMode {
+	if !opts.devMode {
 		embeddedHandler = frontend.Handler()
 		if embeddedHandler == nil {
 			cwd, _ := os.Getwd()
@@ -125,7 +162,7 @@ func main() {
 		}
 	}
 
-	server := ws.NewServer(cfg, store, broadcaster, frontendDir, *devMode, embeddedHandler, cfg.Server.AllowedOrigins, authToken)
+	server := ws.NewServer(cfg, store, broadcaster, frontendDir, opts.devMode, embeddedHandler, cfg.Server.AllowedOrigins, authToken)
 
 	// Track store for custom race circuits.
 	trackStore, trackErr := tracks.NewStore("")
@@ -190,7 +227,7 @@ func main() {
 	}()
 
 	var mon *monitor.Monitor
-	if *mockMode {
+	if opts.mockMode {
 		log.Println("Starting in mock mode")
 		gen := mock.NewGenerator(store, broadcaster, cfg.Monitor.MockTickInterval)
 		gen.SetStatsEvents(statsCh)

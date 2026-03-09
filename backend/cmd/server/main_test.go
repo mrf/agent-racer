@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -15,6 +16,33 @@ import (
 	"github.com/agent-racer/backend/internal/session"
 	"github.com/agent-racer/backend/internal/ws"
 )
+
+func TestParseArgsVersionFlag(t *testing.T) {
+	var stderr bytes.Buffer
+
+	opts, err := parseArgs([]string{"--version"}, &stderr)
+	if err != nil {
+		t.Fatalf("parseArgs returned error: %v", err)
+	}
+	if !opts.showVersion {
+		t.Fatal("showVersion = false, want true")
+	}
+}
+
+func TestPrintVersion(t *testing.T) {
+	originalVersion := version
+	version = "test-version"
+	t.Cleanup(func() {
+		version = originalVersion
+	})
+
+	var stdout bytes.Buffer
+	printVersion(&stdout)
+
+	if got := stdout.String(); got != "test-version\n" {
+		t.Fatalf("printVersion() = %q, want %q", got, "test-version\n")
+	}
+}
 
 func TestBuildSources(t *testing.T) {
 	tests := []struct {
