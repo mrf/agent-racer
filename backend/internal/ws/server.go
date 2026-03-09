@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"net/url"
 	"os/exec"
@@ -50,6 +51,8 @@ type Server struct {
 	rewardRegistry    *gamification.RewardRegistry
 	replayHandler     *replay.Handler
 	trackHandler      *tracks.Handler
+	apiRateLimiter    *clientRateLimiter
+	wsAuthRateLimiter *clientRateLimiter
 }
 
 func NewServer(cfg *config.Config, store *session.Store, broadcaster *Broadcaster, frontendDir string, dev bool, embeddedHandler http.Handler, allowedOrigins []string, authToken string) *Server {
@@ -65,6 +68,8 @@ func NewServer(cfg *config.Config, store *session.Store, broadcaster *Broadcaste
 		authToken:         authToken,
 		achievementEngine: gamification.NewAchievementEngine(),
 		rewardRegistry:    gamification.NewRewardRegistry(),
+		apiRateLimiter:    newClientRateLimiter(120, time.Minute, 30),
+		wsAuthRateLimiter: newClientRateLimiter(12, time.Minute, 4),
 	}
 
 	for _, origin := range allowedOrigins {
@@ -99,18 +104,18 @@ func (s *Server) SetTrackHandler(h *tracks.Handler) {
 }
 
 func (s *Server) SetupRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("/ws", s.handleWS)
-	mux.HandleFunc("/api/sessions", s.handleSessions)
-	mux.HandleFunc("/api/sessions/", s.handleSessionRoutes)
-	mux.HandleFunc("/api/config", s.handleConfig)
-	mux.HandleFunc("/api/stats", s.handleStats)
-	mux.HandleFunc("/api/achievements", s.handleAchievements)
-	mux.HandleFunc("/api/equip", s.handleEquip)
-	mux.HandleFunc("/api/unequip", s.handleUnequip)
-	mux.HandleFunc("/api/challenges", s.handleChallenges)
+	apiMux := http.NewServeMux()
+	apiMux.HandleFunc("/api/sessions", s.handleSessions)
+	apiMux.HandleFunc("/api/sessions/", s.handleSessionRoutes)
+	apiMux.HandleFunc("/api/config", s.handleConfig)
+	apiMux.HandleFunc("/api/stats", s.handleStats)
+	apiMux.HandleFunc("/api/achievements", s.handleAchievements)
+	apiMux.HandleFunc("/api/equip", s.handleEquip)
+	apiMux.HandleFunc("/api/unequip", s.handleUnequip)
+	apiMux.HandleFunc("/api/challenges", s.handleChallenges)
 
 	if s.replayHandler != nil {
-		s.replayHandler.RegisterRoutes(mux)
+		s.replayHandler.RegisterRoutes(apiMux)
 	}
 
 	if s.trackHandler != nil {
@@ -121,9 +126,12 @@ func (s *Server) SetupRoutes(mux *http.ServeMux) {
 			}
 			s.trackHandler.ServeHTTP(w, r)
 		}
-		mux.HandleFunc("/api/tracks", tracksAuth)
-		mux.HandleFunc("/api/tracks/", tracksAuth)
+		apiMux.HandleFunc("/api/tracks", tracksAuth)
+		apiMux.HandleFunc("/api/tracks/", tracksAuth)
 	}
+
+	mux.Handle("/ws", s.rateLimitWS(http.HandlerFunc(s.handleWS)))
+	mux.Handle("/api/", s.rateLimitAPI(apiMux))
 
 	if s.dev {
 		log.Printf("Serving frontend from filesystem: %s", s.frontendDir)
@@ -193,6 +201,29 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}()
+}
+
+func (s *Server) rateLimitAPI(next http.Handler) http.Handler {
+	return s.rateLimitHTTP(next, s.apiRateLimiter)
+}
+
+func (s *Server) rateLimitWS(next http.Handler) http.Handler {
+	return s.rateLimitHTTP(next, s.wsAuthRateLimiter)
+}
+
+func (s *Server) rateLimitHTTP(next http.Handler, limiter *clientRateLimiter) http.Handler {
+	if limiter == nil {
+		return next
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		decision := limiter.Allow(clientAddress(r))
+		if !decision.Allowed {
+			writeRateLimitExceeded(w, decision.RetryAfter)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
@@ -604,6 +635,16 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("Content-Security-Policy", csp)
 		next.ServeHTTP(w, r)
 	})
+}
+
+func writeRateLimitExceeded(w http.ResponseWriter, retryAfter time.Duration) {
+	seconds := int(math.Ceil(retryAfter.Seconds()))
+	if seconds < 1 {
+		seconds = 1
+	}
+
+	w.Header().Set("Retry-After", strconv.Itoa(seconds))
+	http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
 }
 
 func NewHTTPServer(host string, port int, mux *http.ServeMux) *http.Server {
