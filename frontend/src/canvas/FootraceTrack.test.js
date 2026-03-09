@@ -322,7 +322,7 @@ describe('FootraceTrack', () => {
     it('sets hidden crowd mode for small viewports', () => {
       track.updateViewport(300);
       expect(track._crowdMode).toBe('hidden');
-      expect(track.trackPadding.top).toBe(20);
+      expect(track.trackPadding.top).toBe(8);
     });
 
     it('clears spectator cache on mode change', () => {
@@ -337,6 +337,24 @@ describe('FootraceTrack', () => {
       track._crowdMode = 'full';
       track.updateViewport(600);
       expect(track._spectators).toEqual([{ fake: true }]);
+    });
+  });
+
+  describe('drawMultiTrack', () => {
+    it('skips the tree line when the crowd is hidden', () => {
+      track._crowdMode = 'hidden';
+      vi.spyOn(track, '_needsPrerender').mockReturnValue(false);
+      vi.spyOn(track, '_drawTrackSurface').mockImplementation(() => {});
+      vi.spyOn(track, '_drawLaneDividers').mockImplementation(() => {});
+      vi.spyOn(track, '_drawStartLine').mockImplementation(() => {});
+      vi.spyOn(track, '_drawFinishLine').mockImplementation(() => {});
+      vi.spyOn(track, '_drawMileMarkers').mockImplementation(() => {});
+      vi.spyOn(track, '_drawCrowd').mockImplementation(() => {});
+      const treeSpy = vi.spyOn(track, '_drawTreeLine').mockImplementation(() => {});
+
+      track.drawMultiTrack({}, CANVAS_W, CANVAS_H, [{ maxTokens: 200000, laneCount: LANE_COUNT }]);
+
+      expect(treeSpy).not.toHaveBeenCalled();
     });
   });
 

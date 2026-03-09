@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Track } from './Track.js';
 
 describe('Track', () => {
@@ -469,7 +469,7 @@ describe('Track', () => {
     it('sets hidden crowd mode for small viewports', () => {
       track.updateViewport(300);
       expect(track._crowdMode).toBe('hidden');
-      expect(track.trackPadding.top).toBe(20);
+      expect(track.trackPadding.top).toBe(8);
     });
 
     it('uses full mode at exact boundary (500)', () => {
@@ -494,6 +494,23 @@ describe('Track', () => {
       track._crowdMode = 'full';
       track.updateViewport(600); // still full
       expect(track._spectators).toEqual([{ fake: true }]);
+    });
+  });
+
+  describe('drawMultiTrack', () => {
+    it('skips pennants when the crowd is hidden', () => {
+      track._crowdMode = 'hidden';
+      vi.spyOn(track, '_needsPrerender').mockReturnValue(false);
+      vi.spyOn(track, '_drawTrackSurface').mockImplementation(() => {});
+      vi.spyOn(track, '_drawLaneDividers').mockImplementation(() => {});
+      vi.spyOn(track, '_drawStartLine').mockImplementation(() => {});
+      vi.spyOn(track, '_drawFinishLine').mockImplementation(() => {});
+      vi.spyOn(track, '_drawTokenMarkers').mockImplementation(() => {});
+      const pennantSpy = vi.spyOn(track, '_drawPennants').mockImplementation(() => {});
+
+      track.drawMultiTrack({}, CANVAS_W, CANVAS_H, [{ maxTokens: 200000, laneCount: LANE_COUNT }]);
+
+      expect(pennantSpy).not.toHaveBeenCalled();
     });
   });
 
