@@ -40,8 +40,9 @@ func parseArgs(args []string, output io.Writer) (cliOptions, error) {
 	return opts, nil
 }
 
-func printVersion(output io.Writer) {
-	fmt.Fprintln(output, version)
+func printVersion(output io.Writer) error {
+	_, err := fmt.Fprintln(output, version)
+	return err
 }
 
 func main() {
@@ -50,7 +51,9 @@ func main() {
 		os.Exit(2)
 	}
 	if opts.showVersion {
-		printVersion(os.Stdout)
+		if err := printVersion(os.Stdout); err != nil {
+			os.Exit(1)
+		}
 		return
 	}
 

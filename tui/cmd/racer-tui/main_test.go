@@ -25,7 +25,9 @@ func TestPrintVersion(t *testing.T) {
 	})
 
 	var stdout bytes.Buffer
-	printVersion(&stdout)
+	if err := printVersion(&stdout); err != nil {
+		t.Fatalf("printVersion returned error: %v", err)
+	}
 
 	if got := stdout.String(); got != "test-version\n" {
 		t.Fatalf("printVersion() = %q, want %q", got, "test-version\n")
