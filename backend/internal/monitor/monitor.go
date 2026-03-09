@@ -57,33 +57,37 @@ type sessionEndMarker struct {
 }
 
 const defaultTmuxResolverTTL = 5 * time.Second
+const defaultProcessActivityInterval = 5 * time.Second
 
 // SnapshotHook is called after each poll with the current snapshot of all sessions.
 // It is called synchronously from the poll goroutine; implementations must not block.
 type SnapshotHook func([]*session.SessionState)
 
 type Monitor struct {
-	mu               sync.RWMutex // protects cfg, sources, health
-	cfg              *config.Config
-	store            *session.Store
-	broadcaster      *ws.Broadcaster
-	sources          []Source
-	tracked          map[string]*trackedSession // keyed by source:sessionID
-	pendingRemoval   map[string]time.Time
-	removedKeys      map[string]bool // keys removed from store; prevents re-creation while file is still discovered
-	prevCPU          map[int]cpuSample
-	lastProcessPoll  time.Time
-	statsEvents      chan<- session.Event     // nil disables stats event emission
-	statsDropped     int64                    // events dropped since last log
-	statsLastDropLog time.Time                // last time a drop was logged
-	health           map[string]*sourceHealth // keyed by source name
-	reconfigureCh    chan struct{}            // signals Start() to recreate its poll ticker
-	snapshotHook     SnapshotHook             // optional hook called after each poll
-	newTmuxResolver  func() *TmuxResolver     // injectable for tests
-	tmuxResolverTTL  time.Duration            // cache TTL; <=0 disables cache
-	tmuxResolver     *TmuxResolver            // cached resolver (nil means tmux unavailable)
-	tmuxResolverNext time.Time                // next refresh time for cached resolver
-	tmuxResolverSet  bool                     // true after first resolver attempt
+	mu                      sync.RWMutex // protects cfg, sources, health
+	cfg                     *config.Config
+	store                   *session.Store
+	broadcaster             *ws.Broadcaster
+	sources                 []Source
+	tracked                 map[string]*trackedSession // keyed by source:sessionID
+	pendingRemoval          map[string]time.Time
+	removedKeys             map[string]bool // keys removed from store; prevents re-creation while file is still discovered
+	prevCPU                 map[int]cpuSample
+	lastProcessPoll         time.Time
+	processActivity         map[string]ProcessActivity
+	statsEvents             chan<- session.Event     // nil disables stats event emission
+	statsDropped            int64                    // events dropped since last log
+	statsLastDropLog        time.Time                // last time a drop was logged
+	health                  map[string]*sourceHealth // keyed by source name
+	reconfigureCh           chan struct{}            // signals Start() to recreate its poll ticker
+	snapshotHook            SnapshotHook             // optional hook called after each poll
+	discoverProcessActivity func(map[int]cpuSample, time.Duration) ([]ProcessActivity, map[int]cpuSample)
+	processPollInterval     time.Duration
+	newTmuxResolver         func() *TmuxResolver // injectable for tests
+	tmuxResolverTTL         time.Duration        // cache TTL; <=0 disables cache
+	tmuxResolver            *TmuxResolver        // cached resolver (nil means tmux unavailable)
+	tmuxResolverNext        time.Time            // next refresh time for cached resolver
+	tmuxResolverSet         bool                 // true after first resolver attempt
 }
 
 func NewMonitor(cfg *config.Config, store *session.Store, broadcaster *ws.Broadcaster, sources []Source) *Monitor {
@@ -92,19 +96,21 @@ func NewMonitor(cfg *config.Config, store *session.Store, broadcaster *ws.Broadc
 		healthMap[src.Name()] = newSourceHealth()
 	}
 	m := &Monitor{
-		cfg:             cfg,
-		store:           store,
-		broadcaster:     broadcaster,
-		sources:         sources,
-		tracked:         make(map[string]*trackedSession),
-		pendingRemoval:  make(map[string]time.Time),
-		removedKeys:     make(map[string]bool),
-		prevCPU:         make(map[int]cpuSample),
-		lastProcessPoll: time.Now(),
-		health:          healthMap,
-		reconfigureCh:   make(chan struct{}, 1),
-		newTmuxResolver: NewTmuxResolver,
-		tmuxResolverTTL: defaultTmuxResolverTTL,
+		cfg:                     cfg,
+		store:                   store,
+		broadcaster:             broadcaster,
+		sources:                 sources,
+		tracked:                 make(map[string]*trackedSession),
+		pendingRemoval:          make(map[string]time.Time),
+		removedKeys:             make(map[string]bool),
+		prevCPU:                 make(map[int]cpuSample),
+		processActivity:         make(map[string]ProcessActivity),
+		discoverProcessActivity: DiscoverProcessActivity,
+		processPollInterval:     defaultProcessActivityInterval,
+		health:                  healthMap,
+		reconfigureCh:           make(chan struct{}, 1),
+		newTmuxResolver:         NewTmuxResolver,
+		tmuxResolverTTL:         defaultTmuxResolverTTL,
 	}
 	broadcaster.SetHealthHook(m.sourceHealthSnapshot)
 	return m
@@ -258,24 +264,7 @@ func (m *Monitor) poll() {
 	// Emit health events for sources that crossed a status threshold.
 	m.maybeEmitHealthEvents(cfg, sources, health)
 
-	// Poll process activity for churning detection.
-	elapsed := now.Sub(m.lastProcessPoll)
-	activities, newCPU := DiscoverProcessActivity(m.prevCPU, elapsed)
-	m.prevCPU = newCPU
-	m.lastProcessPoll = now
-
-	// Build a lookup of process activity by working directory.
-	activityByDir := make(map[string]ProcessActivity, len(activities))
-	for _, a := range activities {
-		// If multiple processes share a CWD, keep the one with higher CPU.
-		if existing, ok := activityByDir[a.WorkingDir]; ok {
-			if a.CPU > existing.CPU {
-				activityByDir[a.WorkingDir] = a
-			}
-		} else {
-			activityByDir[a.WorkingDir] = a
-		}
-	}
+	activityByDir := m.refreshProcessActivity(now)
 
 	// Apply churning state to non-terminal, non-waiting sessions.
 	// Terminal sessions are done; waiting means blocked on user input.
@@ -422,6 +411,37 @@ func (m *Monitor) poll() {
 	if m.snapshotHook != nil {
 		m.snapshotHook(m.store.GetAll())
 	}
+}
+
+func (m *Monitor) refreshProcessActivity(now time.Time) map[string]ProcessActivity {
+	if m.discoverProcessActivity == nil {
+		return m.processActivity
+	}
+	if m.processPollInterval > 0 && !m.lastProcessPoll.IsZero() && now.Sub(m.lastProcessPoll) < m.processPollInterval {
+		return m.processActivity
+	}
+
+	elapsed := time.Duration(0)
+	if !m.lastProcessPoll.IsZero() {
+		elapsed = now.Sub(m.lastProcessPoll)
+	}
+	activities, newCPU := m.discoverProcessActivity(m.prevCPU, elapsed)
+	m.prevCPU = newCPU
+	m.lastProcessPoll = now
+
+	activityByDir := make(map[string]ProcessActivity, len(activities))
+	for _, a := range activities {
+		// If multiple processes share a CWD, keep the one with higher CPU.
+		if existing, ok := activityByDir[a.WorkingDir]; ok {
+			if a.CPU > existing.CPU {
+				activityByDir[a.WorkingDir] = a
+			}
+			continue
+		}
+		activityByDir[a.WorkingDir] = a
+	}
+	m.processActivity = activityByDir
+	return m.processActivity
 }
 
 func (m *Monitor) cachedTmuxResolver(now time.Time) *TmuxResolver {

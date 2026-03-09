@@ -231,6 +231,92 @@ func TestPollNormalSessionLifecycle(t *testing.T) {
 	}
 }
 
+func TestPollCachesProcessActivityBetweenRefreshes(t *testing.T) {
+	dir := t.TempDir()
+	jsonlPath := filepath.Join(dir, "session-proc.jsonl")
+
+	now := time.Now().UTC()
+	ts1 := now.Format(time.RFC3339Nano)
+	ts2 := now.Add(time.Second).Format(time.RFC3339Nano)
+	writeJSONL(t, jsonlPath,
+		jsonlLine("user", "session-proc", ts1, "", "", "/home/user/project")+
+			jsonlLine("assistant", "session-proc", ts2, "claude-opus-4-5-20251101", "", "/home/user/project"))
+
+	src := &testSource{
+		handles: []SessionHandle{newTestHandle("session-proc", jsonlPath, "/home/user/project", now)},
+	}
+
+	cfg := defaultTestConfig()
+	cfg.Monitor.ChurningCPUThreshold = 15.0
+	m, store, _ := newPollTestMonitor(src, cfg)
+	m.processPollInterval = 5 * time.Second
+
+	callCount := 0
+	m.discoverProcessActivity = func(prevCPU map[int]cpuSample, elapsed time.Duration) ([]ProcessActivity, map[int]cpuSample) {
+		callCount++
+		if callCount == 1 {
+			return []ProcessActivity{{
+				PID:        321,
+				CPU:        30.0,
+				TCPConns:   0,
+				WorkingDir: "/home/user/project",
+			}}, prevCPU
+		}
+		return []ProcessActivity{{
+			PID:        321,
+			CPU:        2.0,
+			TCPConns:   0,
+			WorkingDir: "/home/user/project",
+		}}, prevCPU
+	}
+
+	m.poll()
+
+	state, ok := store.Get("claude:session-proc")
+	if !ok {
+		t.Fatal("session should exist after first poll")
+	}
+	if callCount != 1 {
+		t.Fatalf("discoverProcessActivity calls after first poll = %d, want 1", callCount)
+	}
+	if !state.IsChurning {
+		t.Fatal("session should be churning after initial process discovery")
+	}
+	if state.PID != 321 {
+		t.Fatalf("PID after first poll = %d, want 321", state.PID)
+	}
+
+	m.poll()
+
+	state, ok = store.Get("claude:session-proc")
+	if !ok {
+		t.Fatal("session should exist after second poll")
+	}
+	if callCount != 1 {
+		t.Fatalf("discoverProcessActivity calls after cached poll = %d, want 1", callCount)
+	}
+	if !state.IsChurning {
+		t.Fatal("session should keep cached churning state before refresh interval elapses")
+	}
+
+	m.lastProcessPoll = time.Now().Add(-(m.processPollInterval + time.Second))
+	m.poll()
+
+	state, ok = store.Get("claude:session-proc")
+	if !ok {
+		t.Fatal("session should exist after third poll")
+	}
+	if callCount != 2 {
+		t.Fatalf("discoverProcessActivity calls after refresh poll = %d, want 2", callCount)
+	}
+	if state.IsChurning {
+		t.Fatal("session should clear churning after refreshed process activity drops below threshold")
+	}
+	if state.PID != 321 {
+		t.Fatalf("PID after refresh = %d, want 321", state.PID)
+	}
+}
+
 func TestPollTerminalSessionNotRecreatedAfterRemoval(t *testing.T) {
 	dir := t.TempDir()
 	jsonlPath := filepath.Join(dir, "session-term.jsonl")
