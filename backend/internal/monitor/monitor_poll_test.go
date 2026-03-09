@@ -312,8 +312,12 @@ func TestPollDeadSessionSkippedOnStartup(t *testing.T) {
 	if !m.removedKeys[key] {
 		t.Error("dead session should be added to removedKeys")
 	}
-	if _, ok := m.tracked[key]; ok {
-		t.Error("dead session should be removed from tracked map")
+	ts, ok := m.tracked[key]
+	if !ok {
+		t.Fatal("dead session should retain tracked offset for restart recovery")
+	}
+	if ts.fileOffset == 0 {
+		t.Error("dead session should retain a non-zero tracked offset")
 	}
 }
 
@@ -658,7 +662,7 @@ func TestPollRemovedSessionResumesAfterStaleCleanup(t *testing.T) {
 	}
 
 	cfg := defaultTestConfig()
-	cfg.Monitor.CompletionRemoveAfter = 0      // immediate removal
+	cfg.Monitor.CompletionRemoveAfter = 0       // immediate removal
 	cfg.Monitor.SessionStaleAfter = time.Second // short stale window for test
 	m, store, _ := newPollTestMonitor(src, cfg)
 
@@ -710,6 +714,71 @@ func TestPollRemovedSessionResumesAfterStaleCleanup(t *testing.T) {
 	// removedKeys should be cleared for the resumed session.
 	if m.removedKeys[key] {
 		t.Error("removedKeys should be cleared after session resumes")
+	}
+}
+
+func TestPollInitialStaleCodexSessionResumesAfterNewData(t *testing.T) {
+	base := t.TempDir()
+	t.Setenv("CODEX_HOME", base)
+
+	sessionID := "01234567-abcd-ef01-2345-67890abcdef0"
+	sessDir := filepath.Join(base, "sessions", "2026", "03", "09")
+	if err := os.MkdirAll(sessDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	rollout := filepath.Join(sessDir, "rollout-1738000000-"+sessionID+".jsonl")
+	oldTime := time.Now().UTC().Add(-10 * time.Minute)
+	oldTS := oldTime.Format(time.RFC3339Nano)
+	oldTS2 := oldTime.Add(time.Second).Format(time.RFC3339Nano)
+	oldTS3 := oldTime.Add(2 * time.Second).Format(time.RFC3339Nano)
+	content := fmt.Sprintf(`{"timestamp":"%s","type":"session_meta","payload":{"id":"%s","model":"gpt-5.4","timestamp":"%s"}}
+{"timestamp":"%s","type":"turn_context","payload":{"cwd":"/tmp/proj","model":"gpt-5.4"}}
+{"timestamp":"%s","type":"event_msg","payload":{"type":"user_message","payload":{"text":"stale"}}}
+`, oldTS, sessionID, oldTS, oldTS2, oldTS3)
+	writeJSONL(t, rollout, content)
+
+	cfg := defaultTestConfig()
+	cfg.Monitor.SessionStaleAfter = 2 * time.Minute
+	m, store, _ := newPollTestMonitorWithSources([]Source{NewCodexSource(10 * time.Minute)}, cfg)
+
+	key := trackingKey("codex", sessionID)
+
+	// Poll 1 simulates startup: the old session is skipped as stale.
+	m.poll()
+
+	if _, ok := store.Get(key); ok {
+		t.Fatal("stale startup session should not be restored before new data arrives")
+	}
+	if !m.removedKeys[key] {
+		t.Fatal("initial stale codex session should be suppressed via removedKeys")
+	}
+	if _, ok := m.tracked[key]; !ok {
+		t.Fatal("tracked entry should be retained so new Codex data can restore the session")
+	}
+
+	// Append fresh data to simulate the user resuming the same Codex session
+	// after the backend restarts.
+	newTime := time.Now().UTC()
+	newTS := newTime.Format(time.RFC3339Nano)
+	appendJSONL(t, rollout,
+		fmt.Sprintf(`{"timestamp":"%s","type":"event_msg","payload":{"type":"user_message","payload":{"text":"resume"}}}
+`, newTS))
+
+	m.poll()
+
+	state, ok := store.Get(key)
+	if !ok {
+		t.Fatal("codex session should be restored when new data arrives after startup suppression")
+	}
+	if state.Source != "codex" {
+		t.Errorf("Source = %q, want %q", state.Source, "codex")
+	}
+	if state.WorkingDir != "/tmp/proj" {
+		t.Errorf("WorkingDir = %q, want %q", state.WorkingDir, "/tmp/proj")
+	}
+	if m.removedKeys[key] {
+		t.Error("removedKeys should be cleared after the Codex session resumes")
 	}
 }
 
@@ -1759,7 +1828,7 @@ func TestPollMarkTerminalViaSessionEndMarkerDoesNotDeadlock(t *testing.T) {
 
 	// Verify an EventTerminal was emitted (confirms emitEvent ran successfully).
 	var gotTerminalEvent bool
-	drain:
+drain:
 	for {
 		select {
 		case ev := <-statsEvents:
