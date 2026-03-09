@@ -30,6 +30,7 @@ function stubCtx() {
     moveTo: vi.fn(),
     lineTo: vi.fn(),
     stroke: vi.fn(),
+    strokeRect: vi.fn(),
     fillText: vi.fn(),
     fillRect: vi.fn(),
     arc: vi.fn(),
@@ -42,14 +43,24 @@ function stubCtx() {
 /** Creates a stub ctx that records every fillStyle value at the moment fillRect is called. */
 function stubTrackingCtx() {
   const ctx = stubCtx();
-  const fillStyles = [];
+  const rects = [];
   let currentFillStyle = '';
+  let currentStrokeStyle = '';
   Object.defineProperty(ctx, 'fillStyle', {
     get() { return currentFillStyle; },
     set(v) { currentFillStyle = v; },
   });
-  ctx.fillRect = vi.fn(function () { fillStyles.push(currentFillStyle); });
-  return { ctx, fillStyles };
+  Object.defineProperty(ctx, 'strokeStyle', {
+    get() { return currentStrokeStyle; },
+    set(v) { currentStrokeStyle = v; },
+  });
+  ctx.fillRect = vi.fn(function (x, y, width, height) {
+    rects.push({ kind: 'fill', style: currentFillStyle, x, y, width, height });
+  });
+  ctx.strokeRect = vi.fn(function (x, y, width, height) {
+    rects.push({ kind: 'stroke', style: currentStrokeStyle, x, y, width, height });
+  });
+  return { ctx, rects };
 }
 
 describe('Dashboard', () => {
@@ -243,36 +254,115 @@ describe('Dashboard', () => {
 
   describe('context bar color thresholds', () => {
     it('uses green (#22c55e) for utilization < 50%', () => {
-      const { ctx, fillStyles } = stubTrackingCtx();
+      const { ctx, rects } = stubTrackingCtx();
       dashboard.draw(ctx, DEFAULT_BOUNDS, [makeSession({ contextUtilization: 0.3 })]);
-      expect(fillStyles).toContain('#22c55e');
+      expect(rects.some((rect) => rect.style === '#22c55e')).toBe(true);
     });
 
     it('uses amber (#d97706) for utilization > 50% and <= 80%', () => {
-      const { ctx, fillStyles } = stubTrackingCtx();
+      const { ctx, rects } = stubTrackingCtx();
       dashboard.draw(ctx, DEFAULT_BOUNDS, [makeSession({ contextUtilization: 0.65 })]);
-      expect(fillStyles).toContain('#d97706');
+      expect(rects.some((rect) => rect.style === '#d97706')).toBe(true);
     });
 
     it('uses red (#e94560) for utilization > 80%', () => {
-      const { ctx, fillStyles } = stubTrackingCtx();
+      const { ctx, rects } = stubTrackingCtx();
       dashboard.draw(ctx, DEFAULT_BOUNDS, [makeSession({ contextUtilization: 0.95 })]);
-      expect(fillStyles).toContain('#e94560');
+      expect(rects.some((rect) => rect.style === '#e94560')).toBe(true);
     });
 
     it('uses green at exactly 50% (boundary)', () => {
-      const { ctx, fillStyles } = stubTrackingCtx();
+      const { ctx, rects } = stubTrackingCtx();
       dashboard.draw(ctx, DEFAULT_BOUNDS, [makeSession({ contextUtilization: 0.5 })]);
-      expect(fillStyles).toContain('#22c55e');
-      expect(fillStyles).not.toContain('#d97706');
-      expect(fillStyles).not.toContain('#e94560');
+      const styles = rects.map((rect) => rect.style);
+      expect(styles).toContain('#22c55e');
+      expect(styles).not.toContain('#d97706');
+      expect(styles).not.toContain('#e94560');
     });
 
     it('uses amber at exactly 80% (boundary)', () => {
-      const { ctx, fillStyles } = stubTrackingCtx();
+      const { ctx, rects } = stubTrackingCtx();
       dashboard.draw(ctx, DEFAULT_BOUNDS, [makeSession({ contextUtilization: 0.8 })]);
-      expect(fillStyles).toContain('#d97706');
-      expect(fillStyles).not.toContain('#e94560');
+      const styles = rects.map((rect) => rect.style);
+      expect(styles).toContain('#d97706');
+      expect(styles).not.toContain('#e94560');
+    });
+  });
+
+  describe('context bar visibility', () => {
+    const leaderboardCols = {
+      rank: 20,
+      badge: 46,
+      name: 68,
+      model: 240,
+      tokens: 320,
+      bar: 400,
+      barWidth: 100,
+      pct: 520,
+      elapsed: 700,
+    };
+
+    it('keeps a minimum fill width for non-zero utilization', () => {
+      const { ctx, rects } = stubTrackingCtx();
+
+      dashboard._drawLeaderboardRow(
+        ctx,
+        leaderboardCols,
+        100,
+        1,
+        makeSession({ contextUtilization: 0.01 }),
+        null,
+        null,
+      );
+
+      const fillRect = rects.find((rect) => rect.kind === 'fill' && rect.style === '#22c55e');
+      expect(fillRect?.width).toBe(3);
+      expect(fillRect?.height).toBe(10);
+    });
+
+    it('renders a visible outline even when utilization is zero', () => {
+      const { ctx, rects } = stubTrackingCtx();
+
+      dashboard._drawLeaderboardRow(
+        ctx,
+        leaderboardCols,
+        100,
+        1,
+        makeSession({ contextUtilization: 0 }),
+        null,
+        null,
+      );
+
+      const borderRect = rects.find((rect) => rect.kind === 'stroke');
+      const coloredFill = rects.find(
+        (rect) => rect.kind === 'fill'
+          && ['#22c55e', '#d97706', '#e94560'].includes(rect.style),
+      );
+
+      expect(borderRect?.style).toBe('rgba(255,255,255,0.18)');
+      expect(coloredFill).toBeUndefined();
+    });
+
+    it('rounds the bar position for consistent vertical centering', () => {
+      const { ctx, rects } = stubTrackingCtx();
+
+      dashboard._drawLeaderboardRow(
+        ctx,
+        leaderboardCols,
+        100.4,
+        1,
+        makeSession({ contextUtilization: 0.5 }),
+        null,
+        null,
+      );
+
+      const backgroundRect = rects.find(
+        (rect) => rect.kind === 'fill' && rect.style === 'rgba(255,255,255,0.06)',
+      );
+      const fillRect = rects.find((rect) => rect.kind === 'fill' && rect.style === '#22c55e');
+
+      expect(backgroundRect?.y).toBe(94);
+      expect(fillRect?.y).toBe(95);
     });
   });
 

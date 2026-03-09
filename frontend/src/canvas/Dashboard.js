@@ -8,6 +8,8 @@ const STATS_HEIGHT = 40;
 const TAB_BAR_HEIGHT = 28;
 const LEADERBOARD_HEADER_HEIGHT = 28;
 const LEADERBOARD_ROW_HEIGHT = 26;
+const LEADERBOARD_BAR_HEIGHT = 12;
+const LEADERBOARD_BAR_MIN_FILL_WIDTH = 3;
 const SECTION_GAP = 16;
 const MAX_LEADERBOARD_ROWS = 12;
 const MIN_DASHBOARD_HEIGHT = 160;
@@ -272,7 +274,7 @@ export class Dashboard {
   }
 
   _drawLeaderboardRow(ctx, cols, cy, rank, session, badge, title) {
-    const util = session.contextUtilization || 0;
+    const util = Math.max(0, Math.min(session.contextUtilization || 0, 1));
     const pct = (util * 100).toFixed(0);
     const isTerminal = TERMINAL_ACTIVITIES.has(session.activity);
     const alpha = isTerminal ? 0.4 : 0.85;
@@ -334,19 +336,33 @@ export class Dashboard {
     ctx.fillText(formatTokens(session.tokensUsed || 0), cols.tokens, cy);
 
     // Utilization bar
-    const barH = 10;
-    const barY = cy - barH / 2;
+    const barX = Math.round(cols.bar);
+    const barY = Math.round(cy - LEADERBOARD_BAR_HEIGHT / 2);
+    const barWidth = Math.max(0, Math.round(cols.barWidth));
+    const innerX = barX + 1;
+    const innerY = barY + 1;
+    const innerWidth = Math.max(0, barWidth - 2);
+    const innerHeight = Math.max(0, LEADERBOARD_BAR_HEIGHT - 2);
 
     // Bar background
-    ctx.fillStyle = 'rgba(255,255,255,0.04)';
-    ctx.fillRect(cols.bar, barY, cols.barWidth, barH);
+    ctx.fillStyle = 'rgba(255,255,255,0.06)';
+    ctx.fillRect(barX, barY, barWidth, LEADERBOARD_BAR_HEIGHT);
+    ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(barX + 0.5, barY + 0.5, Math.max(0, barWidth - 1), LEADERBOARD_BAR_HEIGHT - 1);
 
     // Bar fill — red above 80%, amber above 50%, green otherwise
     let barColor = '#22c55e';
     if (util > 0.8) barColor = '#e94560';
     else if (util > 0.5) barColor = '#d97706';
-    ctx.fillStyle = barColor;
-    ctx.fillRect(cols.bar, barY, cols.barWidth * util, barH);
+    if (util > 0 && innerWidth > 0 && innerHeight > 0) {
+      const fillWidth = Math.min(
+        innerWidth,
+        Math.max(Math.round(innerWidth * util), LEADERBOARD_BAR_MIN_FILL_WIDTH),
+      );
+      ctx.fillStyle = barColor;
+      ctx.fillRect(innerX, innerY, fillWidth, innerHeight);
+    }
 
     // Percentage
     ctx.fillStyle = '#777';
