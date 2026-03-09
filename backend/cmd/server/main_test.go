@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
@@ -105,6 +106,11 @@ func TestBuildSources(t *testing.T) {
 // newTestStack builds the full server stack used by main() without starting a
 // real listener. The stack is torn down automatically when the test finishes.
 func newTestStack(t *testing.T) *http.ServeMux {
+	mux, _ := newTestStackWithStore(t)
+	return mux
+}
+
+func newTestStackWithStore(t *testing.T) (*http.ServeMux, *session.Store) {
 	t.Helper()
 
 	cfg := &config.Config{
@@ -150,7 +156,7 @@ func newTestStack(t *testing.T) *http.ServeMux {
 
 	mux := http.NewServeMux()
 	server.SetupRoutes(mux)
-	return mux
+	return mux, store
 }
 
 func TestServerWiring_SessionsEndpoint(t *testing.T) {
@@ -185,6 +191,52 @@ func TestServerWiring_ConfigEndpoint(t *testing.T) {
 	}
 	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
 		t.Errorf("Content-Type = %q, want %q", ct, "application/json")
+	}
+}
+
+func TestServerWiring_SessionsEndpointRejectsNonGET(t *testing.T) {
+	mux := newTestStack(t)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions", nil)
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("POST /api/sessions: status %d, want %d", rec.Code, http.StatusMethodNotAllowed)
+	}
+}
+
+func TestServerWiring_ConfigEndpointRejectsNonGET(t *testing.T) {
+	mux := newTestStack(t)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/config", nil)
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("POST /api/config: status %d, want %d", rec.Code, http.StatusMethodNotAllowed)
+	}
+}
+
+func TestServerWiring_TailEndpointRejectsNonGET(t *testing.T) {
+	mux, store := newTestStackWithStore(t)
+
+	logPath := t.TempDir() + "/session.jsonl"
+	if err := os.WriteFile(logPath, []byte{}, 0o644); err != nil {
+		t.Fatalf("os.WriteFile: %v", err)
+	}
+	store.Update(&session.SessionState{
+		ID:      "session-1",
+		Name:    "session-1",
+		LogPath: logPath,
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/session-1/tail", nil)
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("POST /api/sessions/session-1/tail: status %d, want %d", rec.Code, http.StatusMethodNotAllowed)
 	}
 }
 
