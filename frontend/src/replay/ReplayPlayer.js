@@ -1,25 +1,62 @@
 import { authFetch } from '../auth.js';
 
-function parseSnapshotLine(line) {
+function parseSnapshotLine(line, lineNumber, malformedLines) {
   const trimmed = line.trim();
   if (!trimmed) {
     return null;
   }
 
-  const obj = JSON.parse(trimmed);
-  return { t: new Date(obj.t), s: obj.s || [] };
+  try {
+    const obj = JSON.parse(trimmed);
+    return { t: new Date(obj.t), s: obj.s || [] };
+  } catch (error) {
+    malformedLines.push({ lineNumber, error });
+    return null;
+  }
+}
+
+function formatMalformedReplayMessage(malformedLines) {
+  const lineNumbers = malformedLines
+    .slice(0, 3)
+    .map(entry => entry.lineNumber);
+
+  let lineText = '';
+  if (lineNumbers.length === 1) {
+    lineText = ` at line ${lineNumbers[0]}`;
+  } else if (lineNumbers.length > 1) {
+    lineText = ` at lines ${lineNumbers.join(', ')}`;
+  }
+
+  if (malformedLines.length > lineNumbers.length) {
+    lineText += ', and more';
+  }
+
+  const noun = malformedLines.length === 1 ? 'line' : 'lines';
+  return `Skipped ${malformedLines.length} malformed replay ${noun}${lineText}.`;
 }
 
 async function readReplaySnapshots(response) {
-  if (!response.body || typeof response.body.getReader !== 'function') {
-    const text = await response.text();
-    return text
-      .split('\n')
-      .map(line => parseSnapshotLine(line))
-      .filter(snapshot => snapshot !== null);
+  const snapshots = [];
+  const malformedLines = [];
+  let lineNumber = 0;
+
+  function addSnapshotLine(line) {
+    lineNumber++;
+    const snapshot = parseSnapshotLine(line, lineNumber, malformedLines);
+    if (snapshot !== null) {
+      snapshots.push(snapshot);
+    }
   }
 
-  const snapshots = [];
+  if (!response.body || typeof response.body.getReader !== 'function') {
+    const text = await response.text();
+    const lines = text.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      addSnapshotLine(lines[i]);
+    }
+    return { snapshots, malformedLines };
+  }
+
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
@@ -35,25 +72,19 @@ async function readReplaySnapshots(response) {
 
       let newlineIndex = buffer.indexOf('\n');
       while (newlineIndex !== -1) {
-        const snapshot = parseSnapshotLine(buffer.slice(0, newlineIndex));
-        if (snapshot) {
-          snapshots.push(snapshot);
-        }
+        addSnapshotLine(buffer.slice(0, newlineIndex));
         buffer = buffer.slice(newlineIndex + 1);
         newlineIndex = buffer.indexOf('\n');
       }
     }
 
     buffer += decoder.decode();
-    const finalSnapshot = parseSnapshotLine(buffer);
-    if (finalSnapshot) {
-      snapshots.push(finalSnapshot);
-    }
+    addSnapshotLine(buffer);
   } finally {
     reader.releaseLock();
   }
 
-  return snapshots;
+  return { snapshots, malformedLines };
 }
 
 /**
@@ -81,6 +112,8 @@ export class ReplayPlayer {
     this.onPlayStateChange = null;
     /** @type {function(string, string, number): void} called with (id, name, total) */
     this.onLoaded = null;
+    /** @type {function(string): void} */
+    this.onWarning = null;
   }
 
   /** List available replay files from the server. */
@@ -103,7 +136,16 @@ export class ReplayPlayer {
     const res = await authFetch(`/api/replays/${encodeURIComponent(id)}`);
     if (!res.ok) throw new Error(`Failed to load replay: ${res.status}`);
 
-    this.snapshots = await readReplaySnapshots(res);
+    const { snapshots, malformedLines } = await readReplaySnapshots(res);
+    this.snapshots = snapshots;
+
+    if (this.snapshots.length === 0 && malformedLines.length > 0) {
+      throw new Error(`Replay contains no valid snapshots. ${formatMalformedReplayMessage(malformedLines)}`);
+    }
+
+    if (malformedLines.length > 0) {
+      this.onWarning && this.onWarning(formatMalformedReplayMessage(malformedLines));
+    }
 
     this.onLoaded && this.onLoaded(id, id, this.snapshots.length);
     this._emit(0);

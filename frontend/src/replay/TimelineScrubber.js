@@ -32,12 +32,14 @@ export class TimelineScrubber {
     this._slider = null;
     this._nameEl = null;
     this._timeEl = null;
+    this._messageEl = null;
     this._speedBtns = [];
 
     // Wire player callbacks.
     player.onSeek = (index, total) => this._onSeek(index, total);
     player.onPlayStateChange = (playing) => this._onPlayState(playing);
     player.onLoaded = (id, name, total) => this._onLoaded(id, name, total, player.snapshots);
+    player.onWarning = (message) => this._setMessage(message, 'warning');
   }
 
   /** Show the replay file selector. */
@@ -169,12 +171,17 @@ export class TimelineScrubber {
   async _selectReplay(replay) {
     this._removeSelector();
     this._buildBar();
+    if (this._nameEl) {
+      this._nameEl.textContent = replay.name;
+    }
+    this._setMessage('');
 
     try {
       await this._player.loadReplay(replay.id);
       this._player.play();
     } catch (err) {
       console.error('Failed to load replay:', err);
+      this._setMessage(`Failed to load replay: ${err.message}`, 'error');
     }
   }
 
@@ -282,6 +289,11 @@ export class TimelineScrubber {
     this._barEl.appendChild(topRow);
     this._barEl.appendChild(heatmapCanvas);
     this._barEl.appendChild(ctrlRow);
+
+    this._messageEl = document.createElement('div');
+    this._messageEl.style.cssText = 'display:none;font-size:11px;color:#f6c177;';
+    this._barEl.appendChild(this._messageEl);
+
     document.body.appendChild(this._barEl);
   }
 
@@ -290,6 +302,7 @@ export class TimelineScrubber {
       this._barEl.remove();
       this._barEl = null;
     }
+    this._messageEl = null;
   }
 
   // ---- Player callbacks ----
@@ -378,6 +391,20 @@ export class TimelineScrubber {
     btn.style.cssText = 'background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.2);color:#dde;padding:3px 8px;cursor:pointer;font-size:13px;border-radius:3px;font-family:monospace;';
     btn.onclick = onClick;
     return btn;
+  }
+
+  _setMessage(message, tone = 'warning') {
+    if (!this._messageEl) return;
+
+    if (!message) {
+      this._messageEl.textContent = '';
+      this._messageEl.style.display = 'none';
+      return;
+    }
+
+    this._messageEl.textContent = message;
+    this._messageEl.style.display = 'block';
+    this._messageEl.style.color = tone === 'error' ? '#f88' : '#f6c177';
   }
 }
 
