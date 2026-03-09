@@ -23,6 +23,42 @@ const PARKING_LOT_BOTTOM_PADDING = 40;
 
 const TRACK_GROUP_GAP = 20;
 const TRACK_GROUP_LABEL_HEIGHT = 16;
+const ZONE_LABEL_HEIGHT = 22;
+const ZONE_LABEL_PADDING_X = 10;
+
+const PIT_ZONE_STYLE = Object.freeze({
+  backdrop: 'rgba(60, 68, 128, 0.24)',
+  tint: 'rgba(125, 134, 222, 0.12)',
+  gradientEdge: '#2e3350',
+  gradientMid: '#252a43',
+  border: '#7c86d6',
+  borderDash: [10, 6],
+  rail: 'rgba(164, 172, 255, 0.65)',
+  borderWidth: 1.5,
+  label: 'PIT',
+  labelColor: '#eef0ff',
+  labelBg: 'rgba(30, 34, 60, 0.96)',
+  labelBorder: 'rgba(164, 172, 255, 0.8)',
+  divider: 'rgba(124, 134, 214, 0.78)',
+  dividerWidth: 1,
+});
+
+const PARKING_ZONE_STYLE = Object.freeze({
+  backdrop: 'rgba(45, 72, 118, 0.22)',
+  tint: 'rgba(108, 168, 224, 0.1)',
+  gradientEdge: '#243247',
+  gradientMid: '#1d293c',
+  border: '#6f9cd4',
+  borderDash: [8, 6],
+  rail: 'rgba(142, 196, 255, 0.58)',
+  borderWidth: 1.5,
+  label: 'PARKED',
+  labelColor: '#e4f3ff',
+  labelBg: 'rgba(22, 32, 48, 0.96)',
+  labelBorder: 'rgba(142, 196, 255, 0.78)',
+  divider: 'rgba(111, 156, 212, 0.72)',
+  dividerWidth: 1,
+});
 
 function clampUnit(value) {
   if (!Number.isFinite(value)) return 0;
@@ -374,24 +410,20 @@ export class Track {
     const pitBounds = this.getPitBounds(canvasWidth, canvasHeight, activeLaneCount, pitLaneCount);
 
     if (pitLaneCount <= 0) {
-      // Collapsed pit: thin dashed line with label
       const midY = pitBounds.y + pitBounds.height / 2;
-      ctx.strokeStyle = '#444';
-      ctx.lineWidth = 1;
-      ctx.setLineDash([6, 8]);
+      ctx.fillStyle = PIT_ZONE_STYLE.backdrop;
+      ctx.fillRect(pitBounds.x - 5, pitBounds.y - 5, pitBounds.width + 10, pitBounds.height + 10);
+
+      ctx.strokeStyle = PIT_ZONE_STYLE.border;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([10, 6]);
       ctx.beginPath();
       ctx.moveTo(pitBounds.x, midY);
       ctx.lineTo(pitBounds.x + pitBounds.width, midY);
       ctx.stroke();
       ctx.setLineDash([]);
 
-      ctx.fillStyle = '#444';
-      ctx.font = 'bold 11px Courier New';
-      ctx.textAlign = 'right';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('PIT', pitBounds.x - 10, midY);
-      ctx.textBaseline = 'alphabetic';
-      ctx.textAlign = 'center';
+      this._drawZoneLabel(ctx, pitBounds, PIT_ZONE_STYLE);
       return pitBounds;
     }
 
@@ -409,8 +441,8 @@ export class Track {
     ctx.fillRect(laneLeft, gapTop, PIT_ENTRY_WIDTH, gapHeight);
 
     // Dashed side borders
-    ctx.strokeStyle = 'rgba(100,100,120,0.5)';
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(124,134,214,0.65)';
+    ctx.lineWidth = 1.5;
     ctx.setLineDash([4, 6]);
     ctx.beginPath();
     ctx.moveTo(laneLeft, gapTop);
@@ -424,7 +456,7 @@ export class Track {
 
     // Down-chevron arrows inside the lane
     const chevronCount = Math.max(1, Math.floor(gapHeight / 14));
-    ctx.strokeStyle = 'rgba(100,100,120,0.4)';
+    ctx.strokeStyle = 'rgba(164,172,255,0.55)';
     ctx.lineWidth = 1.5;
     for (let i = 0; i < chevronCount; i++) {
       const cy = gapTop + 8 + i * (gapHeight / chevronCount);
@@ -435,16 +467,7 @@ export class Track {
       ctx.stroke();
     }
 
-    this._drawAreaSurface(ctx, pitBounds, pitLaneCount, {
-      bg: '#1e1e2e',
-      gradientEdge: '#282838',
-      gradientMid: '#222232',
-      border: '#555',
-      borderDash: [8, 6],
-      label: 'PIT',
-      labelColor: '#555',
-      divider: '#333350',
-    });
+    this._drawAreaSurface(ctx, pitBounds, pitLaneCount, PIT_ZONE_STYLE);
 
     return pitBounds;
   }
@@ -453,53 +476,48 @@ export class Track {
     if (parkingLotLaneCount <= 0) return null;
     const lotBounds = this.getParkingLotBounds(canvasWidth, canvasHeight, activeLaneCount, pitLaneCount, parkingLotLaneCount);
 
-    this._drawAreaSurface(ctx, lotBounds, parkingLotLaneCount, {
-      bg: '#161624',
-      gradientEdge: '#1e1e2c',
-      gradientMid: '#1a1a28',
-      border: '#444',
-      borderDash: [6, 8],
-      label: 'PARKED',
-      labelColor: '#444',
-      divider: '#282840',
-    });
+    this._drawAreaSurface(ctx, lotBounds, parkingLotLaneCount, PARKING_ZONE_STYLE);
 
     return lotBounds;
   }
 
   _drawAreaSurface(ctx, bounds, laneCount, style) {
-    // Surface background
-    ctx.fillStyle = style.bg;
+    ctx.fillStyle = style.backdrop;
     ctx.fillRect(bounds.x - 5, bounds.y - 5, bounds.width + 10, bounds.height + 10);
 
-    // Surface gradient
     const grad = ctx.createLinearGradient(bounds.x, bounds.y, bounds.x, bounds.y + bounds.height);
     grad.addColorStop(0, style.gradientEdge);
-    grad.addColorStop(0.5, style.gradientMid);
+    grad.addColorStop(0.55, style.gradientMid);
     grad.addColorStop(1, style.gradientEdge);
     ctx.fillStyle = grad;
     ctx.fillRect(bounds.x, bounds.y, bounds.width, bounds.height);
 
-    // Dashed border
+    ctx.fillStyle = style.tint;
+    ctx.fillRect(bounds.x, bounds.y, bounds.width, bounds.height);
+
+    ctx.strokeStyle = style.rail;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.moveTo(bounds.x - 2, bounds.y);
+    ctx.lineTo(bounds.x + bounds.width + 2, bounds.y);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(bounds.x - 2, bounds.y + bounds.height);
+    ctx.lineTo(bounds.x + bounds.width + 2, bounds.y + bounds.height);
+    ctx.stroke();
+
     ctx.strokeStyle = style.border;
-    ctx.lineWidth = 1;
+    ctx.lineWidth = style.borderWidth;
     ctx.setLineDash(style.borderDash);
     ctx.strokeRect(bounds.x, bounds.y, bounds.width, bounds.height);
     ctx.setLineDash([]);
 
-    // Label
-    ctx.fillStyle = style.labelColor;
-    ctx.font = 'bold 14px Courier New';
-    ctx.textAlign = 'right';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(style.label, bounds.x - 10, bounds.y + bounds.height / 2);
-    ctx.textBaseline = 'alphabetic';
-    ctx.textAlign = 'center';
+    this._drawZoneLabel(ctx, bounds, style);
 
-    // Lane dividers
     if (laneCount > 1) {
       ctx.strokeStyle = style.divider;
-      ctx.lineWidth = 0.5;
+      ctx.lineWidth = style.dividerWidth;
       ctx.setLineDash([6, 8]);
       for (let i = 1; i < laneCount; i++) {
         const y = bounds.y + i * bounds.laneHeight;
@@ -510,6 +528,26 @@ export class Track {
       }
       ctx.setLineDash([]);
     }
+  }
+
+  _drawZoneLabel(ctx, bounds, style) {
+    const labelWidth = Math.max(56, Math.ceil(ctx.measureText(style.label).width) + ZONE_LABEL_PADDING_X * 2);
+    const labelX = bounds.x - 12 - labelWidth;
+    const labelY = bounds.y + bounds.height / 2 - ZONE_LABEL_HEIGHT / 2;
+
+    ctx.fillStyle = style.labelBg;
+    ctx.fillRect(labelX, labelY, labelWidth, ZONE_LABEL_HEIGHT);
+    ctx.strokeStyle = style.labelBorder;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([]);
+    ctx.strokeRect(labelX, labelY, labelWidth, ZONE_LABEL_HEIGHT);
+
+    ctx.fillStyle = style.labelColor;
+    ctx.font = 'bold 12px Courier New';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(style.label, labelX + labelWidth / 2, labelY + ZONE_LABEL_HEIGHT / 2);
+    ctx.textBaseline = 'alphabetic';
   }
 
   _drawStartLine(ctx, bounds) {
