@@ -64,15 +64,9 @@ export class Character {
     this.yawnActive = false;
     this.headTurnPhase = 0;
 
-    // Pit lane dimming (0=normal, 1=fully dimmed)
     this.inPit = false;
-    this.pitDim = 0;
-    this.pitDimTarget = 0;
 
-    // Parking lot dimming (0=normal, 1=fully dimmed)
     this.inParkingLot = false;
-    this.parkingLotDim = 0;
-    this.parkingLotDimTarget = 0;
 
     // Zone transition waypoints
     this.transitionWaypoints = null;
@@ -217,12 +211,6 @@ export class Character {
     this.hoverGlow += (hoverTarget - this.hoverGlow) * 0.15 * dtScale;
     if (this.hoverGlow > 0.01) this.hoverGlowPhase += 0.04 * dtScale;
 
-    // Pit dimming transition
-    this.pitDim += (this.pitDimTarget - this.pitDim) * 0.08 * dtScale;
-
-    // Parking lot dimming transition
-    this.parkingLotDim += (this.parkingLotDimTarget - this.parkingLotDim) * 0.06 * dtScale;
-
     this.dotPhase += 0.04 * dtScale;
 
     // Store position history for ghost trail
@@ -356,16 +344,7 @@ export class Character {
 
     ctx.save();
 
-    // Zone dimming
-    const pitAlpha = 1 - this.pitDim * 0.15;
-    const parkingAlpha = 1 - this.parkingLotDim * 0.2;
-    ctx.globalAlpha = this.opacity * pitAlpha * parkingAlpha;
-
-    if (this.parkingLotDim > 0.01) {
-      ctx.filter = `saturate(${1 - this.parkingLotDim * 0.3})`;
-    } else {
-      ctx.filter = 'none';
-    }
+    ctx.globalAlpha = this.opacity;
 
     // Error spin
     if (activity === 'errored') {

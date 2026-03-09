@@ -172,64 +172,6 @@ describe('lerp interpolation', () => {
   });
 });
 
-describe('zone dimming', () => {
-  it('pitDim approaches pitDimTarget', () => {
-    const ch = new Character(makeState());
-    ch.pitDimTarget = 1;
-
-    for (let i = 0; i < 120; i++) ch.animate(null, 1 / 60);
-
-    expect(ch.pitDim).toBeCloseTo(1, 1);
-  });
-
-  it('parkingLotDim approaches parkingLotDimTarget', () => {
-    const ch = new Character(makeState());
-    ch.parkingLotDimTarget = 1;
-
-    for (let i = 0; i < 180; i++) ch.animate(null, 1 / 60);
-
-    expect(ch.parkingLotDim).toBeCloseTo(1, 1);
-  });
-
-  it('pit dimming reduces effective opacity to 0.85', () => {
-    const ch = new Character(makeState());
-    ch.pitDim = 1.0;
-    const pitAlpha = 1 - ch.pitDim * 0.15;
-    expect(pitAlpha).toBeCloseTo(0.85);
-  });
-
-  it('parking lot dimming reduces effective opacity to 0.8', () => {
-    const ch = new Character(makeState());
-    ch.parkingLotDim = 1.0;
-    const parkingAlpha = 1 - ch.parkingLotDim * 0.2;
-    expect(parkingAlpha).toBeCloseTo(0.8);
-  });
-
-  it('combined zone dimming stacks multiplicatively', () => {
-    const ch = new Character(makeState());
-    ch.pitDim = 1.0;
-    ch.parkingLotDim = 1.0;
-    const pitAlpha = 1 - ch.pitDim * 0.15;
-    const parkingAlpha = 1 - ch.parkingLotDim * 0.2;
-    expect(ch.opacity * pitAlpha * parkingAlpha).toBeCloseTo(0.68);
-  });
-
-  it('parking lot dimming is slower than pit dimming', () => {
-    const pitCh = new Character(makeState());
-    pitCh.pitDimTarget = 1;
-
-    const parkCh = new Character(makeState());
-    parkCh.parkingLotDimTarget = 1;
-
-    for (let i = 0; i < 20; i++) {
-      pitCh.animate(null, 1 / 60);
-      parkCh.animate(null, 1 / 60);
-    }
-
-    expect(pitCh.pitDim).toBeGreaterThan(parkCh.parkingLotDim);
-  });
-});
-
 describe('activity transitions update animation state', () => {
   it('sets transitionTimer and prevActivity on change', () => {
     const ch = new Character(makeState({ activity: 'thinking' }));
@@ -673,18 +615,6 @@ describe('draw calls ctx methods without errors', () => {
     expect(ctx.createRadialGradient).toHaveBeenCalled();
   });
 
-  it('applies zone dimming in draw', () => {
-    const ch = new Character(makeState());
-    ch.setTarget(100, 100);
-    ch.pitDim = 0.5;
-    ch.parkingLotDim = 0.5;
-    const ctx = makeCtx();
-    ch.draw(ctx);
-    // globalAlpha should be reduced from full 1.0
-    // pitAlpha = 1 - 0.5*0.15 = 0.925, parkingAlpha = 1 - 0.5*0.2 = 0.9
-    // expected = 1.0 * 0.925 * 0.9 = 0.8325
-    expect(ctx.globalAlpha).toBeCloseTo(0.8325, 2);
-  });
 });
 
 describe('each animation state produces expected visual changes', () => {

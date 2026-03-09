@@ -209,65 +209,6 @@ describe('lerp interpolation', () => {
   });
 });
 
-describe('zone dimming', () => {
-  it('pitDim approaches pitDimTarget', () => {
-    const racer = new Racer(makeState());
-    racer.pitDimTarget = 1;
-
-    for (let i = 0; i < 120; i++) racer.animate(null, 1 / 60);
-
-    expect(racer.pitDim).toBeCloseTo(1, 1);
-  });
-
-  it('parkingLotDim approaches parkingLotDimTarget', () => {
-    const racer = new Racer(makeState());
-    racer.parkingLotDimTarget = 1;
-
-    for (let i = 0; i < 180; i++) racer.animate(null, 1 / 60);
-
-    expect(racer.parkingLotDim).toBeCloseTo(1, 1);
-  });
-
-  it('pit dimming reduces effective opacity to 0.85', () => {
-    const racer = new Racer(makeState());
-    racer.pitDim = 1.0;
-    const pitAlpha = 1 - racer.pitDim * 0.15;
-    expect(pitAlpha).toBeCloseTo(0.85);
-  });
-
-  it('parking lot dimming reduces effective opacity to 0.8', () => {
-    const racer = new Racer(makeState());
-    racer.parkingLotDim = 1.0;
-    const parkingAlpha = 1 - racer.parkingLotDim * 0.2;
-    expect(parkingAlpha).toBeCloseTo(0.8);
-  });
-
-  it('combined zone dimming stacks multiplicatively', () => {
-    const racer = new Racer(makeState());
-    racer.pitDim = 1.0;
-    racer.parkingLotDim = 1.0;
-    const pitAlpha = 1 - racer.pitDim * 0.15;
-    const parkingAlpha = 1 - racer.parkingLotDim * 0.2;
-    expect(racer.opacity * pitAlpha * parkingAlpha).toBeCloseTo(0.68);
-  });
-
-  it('parking lot dimming is slower than pit dimming', () => {
-    const pitRacer = new Racer(makeState());
-    pitRacer.pitDimTarget = 1;
-
-    const parkRacer = new Racer(makeState());
-    parkRacer.parkingLotDimTarget = 1;
-
-    for (let i = 0; i < 20; i++) {
-      pitRacer.animate(null, 1 / 60);
-      parkRacer.animate(null, 1 / 60);
-    }
-
-    // pit lerp rate 0.08 > parking lot lerp rate 0.06
-    expect(pitRacer.pitDim).toBeGreaterThan(parkRacer.parkingLotDim);
-  });
-});
-
 describe('error stage progression', () => {
   it('stage 0 (skid) for first 0.5s', () => {
     const racer = new Racer(makeState({ activity: 'errored' }));

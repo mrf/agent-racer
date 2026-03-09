@@ -176,13 +176,8 @@ export class Racer {
 
     // Pit lane dimming (0=normal, 1=fully dimmed)
     this.inPit = false;
-    this.pitDim = 0;
-    this.pitDimTarget = 0;
 
-    // Parking lot dimming (0=normal, 1=fully dimmed)
     this.inParkingLot = false;
-    this.parkingLotDim = 0;
-    this.parkingLotDimTarget = 0;
 
     // Zone transition waypoints (track <-> pit <-> parking lot)
     this.transitionWaypoints = null;
@@ -421,12 +416,6 @@ export class Racer {
     const hoverTarget = this.hovered && this.hasTmux ? 1 : 0;
     this.hoverGlow += (hoverTarget - this.hoverGlow) * 0.15 * dtScale;
     if (this.hoverGlow > 0.01) this.hoverGlowPhase += 0.04 * dtScale;
-
-    // Pit dimming transition
-    this.pitDim += (this.pitDimTarget - this.pitDim) * 0.08 * dtScale;
-
-    // Parking lot dimming transition
-    this.parkingLotDim += (this.parkingLotDimTarget - this.parkingLotDim) * 0.06 * dtScale;
 
     // Draft intensity decays to 0 each frame (reset by RaceCanvas each update)
     this.draftIntensity = Math.max(0, this.draftIntensity - 0.1 * dtScale);
@@ -695,24 +684,18 @@ export class Racer {
 
     ctx.save();
 
-    // Zone dimming: subtle opacity reduction so details remain readable
-    const pitAlpha = 1 - this.pitDim * 0.15;
-    const parkingAlpha = 1 - this.parkingLotDim * 0.2;
     const isTrackComplete = this._isTrackComplete();
     const completionAlpha = isTrackComplete ? TRACK_COMPLETE_ALPHA : 1;
-    ctx.globalAlpha = this.opacity * pitAlpha * parkingAlpha * completionAlpha;
+    ctx.globalAlpha = this.opacity * completionAlpha;
 
-    // Parking lot: mild desaturation so completed sessions are still legible
-    if (this.parkingLotDim > 0.01) {
-      ctx.filter = `saturate(${1 - this.parkingLotDim * 0.3})`;
-    } else if (isTrackComplete) {
+    if (isTrackComplete) {
       ctx.filter = 'grayscale(0.35) saturate(0.45)';
     } else {
       ctx.filter = 'none';
     }
 
     // Draw hamsters behind the car (before error spin so they don't rotate)
-    const zoneAlpha = this.opacity * pitAlpha * parkingAlpha;
+    const zoneAlpha = this.opacity;
     for (const hamster of this.hamsters.values()) {
       this.drawTowRope(ctx, hamster);
       const origOpacity = hamster.opacity;
@@ -843,7 +826,7 @@ export class Racer {
     // by the error-spin transform or parking-lot filter.
     if (this.bubble.isVisible) {
       ctx.save();
-      ctx.globalAlpha = this.opacity * (1 - this.pitDim * 0.15) * (1 - this.parkingLotDim * 0.2);
+      ctx.globalAlpha = this.opacity;
       this.bubble.draw(ctx, x, y);
       ctx.restore();
     }

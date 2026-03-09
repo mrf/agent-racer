@@ -264,9 +264,7 @@ export class BaseCanvas {
 
         entity.setTarget(targetX, targetY);
         entity.inPit = false;
-        entity.pitDimTarget = 0;
         entity.inParkingLot = false;
-        entity.parkingLotDimTarget = 0;
         entity.animate(this.particles, this.dt);
 
         if (afterPosition) {
@@ -308,9 +306,7 @@ export class BaseCanvas {
 
       entity.setTarget(targetX, targetY);
       entity.inPit = true;
-      entity.pitDimTarget = 1;
       entity.inParkingLot = false;
-      entity.parkingLotDimTarget = 0;
       entity.animate(this.particles, this.dt);
 
       if (afterPosition) {
@@ -356,9 +352,7 @@ export class BaseCanvas {
 
       entity.setTarget(targetX, targetY);
       entity.inPit = false;
-      entity.pitDimTarget = 0;
       entity.inParkingLot = true;
-      entity.parkingLotDimTarget = 1;
       entity.animate(this.particles, this.dt);
 
       if (afterPosition) {
