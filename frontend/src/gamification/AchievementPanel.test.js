@@ -39,27 +39,29 @@ afterEach(() => {
 
 describe('AchievementPanel', () => {
   describe('DOM construction', () => {
-    it('creates overlay element on body', () => {
+    it('does not create overlay element on body during construction', () => {
       panel = new AchievementPanel();
-      expect(document.getElementById('achievement-panel')).toBeTruthy();
+      expect(document.getElementById('achievement-panel')).toBeNull();
     });
 
-    it('starts hidden', () => {
+    it('starts hidden without injecting the panel DOM', () => {
       panel = new AchievementPanel();
       expect(panel.isVisible).toBe(false);
-      expect(document.getElementById('achievement-panel').classList.contains('hidden')).toBe(true);
+      expect(document.getElementById('achievement-panel')).toBeNull();
     });
 
-    it('has dialog role and aria attributes', () => {
+    it('creates panel DOM with dialog attributes on first show()', () => {
       panel = new AchievementPanel();
+      panel.show();
       const overlay = document.getElementById('achievement-panel');
       expect(overlay.getAttribute('role')).toBe('dialog');
       expect(overlay.getAttribute('aria-label')).toBe('Achievements');
       expect(overlay.getAttribute('aria-modal')).toBe('true');
     });
 
-    it('contains header, body, footer, and tooltip', () => {
+    it('creates header, body, footer, and tooltip on first show()', () => {
       panel = new AchievementPanel();
+      panel.show();
       expect(document.querySelector('.ap-header')).toBeTruthy();
       expect(document.querySelector('.ap-body')).toBeTruthy();
       expect(document.querySelector('.ap-footer')).toBeTruthy();
@@ -223,6 +225,7 @@ describe('AchievementPanel', () => {
   describe('destroy', () => {
     it('removes overlay from DOM', () => {
       panel = new AchievementPanel();
+      panel.show();
       expect(document.getElementById('achievement-panel')).toBeTruthy();
       panel.destroy();
       expect(document.getElementById('achievement-panel')).toBeNull();
@@ -235,6 +238,12 @@ describe('AchievementPanel', () => {
       const removeSpy = vi.spyOn(document, 'removeEventListener');
       panel.destroy();
       expect(mousemoveCalls(removeSpy)).toHaveLength(1);
+      panel = null;
+    });
+
+    it('is safe to destroy before first show()', () => {
+      panel = new AchievementPanel();
+      expect(() => panel.destroy()).not.toThrow();
       panel = null;
     });
   });

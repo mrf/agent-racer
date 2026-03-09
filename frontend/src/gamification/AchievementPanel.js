@@ -64,26 +64,42 @@ function buildPanelDOM() {
 
 export class AchievementPanel {
   constructor() {
-    this._overlay = buildPanelDOM();
-    this._body = this._overlay.querySelector('.ap-body');
-    this._counter = this._overlay.querySelector('.ap-counter');
-    this._tooltip = this._overlay.querySelector('.ap-tooltip');
+    this._overlay = null;
+    this._body = null;
+    this._counter = null;
+    this._tooltip = null;
+    this._closeButton = null;
     this._visible = false;
+    this._destroyed = false;
     this._achievements = [];
     this._dirty = true; // force fetch on first open
     this._returnFocus = null;
-
-    this._overlay.querySelector('.ap-close').addEventListener('click', () => this.hide());
-    // Click on backdrop (outside ap-inner) closes panel
-    this._overlay.addEventListener('click', (e) => {
-      if (e.target === this._overlay) this.hide();
-    });
 
     this._onMouseMove = (e) => this._repositionTooltip(e.clientX, e.clientY);
     this._onKeyDown = (e) => this._handleKeyDown(e);
   }
 
+  _ensureDOM() {
+    if (this._destroyed) return null;
+    if (this._overlay) return this._overlay;
+
+    this._overlay = buildPanelDOM();
+    this._body = this._overlay.querySelector('.ap-body');
+    this._counter = this._overlay.querySelector('.ap-counter');
+    this._tooltip = this._overlay.querySelector('.ap-tooltip');
+    this._closeButton = this._overlay.querySelector('.ap-close');
+
+    this._closeButton.addEventListener('click', () => this.hide());
+    // Click on backdrop (outside ap-inner) closes panel
+    this._overlay.addEventListener('click', (e) => {
+      if (e.target === this._overlay) this.hide();
+    });
+
+    return this._overlay;
+  }
+
   _getFocusable() {
+    if (!this._overlay) return [];
     return Array.from(
       this._overlay.querySelectorAll('button:not([disabled]), [tabindex="0"]')
     );
@@ -109,6 +125,7 @@ export class AchievementPanel {
   }
 
   async hydrate() {
+    if (!this._ensureDOM()) return;
     if (!this._dirty) {
       this._render();
       return;
@@ -118,8 +135,10 @@ export class AchievementPanel {
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       this._achievements = await resp.json();
       this._dirty = false;
+      if (this._destroyed || !this._body || !this._counter || !this._tooltip) return;
       this._render();
     } catch (err) {
+      if (this._destroyed || !this._body) return;
       this._body.innerHTML = `<p class="ap-error-message">Failed to load achievements: ${escapeHTML(err.message)}</p>`;
     }
   }
@@ -130,13 +149,14 @@ export class AchievementPanel {
 
   show() {
     if (this._visible) return;
+    if (!this._ensureDOM()) return;
     this._returnFocus = document.activeElement;
     this._visible = true;
     this._overlay.classList.remove('hidden');
     document.addEventListener('mousemove', this._onMouseMove);
     this._overlay.addEventListener('keydown', this._onKeyDown);
     this.hydrate();
-    this._overlay.querySelector('.ap-close').focus();
+    this._closeButton.focus();
   }
 
   hide() {
@@ -163,6 +183,7 @@ export class AchievementPanel {
   }
 
   _render() {
+    if (!this._body || !this._counter) return;
     if (!this._achievements.length) {
       this._body.innerHTML = '<p class="ap-empty-message">No achievements found.</p>';
       this._counter.textContent = '0 / 0 unlocked';
@@ -255,6 +276,7 @@ export class AchievementPanel {
   }
 
   _showTooltip(achievement, x, y) {
+    if (!this._tooltip) return;
     const tierIcon = TIER_ICONS[achievement.tier] ?? '';
     const name = escapeHTML(achievement.name);
     const desc = escapeHTML(achievement.description);
@@ -276,6 +298,7 @@ export class AchievementPanel {
   }
 
   _repositionTooltip(x, y) {
+    if (!this._tooltip) return;
     if (this._tooltip.classList.contains('hidden')) return;
     const margin = 14;
     const tw = this._tooltip.offsetWidth || 260;
@@ -292,8 +315,17 @@ export class AchievementPanel {
   }
 
   destroy() {
+    this._destroyed = true;
+    this._visible = false;
+    this._returnFocus = null;
     document.removeEventListener('mousemove', this._onMouseMove);
+    if (!this._overlay) return;
     this._overlay.removeEventListener('keydown', this._onKeyDown);
     this._overlay.remove();
+    this._overlay = null;
+    this._body = null;
+    this._counter = null;
+    this._tooltip = null;
+    this._closeButton = null;
   }
 }

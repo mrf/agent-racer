@@ -107,23 +107,30 @@ function buildDOM() {
 
 export class HelpPopup {
   constructor() {
-    this._overlay = buildDOM();
+    this._overlay = null;
     this._visible = false;
-
-    this._overlay.querySelector('.help-close').addEventListener('click', () => this.hide());
-    this._overlay.addEventListener('click', (e) => {
-      if (e.target === this._overlay) this.hide();
-    });
   }
 
   get isVisible() {
     return this._visible;
   }
 
+  _ensureDOM() {
+    if (this._overlay) return this._overlay;
+
+    this._overlay = buildDOM();
+    this._overlay.querySelector('.help-close').addEventListener('click', () => this.hide());
+    this._overlay.addEventListener('click', (e) => {
+      if (e.target === this._overlay) this.hide();
+    });
+
+    return this._overlay;
+  }
+
   show() {
     if (this._visible) return;
     this._visible = true;
-    this._overlay.classList.remove('hidden');
+    this._ensureDOM().classList.remove('hidden');
   }
 
   hide() {

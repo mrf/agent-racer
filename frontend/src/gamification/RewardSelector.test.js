@@ -76,19 +76,21 @@ afterEach(() => {
 
 describe('RewardSelector', () => {
   describe('construction', () => {
-    it('creates overlay DOM element on body', () => {
+    it('does not create overlay DOM element on body during construction', () => {
       rs = new RewardSelector();
-      expect(document.getElementById('reward-selector')).toBeTruthy();
+      expect(document.getElementById('reward-selector')).toBeNull();
     });
 
-    it('starts hidden', () => {
+    it('starts hidden without injecting selector DOM', () => {
       rs = new RewardSelector();
       expect(rs.isVisible).toBe(false);
-      expect(document.getElementById('reward-selector').classList.contains('hidden')).toBe(true);
+      expect(document.getElementById('reward-selector')).toBeNull();
     });
 
-    it('has dialog role and aria attributes', () => {
+    it('creates selector DOM with dialog attributes on first show()', () => {
       rs = new RewardSelector();
+      authFetch.mockResolvedValue({ ok: false, status: 500 });
+      rs.show();
       const overlay = document.getElementById('reward-selector');
       expect(overlay.getAttribute('role')).toBe('dialog');
       expect(overlay.getAttribute('aria-modal')).toBe('true');
@@ -304,6 +306,8 @@ describe('RewardSelector', () => {
   describe('destroy', () => {
     it('removes overlay from DOM', () => {
       rs = new RewardSelector();
+      authFetch.mockResolvedValue({ ok: false, status: 500 });
+      rs.show();
       expect(document.getElementById('reward-selector')).toBeTruthy();
 
       rs.destroy();
@@ -317,6 +321,12 @@ describe('RewardSelector', () => {
       rs = null;
 
       expect(changeListeners.size).toBe(0);
+    });
+
+    it('is safe to destroy before first show()', () => {
+      rs = new RewardSelector();
+      expect(() => rs.destroy()).not.toThrow();
+      rs = null;
     });
   });
 

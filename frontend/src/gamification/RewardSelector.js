@@ -351,18 +351,15 @@ function buildDOM() {
 export class RewardSelector {
   constructor() {
     injectStyles();
-    this._overlay = buildDOM();
-    this._columns = this._overlay.querySelector('.rs-columns');
+    this._overlay = null;
+    this._columns = null;
+    this._closeButton = null;
     this._visible = false;
+    this._destroyed = false;
     this._achievements = [];      // from /api/achievements
     this._battlePassTier = 0;     // from /api/stats
     this._equipping = false;      // guard against double-click
     this._returnFocus = null;
-
-    this._overlay.querySelector('.rs-close').addEventListener('click', () => this.hide());
-    this._overlay.addEventListener('click', (e) => {
-      if (e.target === this._overlay) this.hide();
-    });
 
     this._onKeyDown = (e) => this._handleKeyDown(e);
 
@@ -372,7 +369,24 @@ export class RewardSelector {
     });
   }
 
+  _ensureDOM() {
+    if (this._destroyed) return null;
+    if (this._overlay) return this._overlay;
+
+    this._overlay = buildDOM();
+    this._columns = this._overlay.querySelector('.rs-columns');
+    this._closeButton = this._overlay.querySelector('.rs-close');
+
+    this._closeButton.addEventListener('click', () => this.hide());
+    this._overlay.addEventListener('click', (e) => {
+      if (e.target === this._overlay) this.hide();
+    });
+
+    return this._overlay;
+  }
+
   _getFocusable() {
+    if (!this._overlay) return [];
     return Array.from(
       this._overlay.querySelectorAll('button:not([disabled]), [tabindex="0"]')
     );
@@ -398,6 +412,7 @@ export class RewardSelector {
   }
 
   async _fetchData() {
+    if (!this._ensureDOM()) return false;
     try {
       const [achResp, statsResp] = await Promise.all([
         authFetch('/api/achievements'),
@@ -405,6 +420,7 @@ export class RewardSelector {
       ]);
       if (!achResp.ok) throw new Error(`achievements: HTTP ${achResp.status}`);
       this._achievements = await achResp.json();
+      if (this._destroyed) return false;
       if (statsResp.ok) {
         const stats = await statsResp.json();
         this._battlePassTier = stats.battlePass?.tier ?? 0;
@@ -412,6 +428,7 @@ export class RewardSelector {
       return true;
     } catch (err) {
       this._achievements = [];
+      if (this._destroyed || !this._columns) return false;
       this._columns.innerHTML = `<p style="color:#e94560;font-size:12px">Failed to load: ${escapeHTML(err.message)}</p>`;
       return false;
     }
@@ -419,12 +436,13 @@ export class RewardSelector {
 
   show() {
     if (this._visible) return;
+    if (!this._ensureDOM()) return;
     this._returnFocus = document.activeElement;
     this._visible = true;
     this._overlay.classList.remove('hidden');
     this._overlay.addEventListener('keydown', this._onKeyDown);
     this._fetchData().then((ok) => { if (ok) this._render(); });
-    this._overlay.querySelector('.rs-close').focus();
+    this._closeButton.focus();
   }
 
   hide() {
@@ -451,6 +469,7 @@ export class RewardSelector {
   // ── Rendering ────────────────────────────────────────────────────
 
   _render() {
+    if (!this._columns) return;
     const loadout = getEquippedLoadout();
     const unlockedSet = new Set(
       this._achievements.filter(a => a.unlocked).map(a => a.id),
@@ -678,7 +697,14 @@ export class RewardSelector {
 
   destroy() {
     this._unsubscribe();
+    this._destroyed = true;
+    this._visible = false;
+    this._returnFocus = null;
+    if (!this._overlay) return;
     this._overlay.removeEventListener('keydown', this._onKeyDown);
     this._overlay.remove();
+    this._overlay = null;
+    this._columns = null;
+    this._closeButton = null;
   }
 }
