@@ -1,5 +1,20 @@
 const AUTH_TOKEN_STORAGE_KEY = 'agent-racer-auth-token';
 
+function warnOnURLToken(source, persistedToSession) {
+  if (typeof console === 'undefined' || typeof console.warn !== 'function') {
+    return;
+  }
+
+  const baseMessage =
+    source === 'search'
+      ? 'Auth token was read from the URL query string. Query-string tokens can leak through browser history, server logs, and referrer headers.'
+      : 'Auth token was read from the URL. Avoid passing credentials in the URL when possible.';
+  const storageMessage = persistedToSession
+    ? ' The token was copied to sessionStorage for this tab.'
+    : '';
+  console.warn(`${baseMessage}${storageMessage}`);
+}
+
 function resolveAuthToken() {
   const hasLocation = typeof location !== 'undefined';
   const hasStorage = typeof sessionStorage !== 'undefined';
@@ -7,6 +22,8 @@ function resolveAuthToken() {
   let searchParams = new URLSearchParams();
   let hashParams = new URLSearchParams();
   let sawTokenInURL = false;
+  let sawTokenInSearch = false;
+  let sawTokenInHash = false;
   let token = '';
 
   if (hasLocation) {
@@ -15,6 +32,7 @@ function resolveAuthToken() {
       token = hashParams.get('token') || '';
       hashParams.delete('token');
       sawTokenInURL = true;
+      sawTokenInHash = true;
     }
 
     searchParams = new URLSearchParams(location.search || '');
@@ -24,6 +42,7 @@ function resolveAuthToken() {
       }
       searchParams.delete('token');
       sawTokenInURL = true;
+      sawTokenInSearch = true;
     }
   }
 
@@ -33,6 +52,14 @@ function resolveAuthToken() {
 
   if (token && hasStorage) {
     sessionStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token);
+  }
+
+  if (token) {
+    if (sawTokenInSearch) {
+      warnOnURLToken('search', hasStorage);
+    } else if (sawTokenInHash) {
+      warnOnURLToken('hash', hasStorage);
+    }
   }
 
   if (sawTokenInURL && hasLocation && typeof history !== 'undefined' && typeof history.replaceState === 'function') {
