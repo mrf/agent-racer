@@ -438,10 +438,17 @@ func parseCodexResponseItem(payload json.RawMessage, parsed *codexParsed) {
 
 func parseCodexTokenCount(payload json.RawMessage, parsed *codexParsed) {
 	// Codex token counts are cumulative snapshots. Newer Codex CLI versions
-	// nest the data under an "info" object with "total_token_usage" and
-	// "model_context_window". Older versions use flat top-level fields.
+	// nest the data under an "info" object with "last_token_usage",
+	// "total_token_usage", and "model_context_window". For live context
+	// utilization, prefer last_token_usage when present because
+	// total_token_usage is a lifetime session counter. Older versions use
+	// flat top-level fields.
 	var nested struct {
 		Info *struct {
+			LastTokenUsage *struct {
+				InputTokens  int `json:"input_tokens"`
+				OutputTokens int `json:"output_tokens"`
+			} `json:"last_token_usage"`
 			TotalTokenUsage *struct {
 				InputTokens  int `json:"input_tokens"`
 				OutputTokens int `json:"output_tokens"`
@@ -450,7 +457,10 @@ func parseCodexTokenCount(payload json.RawMessage, parsed *codexParsed) {
 		} `json:"info"`
 	}
 	if json.Unmarshal(payload, &nested) == nil && nested.Info != nil {
-		if nested.Info.TotalTokenUsage != nil {
+		if nested.Info.LastTokenUsage != nil {
+			parsed.tokensIn = nested.Info.LastTokenUsage.InputTokens
+			parsed.tokensOut = nested.Info.LastTokenUsage.OutputTokens
+		} else if nested.Info.TotalTokenUsage != nil {
 			parsed.tokensIn = nested.Info.TotalTokenUsage.InputTokens
 			parsed.tokensOut = nested.Info.TotalTokenUsage.OutputTokens
 		}

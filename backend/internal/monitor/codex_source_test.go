@@ -347,6 +347,43 @@ func TestCodexSourceParseNestedTokenFormat(t *testing.T) {
 	}
 }
 
+func TestCodexSourceParseNestedTokenFormatPrefersLastTokenUsage(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "rollout-last-token-usage.jsonl")
+
+	content := `{"timestamp":"2026-03-08T00:41:42.190Z","type":"session_meta","payload":{"id":"fixture-last-token-usage","timestamp":"2026-03-08T00:41:42.190Z","cwd":"/workspace/project","originator":"codex_cli_rs","cli_version":"0.111.0","source":"cli","model_provider":"openai","model":"gpt-5.4"}}
+{"timestamp":"2026-03-08T00:41:42.190Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn-1","model_context_window":258400,"collaboration_mode_kind":"default"}}
+{"timestamp":"2026-03-08T00:41:42.194Z","type":"turn_context","payload":{"turn_id":"turn-1","cwd":"/workspace/project","current_date":"2026-03-07","timezone":"America/Los_Angeles","approval_policy":"on-request","model":"gpt-5.4","effort":"high"}}
+{"timestamp":"2026-03-08T00:41:57.923Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":64346294,"cached_input_tokens":61355392,"output_tokens":161772,"reasoning_output_tokens":59756,"total_tokens":64508066},"last_token_usage":{"input_tokens":194819,"cached_input_tokens":141696,"output_tokens":546,"reasoning_output_tokens":302,"total_tokens":195365},"model_context_window":258400},"rate_limits":{"limit_id":"codex","primary":{"used_percent":19.0,"window_minutes":300},"secondary":{"used_percent":6.0,"window_minutes":10080}}}}
+`
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	src := NewCodexSource(10 * time.Minute)
+	handle := SessionHandle{SessionID: "fixture-last-token-usage", LogPath: path, Source: "codex"}
+
+	update, _, err := src.Parse(handle, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if update.TokensIn != 194819 {
+		t.Errorf("TokensIn = %d, want 194819 from last_token_usage", update.TokensIn)
+	}
+	if update.TokensOut != 546 {
+		t.Errorf("TokensOut = %d, want 546 from last_token_usage", update.TokensOut)
+	}
+	if update.MaxContextTokens != 258400 {
+		t.Errorf("MaxContextTokens = %d, want 258400", update.MaxContextTokens)
+	}
+	if update.Model != "gpt-5.4" {
+		t.Errorf("Model = %q, want %q", update.Model, "gpt-5.4")
+	}
+	if update.WorkingDir != "/workspace/project" {
+		t.Errorf("WorkingDir = %q, want %q", update.WorkingDir, "/workspace/project")
+	}
+}
+
 func TestCodexSourceParseNullInfoTokenCount(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "rollout-null.jsonl")
