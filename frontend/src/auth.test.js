@@ -52,55 +52,91 @@ afterEach(() => {
 
 describe('getAuthToken', () => {
   it('returns token from URL hash and scrubs it from browser URL', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const { getAuthToken, replaceState, sessionStorage } = await loadAuth({
       pathname: '/dashboard',
       hash: '#token=abc123',
     });
     expect(getAuthToken()).toBe('abc123');
     expect(sessionStorage.getItem(AUTH_TOKEN_STORAGE_KEY)).toBe('abc123');
+    expect(warn).toHaveBeenCalledWith(
+      'Auth token was read from the URL. Avoid passing credentials in the URL when possible. The token was copied to sessionStorage for this tab.'
+    );
     expect(replaceState).toHaveBeenCalledTimes(1);
     expect(replaceState.mock.calls[0][2]).toBe('/dashboard');
   });
 
   it('returns token from URL search params and strips token from URL', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const { getAuthToken, replaceState, sessionStorage } = await loadAuth({
       pathname: '/dashboard',
       search: '?token=abc%3D%3D123&foo=bar',
     });
     expect(getAuthToken()).toBe('abc==123');
     expect(sessionStorage.getItem(AUTH_TOKEN_STORAGE_KEY)).toBe('abc==123');
+    expect(warn).toHaveBeenCalledWith(
+      'Auth token was read from the URL query string. Query-string tokens can leak through browser history, server logs, and referrer headers. The token was copied to sessionStorage for this tab.'
+    );
     expect(replaceState).toHaveBeenCalledTimes(1);
     expect(replaceState.mock.calls[0][2]).toBe('/dashboard?foo=bar');
   });
 
   it('prefers hash token when both hash and query contain token', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const { getAuthToken, replaceState } = await loadAuth({
       pathname: '/dashboard',
       search: '?token=from-query&foo=bar',
       hash: '#token=from-hash&tab=1',
     });
     expect(getAuthToken()).toBe('from-hash');
+    expect(warn).toHaveBeenCalledWith(
+      'Auth token was read from the URL query string. Query-string tokens can leak through browser history, server logs, and referrer headers. The token was copied to sessionStorage for this tab.'
+    );
     expect(replaceState).toHaveBeenCalledTimes(1);
     expect(replaceState.mock.calls[0][2]).toBe('/dashboard?foo=bar#tab=1');
   });
 
   it('falls back to session storage when URL has no token', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const { getAuthToken, replaceState } = await loadAuth({
       pathname: '/dashboard',
       search: '?foo=bar',
       storedToken: 'saved-token',
     });
     expect(getAuthToken()).toBe('saved-token');
+    expect(warn).not.toHaveBeenCalled();
     expect(replaceState).not.toHaveBeenCalled();
   });
 
   it('returns empty string when no token is present anywhere', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const { getAuthToken, replaceState } = await loadAuth({
       pathname: '/dashboard',
       search: '?foo=bar&baz=1',
       hash: '#tab=1',
     });
     expect(getAuthToken()).toBe('');
+    expect(warn).not.toHaveBeenCalled();
+    expect(replaceState).not.toHaveBeenCalled();
+  });
+
+  it('reuses a scrubbed URL token from session storage on the next load without warning again', async () => {
+    const firstWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const firstLoad = await loadAuth({
+      pathname: '/dashboard',
+      search: '?token=persisted-token',
+    });
+    expect(firstLoad.getAuthToken()).toBe('persisted-token');
+    expect(firstWarn).toHaveBeenCalledTimes(1);
+
+    firstWarn.mockRestore();
+    const secondWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { getAuthToken, replaceState } = await loadAuth({
+      pathname: '/dashboard',
+      storedToken: firstLoad.sessionStorage.getItem(AUTH_TOKEN_STORAGE_KEY) || '',
+    });
+    expect(getAuthToken()).toBe('persisted-token');
+    expect(secondWarn).not.toHaveBeenCalled();
     expect(replaceState).not.toHaveBeenCalled();
   });
 });
