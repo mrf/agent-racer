@@ -12,6 +12,9 @@ const PIT_COLLAPSED_PADDING = 8;
 // Viewport height breakpoints for crowd visibility
 const CROWD_FULL_MIN_HEIGHT = 500;
 const CROWD_COMPACT_MIN_HEIGHT = 350;
+const TRACK_TOP_PADDING_FULL = 60;
+const TRACK_TOP_PADDING_COMPACT = 40;
+const TRACK_TOP_PADDING_HIDDEN = 8;
 
 const PARKING_LOT_LANE_HEIGHT = 45;
 const PARKING_LOT_GAP = 20;
@@ -28,7 +31,7 @@ function clampUnit(value) {
 
 export class Track {
   constructor() {
-    this.trackPadding = { left: 65, right: 60, top: 60, bottom: 40 };
+    this.trackPadding = { left: 65, right: 60, top: TRACK_TOP_PADDING_FULL, bottom: 40 };
     this.laneHeight = 80;
     this.time = 0;
     // Pre-rendered offscreen canvases
@@ -45,13 +48,13 @@ export class Track {
     let mode;
     if (viewportHeight >= CROWD_FULL_MIN_HEIGHT) {
       mode = 'full';
-      this.trackPadding.top = 60;
+      this.trackPadding.top = TRACK_TOP_PADDING_FULL;
     } else if (viewportHeight >= CROWD_COMPACT_MIN_HEIGHT) {
       mode = 'compact';
-      this.trackPadding.top = 40;
+      this.trackPadding.top = TRACK_TOP_PADDING_COMPACT;
     } else {
       mode = 'hidden';
-      this.trackPadding.top = 20;
+      this.trackPadding.top = TRACK_TOP_PADDING_HIDDEN;
     }
     if (mode !== this._crowdMode) {
       this._crowdMode = mode;
@@ -271,8 +274,9 @@ export class Track {
       }
     }
 
-    // Pennants above first track only
-    this._drawPennants(ctx, layouts[0]);
+    if (this._crowdMode !== 'hidden') {
+      this._drawPennants(ctx, layouts[0]);
+    }
 
     return layouts;
   }
