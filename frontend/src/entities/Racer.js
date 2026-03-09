@@ -8,6 +8,56 @@ import { formatBurnRate } from '../ui/formatters.js';
 const CAR_SCALE = 2.3;
 const LIMO_STRETCH = 35;
 const FLAG_COLORS = { bg: '#ffffff', text: '#000', stripe: '#cccccc', pole: '#aaa', cap: '#ccc' };
+const DIRECTORY_FLAG_MARGIN = 6;
+const DIRECTORY_FLAG_MIN_FONT = 11;
+const DIRECTORY_FLAG_MAX_FONT = 14;
+const DIRECTORY_FLAG_MAX_WIDTH = 240;
+const DIRECTORY_FLAG_MIN_WIDTH = 84;
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function basename(path) {
+  return path.split('/').filter(Boolean).pop() || '';
+}
+
+function getCanvasViewport(ctx) {
+  const canvas = ctx?.canvas;
+  if (!canvas) {
+    return { width: 1200, height: 800 };
+  }
+
+  const rect = typeof canvas.getBoundingClientRect === 'function'
+    ? canvas.getBoundingClientRect()
+    : null;
+
+  return {
+    width: rect?.width || canvas.width || 1200,
+    height: rect?.height || canvas.height || 800,
+  };
+}
+
+function truncateMiddleToWidth(ctx, text, maxWidth) {
+  if (!text || ctx.measureText(text).width <= maxWidth) {
+    return text;
+  }
+
+  const ellipsis = '...';
+  let keep = text.length - 1;
+
+  while (keep > 1) {
+    const left = Math.ceil(keep / 2);
+    const right = Math.floor(keep / 2);
+    const candidate = `${text.slice(0, left)}${ellipsis}${text.slice(text.length - right)}`;
+    if (ctx.measureText(candidate).width <= maxWidth) {
+      return candidate;
+    }
+    keep--;
+  }
+
+  return ellipsis;
+}
 
 /**
  * Returns the index of the vertex with the smallest y value (visually highest).
@@ -1466,40 +1516,11 @@ export class Racer {
   drawInfo(ctx, x, y, color, activity) {
     const S = CAR_SCALE;
     const carY = y + this.springY;
-
-    // --- Directory flag: pennant on a pole from the rear spoiler ---
-    // Fallback chain: workingDir basename → session name → source name
-    // When branch is available and differs from slug, show "slug | branch"
-    const rawName = this.state.workingDir
-      ? (this.state.workingDir.split('/').filter(Boolean).pop() || this.state.name || '')
-      : (this.state.name || '');
-    const slug = (rawName && rawName !== 'unknown')
-      ? rawName
-      : (this.state.source || '');
-    const branch = this.state.branch || '';
-    const dirName = (slug && branch && branch !== slug)
-      ? `${slug} | ${branch}`
-      : slug;
+    const dirName = this._getDirectoryFlagLabel();
 
     if (dirName) {
-      ctx.font = 'bold 9px Courier New';
-      const textW = ctx.measureText(dirName).width;
       const badge = getEquippedBadge();
-      const badgeW = badge ? ctx.measureText(badge.emoji).width + 3 : 0; // +3 px gap
-      const flagH = 13;
-      const flagW = textW + badgeW + 16; // text + badge + horizontal padding
-      const notchDepth = 5;
-
-      // Pole anchors at rear spoiler
-      const poleBaseX = x - (15 + LIMO_STRETCH) * S;
-      const poleBaseY = carY - 5 * S;
-      const poleTopY = poleBaseY - 20;
-
-      // Flag streams left from pole top (trailing behind moving car)
-      const flagRight = poleBaseX;
-      const flagLeft = flagRight - flagW;
-      const flagTop = poleTopY;
-      const flagBottom = flagTop + flagH;
+      const layout = this._getDirectoryFlagLayout(ctx, x, y, dirName, badge?.emoji || '');
 
       // Trailing-edge flutter: two phase-offset sine waves for natural motion
       const waveAngle = this.flagPhase * 3;
@@ -1510,24 +1531,34 @@ export class Racer {
       ctx.strokeStyle = FLAG_COLORS.pole;
       ctx.lineWidth = 1.5;
       ctx.beginPath();
-      ctx.moveTo(poleBaseX, poleBaseY);
-      ctx.lineTo(poleBaseX, poleTopY - 1);
+      ctx.moveTo(layout.poleBaseX, layout.poleBaseY);
+      ctx.lineTo(layout.poleBaseX, layout.poleTopY - 1);
       ctx.stroke();
+
+      if (Math.abs(layout.flagRight - layout.poleBaseX) > 1) {
+        ctx.beginPath();
+        ctx.moveTo(layout.poleBaseX, layout.poleTopY);
+        ctx.lineTo(layout.flagRight, layout.poleTopY);
+        ctx.stroke();
+      }
 
       // Pole cap
       ctx.fillStyle = FLAG_COLORS.cap;
       ctx.beginPath();
-      ctx.arc(poleBaseX, poleTopY - 2, 1.5, 0, Math.PI * 2);
+      ctx.arc(layout.poleBaseX, layout.poleTopY - 2, 1.5, 0, Math.PI * 2);
       ctx.fill();
 
       // Flag shape: swallowtail pennant
       ctx.fillStyle = FLAG_COLORS.bg;
       ctx.beginPath();
-      ctx.moveTo(flagRight, flagTop);
-      ctx.lineTo(flagLeft + waveX, flagTop + waveY);
-      ctx.lineTo(flagLeft + notchDepth + waveX * 0.6, flagTop + flagH / 2 + waveY * 0.5);
-      ctx.lineTo(flagLeft + waveX, flagBottom + waveY);
-      ctx.lineTo(flagRight, flagBottom);
+      ctx.moveTo(layout.flagRight, layout.flagTop);
+      ctx.lineTo(layout.flagLeft + waveX, layout.flagTop + waveY);
+      ctx.lineTo(
+        layout.flagLeft + layout.notchDepth + waveX * 0.6,
+        layout.flagTop + layout.flagH / 2 + waveY * 0.5,
+      );
+      ctx.lineTo(layout.flagLeft + waveX, layout.flagBottom + waveY);
+      ctx.lineTo(layout.flagRight, layout.flagBottom);
       ctx.closePath();
       ctx.fill();
 
@@ -1535,22 +1566,22 @@ export class Racer {
       ctx.strokeStyle = FLAG_COLORS.stripe;
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(flagRight, flagTop);
-      ctx.lineTo(flagLeft + waveX, flagTop + waveY);
+      ctx.moveTo(layout.flagRight, layout.flagTop);
+      ctx.lineTo(layout.flagLeft + waveX, layout.flagTop + waveY);
       ctx.stroke();
 
-      // Flag text: center within swallowtail, shift left when badge is present
-      const contentCenterX = flagRight - flagW / 2 + notchDepth / 2 + waveX * 0.3;
-      const textCenterY = flagTop + flagH / 2 + waveY * 0.3;
-      const textX = contentCenterX - badgeW / 2;
-
+      ctx.font = layout.font;
       ctx.fillStyle = FLAG_COLORS.text;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(dirName, textX, textCenterY);
+      ctx.fillText(layout.label, layout.textX + waveX * 0.2, layout.textY + waveY * 0.3);
 
       if (badge) {
-        ctx.fillText(badge.emoji, textX + textW / 2 + badgeW / 2 + 1, textCenterY);
+        ctx.fillText(
+          badge.emoji,
+          layout.textX + layout.textW / 2 + layout.badgeW / 2 + 1 + waveX * 0.2,
+          layout.textY + waveY * 0.3,
+        );
       }
     }
 
@@ -1571,6 +1602,83 @@ export class Racer {
 
     ctx.textBaseline = 'alphabetic';
     ctx.textAlign = 'center';
+  }
+
+  _getDirectoryFlagLabel() {
+    const workingDirBase = this.state.workingDir ? basename(this.state.workingDir) : '';
+    const sessionName = this.state.name || '';
+    const slug = (workingDirBase && workingDirBase !== 'unknown')
+      ? workingDirBase
+      : ((sessionName && sessionName !== 'unknown') ? sessionName : '');
+    const branch = this.state.branch || '';
+
+    if (!slug) {
+      return branch || this.state.source || '';
+    }
+    if (!branch || branch === slug) {
+      return slug;
+    }
+    if (slug.endsWith(`--${branch}`)) {
+      return branch;
+    }
+
+    return `${slug} | ${branch}`;
+  }
+
+  _getDirectoryFlagLayout(ctx, x, y, dirName, badgeText = '') {
+    const S = CAR_SCALE;
+    const carY = y + this.springY;
+    const viewport = getCanvasViewport(ctx);
+    const viewportScale = clamp(viewport.width / 1280, 0.95, 1.35);
+    const fontSize = Math.round(clamp(11 * viewportScale, DIRECTORY_FLAG_MIN_FONT, DIRECTORY_FLAG_MAX_FONT));
+    const font = `bold ${fontSize}px Courier New`;
+
+    ctx.font = font;
+    const badgeW = badgeText ? ctx.measureText(badgeText).width + 4 : 0;
+    const maxFlagW = clamp(viewport.width * 0.28, 120, DIRECTORY_FLAG_MAX_WIDTH);
+    const maxTextW = Math.max(56, maxFlagW - badgeW - 18);
+    const label = truncateMiddleToWidth(ctx, dirName, maxTextW);
+    const textW = ctx.measureText(label).width;
+    const flagH = fontSize + 8;
+    const flagW = clamp(textW + badgeW + 18, DIRECTORY_FLAG_MIN_WIDTH, maxFlagW);
+    const notchDepth = Math.max(6, Math.round(flagH * 0.4));
+
+    const poleBaseX = x - (15 + LIMO_STRETCH) * S;
+    const poleBaseY = carY - 5 * S;
+    const poleTopY = Math.max(DIRECTORY_FLAG_MARGIN, poleBaseY - (22 + (fontSize - DIRECTORY_FLAG_MIN_FONT) * 2));
+    const flagTop = clamp(
+      poleTopY - 1,
+      DIRECTORY_FLAG_MARGIN,
+      Math.max(DIRECTORY_FLAG_MARGIN, viewport.height - flagH - DIRECTORY_FLAG_MARGIN),
+    );
+    const flagLeft = clamp(
+      poleBaseX - flagW + 6,
+      DIRECTORY_FLAG_MARGIN,
+      Math.max(DIRECTORY_FLAG_MARGIN, viewport.width - flagW - DIRECTORY_FLAG_MARGIN),
+    );
+    const flagRight = flagLeft + flagW;
+    const flagBottom = flagTop + flagH;
+    const contentCenterX = flagLeft + notchDepth + (flagW - notchDepth) / 2;
+    const textY = flagTop + flagH / 2;
+
+    return {
+      badgeW,
+      flagBottom,
+      flagH,
+      flagLeft,
+      flagRight,
+      flagTop,
+      font,
+      fontSize,
+      label,
+      notchDepth,
+      poleBaseX,
+      poleBaseY,
+      poleTopY: flagTop + 1,
+      textW,
+      textX: contentCenterX - badgeW / 2,
+      textY,
+    };
   }
 
   _drawSourceBadge(ctx, x, y) {
