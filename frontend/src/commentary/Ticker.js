@@ -62,6 +62,8 @@ export class Ticker {
 
     const y = canvasHeight - TICKER_HEIGHT;
 
+    ctx.clearRect(0, y, canvasWidth, TICKER_HEIGHT);
+
     // Background bar
     ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
     ctx.fillRect(0, y, canvasWidth, TICKER_HEIGHT);
