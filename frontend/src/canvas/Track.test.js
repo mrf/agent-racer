@@ -1,5 +1,81 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Track } from './Track.js';
+
+function makeDrawingCtx() {
+  let fillStyle = '';
+  let strokeStyle = '';
+  let lineWidth = 0;
+  let font = '';
+  let textAlign = 'left';
+  let textBaseline = 'alphabetic';
+  let lineDash = [];
+
+  const fillRectCalls = [];
+  const strokeRectCalls = [];
+  const strokeCalls = [];
+
+  const ctx = {
+    beginPath: vi.fn(),
+    moveTo: vi.fn(),
+    lineTo: vi.fn(),
+    save: vi.fn(),
+    restore: vi.fn(),
+    rect: vi.fn(),
+    clip: vi.fn(),
+    drawImage: vi.fn(),
+    fillText: vi.fn(),
+    measureText: vi.fn((text) => ({ width: text.length * 8 })),
+    createLinearGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
+    setLineDash: vi.fn((dash) => {
+      lineDash = [...dash];
+    }),
+    fillRect: vi.fn((...args) => {
+      fillRectCalls.push({ args, fillStyle });
+    }),
+    strokeRect: vi.fn((...args) => {
+      strokeRectCalls.push({ args, strokeStyle, lineWidth, lineDash: [...lineDash] });
+    }),
+    stroke: vi.fn(() => {
+      strokeCalls.push({ strokeStyle, lineWidth, lineDash: [...lineDash] });
+    }),
+    get _fillRectCalls() {
+      return fillRectCalls;
+    },
+    get _strokeRectCalls() {
+      return strokeRectCalls;
+    },
+    get _strokeCalls() {
+      return strokeCalls;
+    },
+  };
+
+  Object.defineProperty(ctx, 'fillStyle', {
+    get() { return fillStyle; },
+    set(value) { fillStyle = value; },
+  });
+  Object.defineProperty(ctx, 'strokeStyle', {
+    get() { return strokeStyle; },
+    set(value) { strokeStyle = value; },
+  });
+  Object.defineProperty(ctx, 'lineWidth', {
+    get() { return lineWidth; },
+    set(value) { lineWidth = value; },
+  });
+  Object.defineProperty(ctx, 'font', {
+    get() { return font; },
+    set(value) { font = value; },
+  });
+  Object.defineProperty(ctx, 'textAlign', {
+    get() { return textAlign; },
+    set(value) { textAlign = value; },
+  });
+  Object.defineProperty(ctx, 'textBaseline', {
+    get() { return textBaseline; },
+    set(value) { textBaseline = value; },
+  });
+
+  return ctx;
+}
 
 describe('Track', () => {
   const CANVAS_W = 1000;
@@ -550,6 +626,49 @@ describe('Track', () => {
     it('works for large token counts (1M)', () => {
       const markers = track._computeTokenMarkers(1000000);
       expect(markers.length).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  describe('zone rendering', () => {
+    it('draws a brighter collapsed pit separator and label badge', () => {
+      const ctx = makeDrawingCtx();
+
+      track.drawPit(ctx, CANVAS_W, CANVAS_H, LANE_COUNT, 0);
+
+      expect(ctx.fillText).toHaveBeenCalledWith('PIT', expect.any(Number), expect.any(Number));
+      expect(ctx._fillRectCalls.map(call => call.fillStyle)).toContain('rgba(60, 68, 128, 0.24)');
+      expect(ctx._fillRectCalls.map(call => call.fillStyle)).toContain('rgba(30, 34, 60, 0.96)');
+      expect(ctx._strokeCalls).toContainEqual(
+        expect.objectContaining({ strokeStyle: '#7c86d6', lineWidth: 2, lineDash: [10, 6] }),
+      );
+    });
+
+    it('renders pit lanes with stronger separators and visible label styling', () => {
+      const ctx = makeDrawingCtx();
+
+      track.drawPit(ctx, CANVAS_W, CANVAS_H, LANE_COUNT, 2);
+
+      expect(ctx.fillText).toHaveBeenCalledWith('PIT', expect.any(Number), expect.any(Number));
+      expect(ctx._fillRectCalls.map(call => call.fillStyle)).toContain('rgba(125, 134, 222, 0.12)');
+      expect(ctx._strokeRectCalls).toContainEqual(
+        expect.objectContaining({ strokeStyle: '#7c86d6', lineWidth: 1.5, lineDash: [10, 6] }),
+      );
+      expect(ctx._strokeCalls).toContainEqual(
+        expect.objectContaining({ strokeStyle: 'rgba(164, 172, 255, 0.65)', lineWidth: 2 }),
+      );
+    });
+
+    it('renders parked lanes with a distinct zone tint and readable label badge', () => {
+      const ctx = makeDrawingCtx();
+
+      track.drawParkingLot(ctx, CANVAS_W, CANVAS_H, LANE_COUNT, 2, 2);
+
+      expect(ctx.fillText).toHaveBeenCalledWith('PARKED', expect.any(Number), expect.any(Number));
+      expect(ctx._fillRectCalls.map(call => call.fillStyle)).toContain('rgba(45, 72, 118, 0.22)');
+      expect(ctx._fillRectCalls.map(call => call.fillStyle)).toContain('rgba(22, 32, 48, 0.96)');
+      expect(ctx._strokeRectCalls).toContainEqual(
+        expect.objectContaining({ strokeStyle: '#6f9cd4', lineWidth: 1.5, lineDash: [8, 6] }),
+      );
     });
   });
 
