@@ -564,6 +564,20 @@ describe('Racer._buildMetricsLabel', () => {
     expect(label).toContain('566K/min');
   });
 
+  it.each(['complete', 'errored', 'lost'])(
+    'shows a deliberate dash instead of stale burn rate for %s sessions',
+    (activity) => {
+      const label = racer._buildMetricsLabel({
+        activity,
+        contextUtilization: 0.5,
+        burnRatePerMinute: 566093.5,
+      });
+      expect(label).toContain('50%');
+      expect(label).toContain('· -');
+      expect(label).not.toContain('566K/min');
+    },
+  );
+
   describe('with fake timers', () => {
     beforeEach(() => { vi.useFakeTimers(); });
     afterEach(() => { vi.useRealTimers(); });
@@ -596,6 +610,19 @@ describe('Racer._buildMetricsLabel', () => {
         startedAt: '2025-01-01T00:00:00Z',
       });
       expect(label).toBe('50% · 5K/100K · 44.0K/min · 5m');
+    });
+
+    it('keeps the burn-rate slot intentional for terminal sessions', () => {
+      vi.setSystemTime(new Date('2025-01-01T00:05:00Z'));
+      const label = racer._buildMetricsLabel({
+        activity: 'complete',
+        contextUtilization: 0.5,
+        tokensUsed: 5000,
+        maxContextTokens: 100000,
+        burnRatePerMinute: 43955.1,
+        startedAt: '2025-01-01T00:00:00Z',
+      });
+      expect(label).toBe('50% · 5K/100K · - · 5m');
     });
   });
 });

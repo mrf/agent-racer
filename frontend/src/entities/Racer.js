@@ -1653,7 +1653,9 @@ export class Racer {
       }
     }
 
-    if (state.burnRatePerMinute) {
+    if (isTerminalActivity(state.activity)) {
+      parts.push('-');
+    } else if (state.burnRatePerMinute) {
       parts.push(formatBurnRate(state.burnRatePerMinute));
     }
 
