@@ -61,4 +61,48 @@ describe('ReplayPlayer', () => {
     expect(player.onSnapshot).toHaveBeenCalledWith([{ id: 'alpha' }]);
     expect(player.onSeek).toHaveBeenCalledWith(0, 3);
   });
+
+  it('skips malformed replay lines in text responses and reports a warning', async () => {
+    mocks.authFetch.mockResolvedValue({
+      ok: true,
+      body: null,
+      text: vi.fn(async () => [
+        '{"t":"2026-03-07T12:00:00Z","s":[{"id":"alpha"}]}',
+        '{bad json',
+        '{"t":"2026-03-07T12:00:02Z","s":[{"id":"gamma"}]}',
+      ].join('\n')),
+    });
+
+    const player = new ReplayPlayer();
+    player.onLoaded = vi.fn();
+    player.onSnapshot = vi.fn();
+    player.onSeek = vi.fn();
+    player.onWarning = vi.fn();
+
+    await player.loadReplay('replay-456');
+
+    expect(player.snapshots).toHaveLength(2);
+    expect(player.snapshots[0].s).toEqual([{ id: 'alpha' }]);
+    expect(player.snapshots[1].s).toEqual([{ id: 'gamma' }]);
+    expect(player.onWarning).toHaveBeenCalledWith('Skipped 1 malformed replay line at line 2.');
+    expect(player.onLoaded).toHaveBeenCalledWith('replay-456', 'replay-456', 2);
+    expect(player.onSnapshot).toHaveBeenCalledWith([{ id: 'alpha' }]);
+    expect(player.onSeek).toHaveBeenCalledWith(0, 2);
+  });
+
+  it('throws a replay error when all replay lines are malformed', async () => {
+    mocks.authFetch.mockResolvedValue({
+      ok: true,
+      body: null,
+      text: vi.fn(async () => ['{bad json', '{"t":'].join('\n')),
+    });
+
+    const player = new ReplayPlayer();
+    player.onWarning = vi.fn();
+
+    await expect(player.loadReplay('broken-replay')).rejects.toThrow(
+      'Replay contains no valid snapshots. Skipped 2 malformed replay lines at lines 1, 2.'
+    );
+    expect(player.onWarning).not.toHaveBeenCalled();
+  });
 });
