@@ -65,10 +65,10 @@ test-e2e:
 	cd $(E2E) && npm test
 
 lint:
-	cd $(BACKEND) && golangci-lint run ./...
+	cd $(BACKEND) && golangci-lint run --config ../.golangci.yml
 
 tui-lint:
-	cd $(TUI) && golangci-lint run ./...
+	cd $(TUI) && golangci-lint run --config ../.golangci.yml
 
 ci: test-race lint test-frontend test-e2e tui-test tui-lint
 
