@@ -14,7 +14,7 @@ export class DraftDetector {
 
   /**
    * Detect draft pairs and overtakes among the given track racers.
-   * Racers must be on the same track group (same maxContextTokens).
+   * Racers must be on the same track group (same context tier).
    *
    * @param {Racer[]} trackRacers - racers currently on the track (not pit/parked)
    * @param {number} nowS - current time in seconds (for battle window)
