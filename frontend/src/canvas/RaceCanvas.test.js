@@ -790,7 +790,7 @@ describe('RaceCanvas', () => {
       ]);
       rc.update();
 
-      expect(rc._trackGroups).toEqual([{ maxTokens: 200000, laneCount: 1 }]);
+      expect(rc._trackGroups).toEqual([{ maxTokens: 1000000, laneCount: 1 }]);
     });
 
     it('uses single default group when no track racers exist', () => {
@@ -799,7 +799,7 @@ describe('RaceCanvas', () => {
       ]);
       rc.update();
 
-      expect(rc._trackGroups).toEqual([{ maxTokens: 200000, laneCount: 1 }]);
+      expect(rc._trackGroups).toEqual([{ maxTokens: 1000000, laneCount: 1 }]);
     });
 
     it('calls getMultiTrackLayout with groups', () => {

@@ -1,4 +1,5 @@
 import { getModelColor } from '../session/colors.js';
+import { DEFAULT_CONTEXT_WINDOW } from '../session/constants.js';
 
 const WIDTH = 200;
 const HEIGHT = 72;
@@ -104,7 +105,7 @@ export class Minimap {
       const my = toMY(racer.displayY);
       const color = getModelColor(racer.state.model, racer.state.source);
       const tokenFrac = Math.min(
-        (racer.state.tokensUsed || 0) / (racer.state.maxContextTokens || 200000), 1
+        (racer.state.tokensUsed || 0) / (racer.state.maxContextTokens || DEFAULT_CONTEXT_WINDOW), 1
       );
       const r = DOT_MIN_R + tokenFrac * (DOT_MAX_R - DOT_MIN_R);
 
