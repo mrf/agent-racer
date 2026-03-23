@@ -38,6 +38,18 @@ describe('getModelColor — exact model matches', () => {
     expect(color).toBe(MODEL_COLORS['claude-sonnet-4-20250514']);
     expect(color.main).toBe('#3b82f6');
   });
+
+  it('returns opus color for claude-opus-4-6', () => {
+    const color = getModelColor('claude-opus-4-6', 'claude');
+    expect(color).toBe(MODEL_COLORS['claude-opus-4-6']);
+    expect(color.main).toBe('#a855f7');
+  });
+
+  it('returns sonnet color for claude-sonnet-4-6', () => {
+    const color = getModelColor('claude-sonnet-4-6', 'claude');
+    expect(color).toBe(MODEL_COLORS['claude-sonnet-4-6']);
+    expect(color.main).toBe('#0ea5e9');
+  });
 });
 
 describe('getModelColor — fuzzy claude matches', () => {
@@ -197,12 +209,20 @@ describe('shortModelName', () => {
     expect(shortModelName('')).toBe('?');
   });
 
-  it('abbreviates claude models to the first segment', () => {
-    expect(shortModelName('claude-sonnet-4-5-20250929')).toBe('CLAUDE');
+  it('abbreviates claude-sonnet-4-5 with family and version', () => {
+    expect(shortModelName('claude-sonnet-4-5-20250929')).toBe('SO4.5');
   });
 
-  it('abbreviates haiku models to the first segment', () => {
-    expect(shortModelName('claude-haiku-4-5-20251001')).toBe('CLAUDE');
+  it('abbreviates claude-haiku-4-5 with family and version', () => {
+    expect(shortModelName('claude-haiku-4-5-20251001')).toBe('HA4.5');
+  });
+
+  it('abbreviates claude-opus-4-6 with family and version', () => {
+    expect(shortModelName('claude-opus-4-6')).toBe('OP4.6');
+  });
+
+  it('abbreviates claude-sonnet-4-6 with family and version', () => {
+    expect(shortModelName('claude-sonnet-4-6')).toBe('SO4.6');
   });
 
   it('formats gemini-2.0-flash with version and tier', () => {

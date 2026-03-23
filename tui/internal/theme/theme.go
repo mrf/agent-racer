@@ -10,6 +10,7 @@ var (
 	ColorOpus    = lipgloss.Color("#a855f7")
 	ColorSonnet4 = lipgloss.Color("#3b82f6")
 	ColorSonnet45 = lipgloss.Color("#06b6d4")
+	ColorSonnet46 = lipgloss.Color("#0ea5e9")
 	ColorHaiku   = lipgloss.Color("#22c55e")
 	ColorGemini  = lipgloss.Color("#4285f4")
 	ColorCodex   = lipgloss.Color("#10b981")
@@ -66,6 +67,8 @@ func ModelColor(model string) lipgloss.Color {
 	switch {
 	case contains(model, "opus"):
 		return ColorOpus
+	case contains(model, "sonnet") && contains(model, "4-6"):
+		return ColorSonnet46
 	case contains(model, "sonnet") && contains(model, "4-5"):
 		return ColorSonnet45
 	case contains(model, "sonnet"):
