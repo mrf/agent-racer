@@ -760,7 +760,7 @@ describe('RaceCanvas', () => {
       expect(rc._trackGroups).toEqual([{ maxTokens: 200000, laneCount: 2 }]);
     });
 
-    it('creates separate groups for different maxContextTokens', () => {
+    it('creates separate groups for different context tiers (200K vs 1M)', () => {
       rc.setAllRacers([
         makeState({ id: 'a', activity: 'thinking', maxContextTokens: 200000 }),
         makeState({ id: 'b', activity: 'thinking', maxContextTokens: 1000000 }),
@@ -773,15 +773,45 @@ describe('RaceCanvas', () => {
       ]);
     });
 
-    it('sorts groups by maxTokens ascending', () => {
+    it('groups similar context sizes within the same tier', () => {
       rc.setAllRacers([
-        makeState({ id: 'a', activity: 'thinking', maxContextTokens: 1000000 }),
-        makeState({ id: 'b', activity: 'thinking', maxContextTokens: 200000 }),
-        makeState({ id: 'c', activity: 'thinking', maxContextTokens: 500000 }),
+        makeState({ id: 'a', activity: 'thinking', maxContextTokens: 200000 }),
+        makeState({ id: 'b', activity: 'thinking', maxContextTokens: 258400 }),
       ]);
       rc.update();
 
-      expect(rc._trackGroups.map(g => g.maxTokens)).toEqual([200000, 500000, 1000000]);
+      expect(rc._trackGroups).toEqual([{ maxTokens: 258400, laneCount: 2 }]);
+    });
+
+    it('uses max context within tier as the group maxTokens', () => {
+      rc.setAllRacers([
+        makeState({ id: 'a', activity: 'thinking', maxContextTokens: 128000 }),
+        makeState({ id: 'b', activity: 'thinking', maxContextTokens: 200000 }),
+        makeState({ id: 'c', activity: 'thinking', maxContextTokens: 272000 }),
+      ]);
+      rc.update();
+
+      expect(rc._trackGroups).toEqual([{ maxTokens: 272000, laneCount: 3 }]);
+    });
+
+    it('merges 500K and 1M into the same tier', () => {
+      rc.setAllRacers([
+        makeState({ id: 'a', activity: 'thinking', maxContextTokens: 500000 }),
+        makeState({ id: 'b', activity: 'thinking', maxContextTokens: 1000000 }),
+      ]);
+      rc.update();
+
+      expect(rc._trackGroups).toEqual([{ maxTokens: 1000000, laneCount: 2 }]);
+    });
+
+    it('sorts groups by tier ascending', () => {
+      rc.setAllRacers([
+        makeState({ id: 'a', activity: 'thinking', maxContextTokens: 1000000 }),
+        makeState({ id: 'b', activity: 'thinking', maxContextTokens: 200000 }),
+      ]);
+      rc.update();
+
+      expect(rc._trackGroups.map(g => g.maxTokens)).toEqual([200000, 1000000]);
     });
 
     it('defaults to DEFAULT_CONTEXT_WINDOW when maxContextTokens is missing', () => {

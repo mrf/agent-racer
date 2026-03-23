@@ -468,7 +468,7 @@ describe('FootraceCanvas', () => {
       expect(fc._trackGroups).toEqual([{ maxTokens: 200000, laneCount: 2 }]);
     });
 
-    it('creates separate groups for different maxContextTokens', () => {
+    it('creates separate groups for different context tiers (200K vs 1M)', () => {
       fc.setAllRacers([
         makeState({ id: 'a', activity: 'thinking', maxContextTokens: 200000 }),
         makeState({ id: 'b', activity: 'thinking', maxContextTokens: 1000000 }),
@@ -478,6 +478,15 @@ describe('FootraceCanvas', () => {
         { maxTokens: 200000, laneCount: 1 },
         { maxTokens: 1000000, laneCount: 1 },
       ]);
+    });
+
+    it('groups similar context sizes within the same tier', () => {
+      fc.setAllRacers([
+        makeState({ id: 'a', activity: 'thinking', maxContextTokens: 200000 }),
+        makeState({ id: 'b', activity: 'thinking', maxContextTokens: 272000 }),
+      ]);
+      fc.update();
+      expect(fc._trackGroups).toEqual([{ maxTokens: 272000, laneCount: 2 }]);
     });
   });
 

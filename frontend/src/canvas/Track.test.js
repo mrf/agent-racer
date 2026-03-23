@@ -591,9 +591,14 @@ describe('Track', () => {
   });
 
   describe('_formatTokenLabel', () => {
-    it('formats millions with one decimal', () => {
-      expect(track._formatTokenLabel(1000000)).toBe('1.0M');
+    it('formats whole millions without decimal', () => {
+      expect(track._formatTokenLabel(1000000)).toBe('1M');
+      expect(track._formatTokenLabel(2000000)).toBe('2M');
+    });
+
+    it('formats fractional millions with one decimal', () => {
       expect(track._formatTokenLabel(1500000)).toBe('1.5M');
+      expect(track._formatTokenLabel(1048576)).toBe('1.0M');
     });
 
     it('formats thousands as integers', () => {

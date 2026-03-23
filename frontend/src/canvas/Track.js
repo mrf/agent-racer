@@ -619,7 +619,10 @@ export class Track {
   }
 
   _formatTokenLabel(tokens) {
-    if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
+    if (tokens >= 1_000_000) {
+      const m = tokens / 1_000_000;
+      return Number.isInteger(m) ? `${m}M` : `${m.toFixed(1)}M`;
+    }
     if (tokens >= 1000) return `${Math.round(tokens / 1000)}K`;
     return `${tokens}`;
   }

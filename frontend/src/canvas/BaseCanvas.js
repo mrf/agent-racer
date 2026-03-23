@@ -6,6 +6,18 @@ import { ParticleSystem } from './Particles.js';
 
 const WHITE_RGB = { r: 255, g: 255, b: 255 };
 
+/**
+ * Bucket context window sizes into tiers for track grouping.
+ * Sessions within the same tier share a track. Boundaries prevent splitting
+ * sessions with similar context sizes (e.g. 128K vs 200K vs 258K) while
+ * keeping vastly different scales (200K vs 1M) on separate tracks.
+ */
+export function getContextTier(maxTokens) {
+  if (maxTokens <= 400000) return 400000;
+  if (maxTokens <= 1500000) return 1500000;
+  return Math.ceil(maxTokens / 1000000) * 1000000;
+}
+
 export class BaseCanvas {
   constructor(canvas, options) {
     this.canvas = canvas;
@@ -182,18 +194,23 @@ export class BaseCanvas {
       parked: parkingLotLaneCount,
     };
 
-    const groupMap = new Map();
+    const tierMap = new Map();
     for (const entity of trackEntities) {
       const maxTokens = entity.state.maxContextTokens || DEFAULT_CONTEXT_WINDOW;
-      if (!groupMap.has(maxTokens)) {
-        groupMap.set(maxTokens, []);
+      const tier = getContextTier(maxTokens);
+      if (!tierMap.has(tier)) {
+        tierMap.set(tier, { entities: [], maxTokens: 0 });
       }
-      groupMap.get(maxTokens).push(entity);
+      const group = tierMap.get(tier);
+      group.entities.push(entity);
+      group.maxTokens = Math.max(group.maxTokens, maxTokens);
     }
 
-    const sortedGroupEntries = [...groupMap.entries()].sort(([a], [b]) => a - b);
-    const trackGroups = sortedGroupEntries.length > 0
-      ? sortedGroupEntries.map(([maxTokens, entities]) => ({ maxTokens, laneCount: entities.length }))
+    const sortedGroups = [...tierMap.entries()]
+      .sort(([a], [b]) => a - b)
+      .map(([, group]) => group);
+    const trackGroups = sortedGroups.length > 0
+      ? sortedGroups.map(({ maxTokens, entities }) => ({ maxTokens, laneCount: entities.length }))
       : [{ maxTokens: DEFAULT_CONTEXT_WINDOW, laneCount: 1 }];
 
     this._syncTrackGroups(trackGroups, pitLaneCount, parkingLotLaneCount);
@@ -216,7 +233,7 @@ export class BaseCanvas {
       parkingLotEntities,
       pitLaneCount,
       parkingLotLaneCount,
-      sortedGroupEntries,
+      sortedGroups,
       trackGroups,
       layouts,
       trackZoneBottom: lastLayout.y + lastLayout.height,
@@ -242,10 +259,10 @@ export class BaseCanvas {
   }
 
   _positionTrackEntities(zoneLayout, afterPosition) {
-    const { sortedGroupEntries, layouts, entryX, trackZoneBottom } = zoneLayout;
+    const { sortedGroups, layouts, entryX, trackZoneBottom } = zoneLayout;
 
-    for (let groupIndex = 0; groupIndex < sortedGroupEntries.length; groupIndex++) {
-      const [groupMaxTokens, groupEntities] = sortedGroupEntries[groupIndex];
+    for (let groupIndex = 0; groupIndex < sortedGroups.length; groupIndex++) {
+      const { maxTokens: groupMaxTokens, entities: groupEntities } = sortedGroups[groupIndex];
       const layout = layouts[groupIndex];
       const sorted = groupEntities.sort((a, b) => a.state.lane - b.state.lane);
 
