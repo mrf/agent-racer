@@ -210,10 +210,11 @@ func defaultConfig() *Config {
 			Gemini: false,
 		},
 		Models: map[string]int{
-			"gpt-5.4":     258400,
-			"gpt-*-codex": 272000,
-			"codex-*":     200000,
-			"default":     DefaultContextWindow,
+			"claude-*-4-6*": 1000000,
+			"gpt-5.4":       258400,
+			"gpt-*-codex":   272000,
+			"codex-*":       200000,
+			"default":       DefaultContextWindow,
 		},
 		Sound: SoundConfig{
 			Enabled:       true,

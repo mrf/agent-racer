@@ -39,7 +39,9 @@ monitor:
 # Keys may use shell-style glob patterns (`*`) — the most specific match wins.
 # Exact names take priority over globs.
 models:
-  # Claude models (all current variants use 200K)
+  # Claude 4.6 models (1M context window)
+  claude-*-4-6*: 1000000
+  # Claude models fallback (older variants use 200K)
   claude-*: 200000
   # Codex models (fallback; Codex reports context window dynamically)
   gpt-5.4: 258400

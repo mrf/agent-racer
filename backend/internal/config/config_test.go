@@ -281,6 +281,24 @@ func TestMaxContextTokens(t *testing.T) {
 			want:   2097152,
 		},
 		{
+			name:   "claude 4.6 specific glob beats generic claude glob",
+			models: map[string]int{"claude-*-4-6*": 1000000, "claude-*": 200000},
+			model:  "claude-opus-4-6",
+			want:   1000000,
+		},
+		{
+			name:   "claude 4.6 with date suffix matches specific glob",
+			models: map[string]int{"claude-*-4-6*": 1000000, "claude-*": 200000},
+			model:  "claude-sonnet-4-6-20260301",
+			want:   1000000,
+		},
+		{
+			name:   "older claude model falls back to generic glob",
+			models: map[string]int{"claude-*-4-6*": 1000000, "claude-*": 200000},
+			model:  "claude-opus-4-5-20251101",
+			want:   200000,
+		},
+		{
 			name:   "no glob match falls to default",
 			models: map[string]int{"claude-*": 200000, "default": 128000},
 			model:  "gpt-4",

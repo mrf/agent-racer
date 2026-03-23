@@ -18,6 +18,7 @@ monitor:
   mock_tick_interval: 100ms
 
 models:
+  claude-*-4-6*: 1000000
   claude-*: 200000
   gpt-*-codex: 272000
   codex-*: 200000
