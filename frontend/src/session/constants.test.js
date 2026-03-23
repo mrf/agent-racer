@@ -106,8 +106,8 @@ describe('PIT_ACTIVITIES', () => {
 });
 
 describe('DEFAULT_CONTEXT_WINDOW', () => {
-  it('is 200000', () => {
-    expect(DEFAULT_CONTEXT_WINDOW).toBe(200000);
+  it('is 1000000', () => {
+    expect(DEFAULT_CONTEXT_WINDOW).toBe(1000000);
   });
 });
 
