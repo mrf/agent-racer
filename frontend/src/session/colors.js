@@ -1,7 +1,9 @@
 export const MODEL_COLORS = {
   'claude-opus-4-5-20251101': { main: '#a855f7', dark: '#7c3aed', light: '#c084fc', name: 'Opus' },
+  'claude-opus-4-6': { main: '#a855f7', dark: '#7c3aed', light: '#c084fc', name: 'Opus' },
   'claude-sonnet-4-20250514': { main: '#3b82f6', dark: '#2563eb', light: '#60a5fa', name: 'Sonnet' },
   'claude-sonnet-4-5-20250929': { main: '#06b6d4', dark: '#0891b2', light: '#22d3ee', name: 'Sonnet' },
+  'claude-sonnet-4-6': { main: '#0ea5e9', dark: '#0284c7', light: '#38bdf8', name: 'Sonnet' },
   'claude-haiku-3-5-20241022': { main: '#22c55e', dark: '#16a34a', light: '#4ade80', name: 'Haiku' },
   'claude-haiku-4-5-20251001': { main: '#22c55e', dark: '#16a34a', light: '#4ade80', name: 'Haiku' },
 };
@@ -20,6 +22,14 @@ export function shortModelName(model) {
   if (!model) return '?';
   const parts = model.split(/[-_]/).filter(Boolean);
   if (parts.length === 0) return model.slice(0, 6).toUpperCase();
+  if (parts[0] === 'claude') {
+    if (!parts[1]) return 'CLAUDE';
+    const family = parts[1].slice(0, 2).toUpperCase();
+    if (parts.length >= 4) {
+      return `${family}${parts[2]}.${parts[3]}`;
+    }
+    return parts[1].charAt(0).toUpperCase() + parts[1].slice(1);
+  }
   if (parts[0] === 'gemini') {
     const version = parts[1] ? parts[1].replace(/[^0-9.]/g, '') : '';
     const tier = parts[2] ? parts[2][0].toUpperCase() : '';

@@ -186,8 +186,12 @@ func truncateName(name string, maxLen int) string {
 // shortModel returns a compact model label.
 func shortModel(model string) string {
 	switch {
+	case strings.Contains(model, "opus") && strings.Contains(model, "4-6"):
+		return "opus-4.6"
 	case strings.Contains(model, "opus"):
 		return "opus"
+	case strings.Contains(model, "sonnet") && strings.Contains(model, "4-6"):
+		return "sonnet-4.6"
 	case strings.Contains(model, "sonnet") && strings.Contains(model, "4-5"):
 		return "sonnet-4.5"
 	case strings.Contains(model, "sonnet"):
