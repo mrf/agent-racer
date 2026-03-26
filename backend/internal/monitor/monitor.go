@@ -396,10 +396,9 @@ func (m *Monitor) poll() {
 		m.updatePositions(updates)
 	}
 
-	// Atomically commit all session updates to the store and queue the
-	// broadcast under the same lock. This prevents HTTP handlers from
-	// reading partial state via store.GetAll() before WebSocket clients
-	// have been notified of the changes.
+	// Atomically commit all session updates to the store and then queue
+	// the broadcast. The notify callback runs after the write lock is
+	// released to avoid lock inversion with the broadcaster.
 	if len(updates) > 0 {
 		m.store.BatchUpdateAndNotify(updates, func() {
 			m.broadcaster.QueueUpdate(updates)
@@ -664,8 +663,7 @@ func (m *Monitor) pollSource(src Source, cfg *config.Config, sh *sourceHealth, n
 }
 
 // markTerminal marks a session with a terminal state (Complete, Errored, or Lost).
-// The store update and broadcast are performed atomically so that HTTP readers
-// cannot observe the terminal state before WebSocket clients are notified.
+// The store update is atomic; the broadcast is queued after the lock is released.
 func (m *Monitor) markTerminal(cfg *config.Config, state *session.SessionState, activity session.Activity, completedAt time.Time) {
 	if state == nil {
 		return
@@ -680,8 +678,6 @@ func (m *Monitor) markTerminal(cfg *config.Config, state *session.SessionState, 
 		}
 		m.broadcaster.QueueUpdate([]*session.SessionState{state})
 	})
-	// emitEvent calls store.ActiveCount() which takes a read lock —
-	// must be outside UpdateAndNotify to avoid deadlock (write lock is held).
 	if !wasTerminal {
 		m.emitEvent(session.EventTerminal, state)
 	}
