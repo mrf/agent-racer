@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -21,8 +22,15 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// validTmuxTarget matches a tmux target like "session:window.pane" where the
+// session name contains only safe characters and window/pane are integers.
+var validTmuxTarget = regexp.MustCompile(`^[a-zA-Z0-9_.-]+:\d+\.\d+$`)
+
 // tmuxFocusSession switches to the tmux pane identified by target (e.g. "main:2.0").
 func tmuxFocusSession(target string) error {
+	if !validTmuxTarget.MatchString(target) {
+		return fmt.Errorf("invalid tmux target %q", target)
+	}
 	tmuxPath, err := exec.LookPath("tmux")
 	if err != nil {
 		return fmt.Errorf("tmux not found: %w", err)
