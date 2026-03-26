@@ -42,27 +42,29 @@ func (s *Store) Update(state *SessionState) {
 	s.updateLocked(state)
 }
 
-// UpdateAndNotify atomically updates a session and calls notify before
-// releasing the write lock. This ensures that GetAll (which takes a read
-// lock) cannot observe the updated state until the notification — typically
-// a broadcaster queue — has been issued.
+// UpdateAndNotify atomically updates a session and then calls notify after
+// releasing the write lock. This prevents lock inversion: the notify callback
+// typically queues a broadcast (acquiring broadcaster.flushMu), and the
+// broadcaster's flush timer calls store.GetAll (acquiring store.mu.RLock).
+// Running notify inside the write lock would create a store.mu → flushMu →
+// store.mu cycle.
 func (s *Store) UpdateAndNotify(state *SessionState, notify func()) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.updateLocked(state)
+	s.mu.Unlock()
 	if notify != nil {
 		notify()
 	}
 }
 
-// BatchUpdateAndNotify atomically updates multiple sessions and calls notify
-// before releasing the write lock.
+// BatchUpdateAndNotify atomically updates multiple sessions and then calls
+// notify after releasing the write lock. See UpdateAndNotify for rationale.
 func (s *Store) BatchUpdateAndNotify(states []*SessionState, notify func()) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	for _, state := range states {
 		s.updateLocked(state)
 	}
+	s.mu.Unlock()
 	if notify != nil {
 		notify()
 	}
@@ -84,14 +86,14 @@ func (s *Store) Remove(id string) {
 	delete(s.sessions, id)
 }
 
-// BatchRemoveAndNotify atomically removes multiple sessions and calls notify
-// before releasing the write lock.
+// BatchRemoveAndNotify atomically removes multiple sessions and then calls
+// notify after releasing the write lock. See UpdateAndNotify for rationale.
 func (s *Store) BatchRemoveAndNotify(ids []string, notify func()) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	for _, id := range ids {
 		delete(s.sessions, id)
 	}
+	s.mu.Unlock()
 	if notify != nil {
 		notify()
 	}

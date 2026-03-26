@@ -903,18 +903,17 @@ func TestCalculateBurnRate(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Deadlock regression tests
 //
-// Root cause (fixed): markTerminal() called emitEvent() inside the
+// Original root cause: markTerminal() called emitEvent() inside the
 // UpdateAndNotify callback. emitEvent() calls store.ActiveCount(), which
-// acquires store.mu.RLock(). But UpdateAndNotify holds store.mu.Lock()
-// for the entire callback. Go's sync.RWMutex is not reentrant — a goroutine
-// holding a write lock cannot acquire a read lock on the same mutex. This
-// permanently deadlocked the store, blocking ALL subsequent GetAll() and
-// ActiveCount() calls. The dashboard showed "0 sessions" despite active sessions.
+// acquires store.mu.RLock(). UpdateAndNotify held store.mu.Lock() for the
+// entire callback → deadlock (sync.RWMutex is not reentrant).
 //
-// The fix: move emitEvent() outside the UpdateAndNotify callback so it runs
-// after the write lock is released.
+// First fix: move emitEvent() outside the UpdateAndNotify callback.
+// Second fix: move notify() itself outside the write lock in the store,
+// eliminating the lock inversion risk entirely (store.mu → broadcaster.flushMu
+// vs flush timer's broadcaster.flushMu → store.mu via GetAll).
 //
-// These tests would have caught the bug before it shipped.
+// These tests verify that markTerminal() never deadlocks the store.
 // ---------------------------------------------------------------------------
 
 // TestMarkTerminal_GetAllUnblockedAfterCompletion is the direct regression test
@@ -988,9 +987,7 @@ func TestMarkTerminal_GetAllUnblockedAfterCompletion(t *testing.T) {
 }
 
 // TestMarkTerminal_StatsEventActiveCountIsValid verifies that when statsEvents
-// is configured, the EventTerminal event carries a valid ActiveCount. This is
-// the field that caused the deadlock — it must be populated outside the
-// UpdateAndNotify callback, after the write lock is released.
+// is configured, the EventTerminal event carries a valid ActiveCount.
 func TestMarkTerminal_StatsEventActiveCountIsValid(t *testing.T) {
 	store := session.NewStore()
 	broadcaster := ws.NewBroadcaster(store, 100*time.Millisecond, 5*time.Second, 0)
@@ -1114,7 +1111,6 @@ func TestMarkTerminal_ConcurrentGetAllDoesNotDeadlock(t *testing.T) {
 	}
 
 	var wg sync.WaitGroup
-	done := make(chan struct{})
 
 	// Goroutine 1: repeatedly calls markTerminal (monitor goroutine).
 	wg.Add(1)
@@ -1162,7 +1158,6 @@ func TestMarkTerminal_ConcurrentGetAllDoesNotDeadlock(t *testing.T) {
 	case <-time.After(monitorDeadlockTimeout):
 		t.Fatal("DEADLOCK: concurrent markTerminal + GetAll/ActiveCount did not complete within timeout")
 	}
-	close(done)
 }
 
 // TestMarkTerminal_WasTerminalSkipsEmitEvent verifies that when a session is
@@ -1219,15 +1214,10 @@ func TestMarkTerminal_WasTerminalSkipsEmitEvent(t *testing.T) {
 	}
 }
 
-// TestEmitEvent_CalledAfterLockReleased verifies the structural invariant that
-// emitEvent() — which calls store.ActiveCount() — is always called AFTER the
-// UpdateAndNotify write lock has been released.
-//
-// This tests the fix itself: emitEvent is positioned outside the callback
-// in markTerminal(). If someone accidentally moves it back inside, the
-// TestMarkTerminal_GetAllUnblockedAfterCompletion test will catch the deadlock,
-// but this test catches the structural violation by ensuring that the store is
-// readable from within emitEvent's execution context.
+// TestEmitEvent_CalledAfterLockReleased verifies that emitEvent() — which
+// calls store.ActiveCount() — completes without deadlocking. The store's
+// notify callback now runs after the write lock is released, so this is
+// safe regardless of where emitEvent is called relative to the callback.
 func TestEmitEvent_CalledAfterLockReleased(t *testing.T) {
 	store := session.NewStore()
 	broadcaster := ws.NewBroadcaster(store, 100*time.Millisecond, 5*time.Second, 0)

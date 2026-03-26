@@ -358,9 +358,11 @@ func TestUpdateAndNotify(t *testing.T) {
 	notified := false
 	s.UpdateAndNotify(&SessionState{ID: "a", Name: "alpha"}, func() {
 		notified = true
-		// Inside the callback, the session should already be in the store.
-		// We can't call s.Get (it would deadlock with write lock held),
-		// but we verify the callback was invoked synchronously.
+		// The callback runs after the write lock is released, so store
+		// methods (Get, GetAll, ActiveCount) are safe to call here.
+		if _, ok := s.Get("a"); !ok {
+			t.Error("session not visible from notify callback")
+		}
 	})
 	if !notified {
 		t.Error("UpdateAndNotify did not call notify callback")
@@ -471,52 +473,36 @@ func mustCompleteWithin(t *testing.T, timeout time.Duration, desc string, f func
 	}
 }
 
-// TestUpdateAndNotify_CallbackMustNotReenter verifies the store's contract:
-// a callback passed to UpdateAndNotify holds mu.Lock() and MUST NOT call any
-// store method that acquires a read or write lock (Get, GetAll, ActiveCount,
-// Update, Remove). Go's sync.RWMutex is not reentrant — a goroutine holding
-// a write lock that attempts to acquire a read lock on the same mutex will
-// deadlock permanently.
-//
-// This test does NOT call those methods from within the callback (that would
-// hang the test runner). Instead, it verifies the contract from the outside:
-// after UpdateAndNotify returns, Get/GetAll/ActiveCount must be immediately
-// callable — confirming the write lock was properly released.
-//
-// If someone moves a store.Get() or store.ActiveCount() call back inside a
-// callback (as happened in the markTerminal() deadlock regression), this test
-// catches it.
-func TestUpdateAndNotify_CallbackMustNotReenter(t *testing.T) {
+// TestUpdateAndNotify_CallbackCanAccessStore verifies that the notify callback
+// runs after the write lock is released. Store methods (Get, GetAll,
+// ActiveCount) are safe to call from the callback without deadlocking.
+func TestUpdateAndNotify_CallbackCanAccessStore(t *testing.T) {
 	s := NewStore()
 
 	callbackRan := false
 	s.UpdateAndNotify(&SessionState{ID: "a", Activity: Thinking}, func() {
 		callbackRan = true
-		// Do NOT call s.Get/s.GetAll/s.ActiveCount here — that is the bug we are
-		// guarding against. The test verifies that after this callback finishes,
-		// the lock is released and all read operations unblock.
+		// These calls are safe because the write lock has been released
+		// before the callback is invoked.
+		mustCompleteWithin(t, deadlockTimeout, "Get inside callback", func() {
+			_, _ = s.Get("a")
+		})
+		mustCompleteWithin(t, deadlockTimeout, "GetAll inside callback", func() {
+			_ = s.GetAll()
+		})
+		mustCompleteWithin(t, deadlockTimeout, "ActiveCount inside callback", func() {
+			_ = s.ActiveCount()
+		})
 	})
 	if !callbackRan {
 		t.Fatal("UpdateAndNotify did not invoke callback")
 	}
-
-	// After UpdateAndNotify returns, all store operations must complete
-	// without blocking. Any deadlock here means the write lock was not released.
-	mustCompleteWithin(t, deadlockTimeout, "Get after UpdateAndNotify", func() {
-		_, _ = s.Get("a")
-	})
-	mustCompleteWithin(t, deadlockTimeout, "GetAll after UpdateAndNotify", func() {
-		_ = s.GetAll()
-	})
-	mustCompleteWithin(t, deadlockTimeout, "ActiveCount after UpdateAndNotify", func() {
-		_ = s.ActiveCount()
-	})
 }
 
-// TestBatchUpdateAndNotify_CallbackMustNotReenter is the same contract test
-// for BatchUpdateAndNotify. The callback runs while mu.Lock() is held; any
-// store re-entry inside it would deadlock.
-func TestBatchUpdateAndNotify_CallbackMustNotReenter(t *testing.T) {
+// TestBatchUpdateAndNotify_CallbackCanAccessStore is the same contract test
+// for BatchUpdateAndNotify. The callback runs after the write lock is
+// released, so store methods are safe to call.
+func TestBatchUpdateAndNotify_CallbackCanAccessStore(t *testing.T) {
 	s := NewStore()
 
 	states := []*SessionState{
@@ -526,25 +512,22 @@ func TestBatchUpdateAndNotify_CallbackMustNotReenter(t *testing.T) {
 	callbackRan := false
 	s.BatchUpdateAndNotify(states, func() {
 		callbackRan = true
+		mustCompleteWithin(t, deadlockTimeout, "GetAll inside callback", func() {
+			_ = s.GetAll()
+		})
+		mustCompleteWithin(t, deadlockTimeout, "ActiveCount inside callback", func() {
+			_ = s.ActiveCount()
+		})
 	})
 	if !callbackRan {
 		t.Fatal("BatchUpdateAndNotify did not invoke callback")
 	}
-
-	mustCompleteWithin(t, deadlockTimeout, "Get after BatchUpdateAndNotify", func() {
-		_, _ = s.Get("a")
-	})
-	mustCompleteWithin(t, deadlockTimeout, "GetAll after BatchUpdateAndNotify", func() {
-		_ = s.GetAll()
-	})
-	mustCompleteWithin(t, deadlockTimeout, "ActiveCount after BatchUpdateAndNotify", func() {
-		_ = s.ActiveCount()
-	})
 }
 
-// TestBatchRemoveAndNotify_CallbackMustNotReenter is the same contract test
-// for BatchRemoveAndNotify.
-func TestBatchRemoveAndNotify_CallbackMustNotReenter(t *testing.T) {
+// TestBatchRemoveAndNotify_CallbackCanAccessStore is the same contract test
+// for BatchRemoveAndNotify. The callback runs after the write lock is
+// released, so store methods are safe to call.
+func TestBatchRemoveAndNotify_CallbackCanAccessStore(t *testing.T) {
 	s := NewStore()
 	s.Update(&SessionState{ID: "a", Activity: Complete})
 	s.Update(&SessionState{ID: "b", Activity: Errored})
@@ -552,76 +535,24 @@ func TestBatchRemoveAndNotify_CallbackMustNotReenter(t *testing.T) {
 	callbackRan := false
 	s.BatchRemoveAndNotify([]string{"a", "b"}, func() {
 		callbackRan = true
+		mustCompleteWithin(t, deadlockTimeout, "GetAll inside callback", func() {
+			_ = s.GetAll()
+		})
+		mustCompleteWithin(t, deadlockTimeout, "ActiveCount inside callback", func() {
+			_ = s.ActiveCount()
+		})
 	})
 	if !callbackRan {
 		t.Fatal("BatchRemoveAndNotify did not invoke callback")
 	}
-
-	mustCompleteWithin(t, deadlockTimeout, "Get after BatchRemoveAndNotify", func() {
-		_, _ = s.Get("a")
-	})
-	mustCompleteWithin(t, deadlockTimeout, "GetAll after BatchRemoveAndNotify", func() {
-		_ = s.GetAll()
-	})
-	mustCompleteWithin(t, deadlockTimeout, "ActiveCount after BatchRemoveAndNotify", func() {
-		_ = s.ActiveCount()
-	})
 }
 
-// TestUpdateAndNotify_StoreCallFromCallbackDeadlocks documents the exact
-// failure mode: a goroutine holding mu.Lock() (via UpdateAndNotify callback)
-// that attempts to acquire mu.RLock() (via ActiveCount) will block forever.
-//
-// This test DELIBERATELY triggers the deadlock scenario in a controlled
-// goroutine with a timeout. If the timeout fires, it confirms the bug
-// reproduces. If it completes within the timeout, something changed about
-// the locking model (which would be a surprise).
-//
-// This is the direct reproduction of the markTerminal() regression: the
-// emitEvent() call inside the UpdateAndNotify callback called
-// store.ActiveCount(), which attempted mu.RLock() while mu.Lock() was held.
-func TestUpdateAndNotify_StoreCallFromCallbackDeadlocks(t *testing.T) {
-	s := NewStore()
-	s.Update(&SessionState{ID: "existing", Activity: Thinking})
-
-	// Run the deadlocking code path in a goroutine with a short timeout.
-	// We expect this to NOT complete (i.e., the goroutine will be stuck).
-	// The test passes if it times out — confirming the deadlock is real.
-	// If it somehow completes, the locking model has changed and this test
-	// should be re-evaluated.
-	done := make(chan struct{})
-	go func() {
-		s.UpdateAndNotify(&SessionState{ID: "a", Activity: Complete}, func() {
-			// This is the bug: calling ActiveCount() while mu.Lock() is held.
-			// sync.RWMutex is not reentrant — this will block forever.
-			_ = s.ActiveCount()
-		})
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		// The callback completed — the mutex was reentrant, which is not how
-		// sync.RWMutex works. This means the test assumptions are wrong.
-		t.Log("WARNING: UpdateAndNotify callback with ActiveCount() completed — verify locking model is still non-reentrant")
-	case <-time.After(200 * time.Millisecond):
-		// Expected: the goroutine is permanently blocked (deadlocked).
-		// This confirms the deadlock mode is real. The fix (moving calls
-		// like emitEvent outside the callback) is what prevents it in prod.
-		t.Log("confirmed: calling store.ActiveCount() inside UpdateAndNotify callback causes deadlock (as expected)")
-	}
-	// Note: the goroutine is leaked intentionally — it is permanently blocked
-	// and cannot be unblocked. This is acceptable in a test that documents a
-	// known-deadlock scenario. The test process exits and cleans up.
-}
-
-func TestAtomicUpdateBlocksGetAll(t *testing.T) {
+// TestGetAllNotBlockedByCallback verifies that GetAll is NOT blocked while
+// the notify callback is running, since the write lock is released before
+// the callback executes.
+func TestGetAllNotBlockedByCallback(t *testing.T) {
 	s := NewStore()
 
-	// Verify that GetAll cannot observe state written by BatchUpdateAndNotify
-	// before the notify callback completes. We test this by having the notify
-	// callback signal readiness, then a concurrent goroutine calls GetAll.
-	// If GetAll returns before the callback finishes, the lock isn't held.
 	callbackStarted := make(chan struct{})
 	callbackDone := make(chan struct{})
 	getAllDone := make(chan struct{})
@@ -631,27 +562,21 @@ func TestAtomicUpdateBlocksGetAll(t *testing.T) {
 			{ID: "x", Name: "test"},
 		}, func() {
 			close(callbackStarted)
-			// Hold the lock briefly to give GetAll a chance to contend.
 			<-callbackDone
 		})
 	}()
 
 	go func() {
 		<-callbackStarted
-		// This GetAll should block until the callback finishes.
+		// GetAll should complete immediately — the write lock is not held.
 		s.GetAll()
 		close(getAllDone)
 	}()
 
-	// The callback is running. GetAll should be blocked.
-	select {
-	case <-getAllDone:
-		// getAllDone before we release — the lock wasn't held.
-		t.Error("GetAll completed while BatchUpdateAndNotify callback was still running")
-	default:
-		// Good — GetAll is still blocked.
-	}
+	// GetAll should complete while the callback is still running.
+	mustCompleteWithin(t, deadlockTimeout, "GetAll during callback", func() {
+		<-getAllDone
+	})
 
 	close(callbackDone)
-	<-getAllDone
 }
