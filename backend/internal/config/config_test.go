@@ -585,3 +585,37 @@ func TestDiffDetectsMultipleMonitorChanges(t *testing.T) {
 		}
 	}
 }
+
+func TestServerConfigTLSEnabled(t *testing.T) {
+	tests := []struct {
+		name string
+		cert string
+		key  string
+		want bool
+	}{
+		{"both empty", "", "", false},
+		{"cert only", "/path/cert.pem", "", false},
+		{"key only", "", "/path/key.pem", false},
+		{"both set", "/path/cert.pem", "/path/key.pem", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sc := ServerConfig{TLSCert: tt.cert, TLSKey: tt.key}
+			if got := sc.TLSEnabled(); got != tt.want {
+				t.Errorf("TLSEnabled() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestServerConfigScheme(t *testing.T) {
+	plain := ServerConfig{}
+	if s := plain.Scheme(); s != "http" {
+		t.Errorf("Scheme() = %q, want %q", s, "http")
+	}
+
+	tls := ServerConfig{TLSCert: "c.pem", TLSKey: "k.pem"}
+	if s := tls.Scheme(); s != "https" {
+		t.Errorf("Scheme() = %q, want %q", s, "https")
+	}
+}

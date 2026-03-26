@@ -470,7 +470,8 @@ func TestListenAndServe_AcceptsConnections(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	go ws.ListenAndServe("127.0.0.1", port, mux) //nolint:errcheck
+	srv := ws.NewHTTPServer("127.0.0.1", port, false, mux)
+	go srv.ListenAndServe() //nolint:errcheck
 
 	// Poll until the server is ready.
 	addr := fmt.Sprintf("http://127.0.0.1:%d/health", port)

@@ -97,6 +97,14 @@ func main() {
 		cfg.Server.Port = opts.port
 	}
 
+	// Validate TLS config: both cert and key must be provided together.
+	if (cfg.Server.TLSCert == "") != (cfg.Server.TLSKey == "") {
+		log.Fatal("TLS misconfigured: both tls_cert and tls_key must be set (or both empty)")
+	}
+	if cfg.Server.TLSEnabled() {
+		log.Printf("TLS enabled: cert=%s key=%s", cfg.Server.TLSCert, cfg.Server.TLSKey)
+	}
+
 	store := session.NewStore()
 	broadcaster := ws.NewBroadcaster(store, cfg.Monitor.BroadcastThrottle, cfg.Monitor.SnapshotInterval, cfg.Server.MaxConnections)
 	broadcaster.SetPrivacyFilter(cfg.Privacy.NewPrivacyFilter())
@@ -145,7 +153,7 @@ func main() {
 		log.Println("========================================")
 		log.Println("  WARNING: No auth_token configured.")
 		log.Printf("  Generated token: %s", authToken)
-		log.Printf("  Open: http://%s:%d/#token=%s", cfg.Server.Host, cfg.Server.Port, authToken)
+		log.Printf("  Open: %s://%s:%d/#token=%s", cfg.Server.Scheme(), cfg.Server.Host, cfg.Server.Port, authToken)
 		log.Println("  The token is read from URL fragment and then removed from the address bar.")
 		log.Println("  Set server.auth_token in config to persist.")
 		log.Println("========================================")
@@ -249,7 +257,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	server.SetupRoutes(mux)
-	httpServer := ws.NewHTTPServer(cfg.Server.Host, cfg.Server.Port, mux)
+	httpServer := ws.NewHTTPServer(cfg.Server.Host, cfg.Server.Port, cfg.Server.TLSEnabled(), mux)
 
 	// SIGHUP: reload config.yaml and apply changes at runtime.
 	sighupCh := make(chan os.Signal, 1)
@@ -320,10 +328,16 @@ func main() {
 		}
 	}()
 
-	log.Printf("Server listening on %s", httpServer.Addr)
-	if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	log.Printf("Server listening on %s (%s)", httpServer.Addr, cfg.Server.Scheme())
+	var listenErr error
+	if cfg.Server.TLSEnabled() {
+		listenErr = httpServer.ListenAndServeTLS(cfg.Server.TLSCert, cfg.Server.TLSKey)
+	} else {
+		listenErr = httpServer.ListenAndServe()
+	}
+	if listenErr != nil && !errors.Is(listenErr, http.ErrServerClosed) {
 		cleanup()
-		log.Fatalf("Server error: %v", err)
+		log.Fatalf("Server error: %v", listenErr)
 	}
 	cleanup()
 }

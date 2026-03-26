@@ -10,6 +10,10 @@ server:
   # Set this to a fixed value to persist across restarts.
   # Weak placeholders like "dev", "test", "changeme", and "default" are rejected.
   auth_token: ""
+  # TLS/HTTPS support. Set both paths to enable HTTPS.
+  # When configured, the server serves over TLS and adds HSTS headers.
+  tls_cert: ""   # Path to PEM-encoded certificate file
+  tls_key: ""    # Path to PEM-encoded private key file
 
 # Session source configuration
 sources:

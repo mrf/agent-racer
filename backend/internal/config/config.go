@@ -126,6 +126,21 @@ type ServerConfig struct {
 	AllowedOrigins []string `yaml:"allowed_origins"`
 	AuthToken      string   `yaml:"auth_token"`
 	MaxConnections int      `yaml:"max_connections"`
+	TLSCert        string   `yaml:"tls_cert"`
+	TLSKey         string   `yaml:"tls_key"`
+}
+
+// TLSEnabled reports whether TLS certificate and key paths are configured.
+func (s *ServerConfig) TLSEnabled() bool {
+	return s.TLSCert != "" && s.TLSKey != ""
+}
+
+// Scheme returns "https" when TLS is configured, "http" otherwise.
+func (s *ServerConfig) Scheme() string {
+	if s.TLSEnabled() {
+		return "https"
+	}
+	return "http"
 }
 
 type MonitorConfig struct {
