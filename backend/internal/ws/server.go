@@ -659,16 +659,23 @@ func writeRateLimitExceeded(w http.ResponseWriter, retryAfter time.Duration) {
 	http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
 }
 
-func NewHTTPServer(host string, port int, mux *http.ServeMux) *http.Server {
+func NewHTTPServer(host string, port int, tls bool, mux *http.ServeMux) *http.Server {
 	addr := fmt.Sprintf("%s:%d", host, port)
+	handler := securityHeaders(mux)
+	if tls {
+		handler = hstsHeaders(handler)
+	}
 	return &http.Server{
 		Addr:    addr,
-		Handler: securityHeaders(mux),
+		Handler: handler,
 	}
 }
 
-func ListenAndServe(host string, port int, mux *http.ServeMux) error {
-	server := NewHTTPServer(host, port, mux)
-	log.Printf("Server listening on %s", server.Addr)
-	return server.ListenAndServe()
+// hstsHeaders adds a Strict-Transport-Security header to every response,
+// telling browsers to only use HTTPS for future requests.
+func hstsHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+		next.ServeHTTP(w, r)
+	})
 }
