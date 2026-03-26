@@ -160,6 +160,9 @@ func main() {
 		if recErr != nil {
 			log.Printf("Replay recorder disabled: %v", recErr)
 		}
+		if rec != nil {
+			rec.SetPrivacyFilter(cfg.Privacy.NewPrivacyFilter())
+		}
 	}
 
 	server := ws.NewServer(cfg, store, broadcaster, frontendDir, opts.devMode, embeddedHandler, cfg.Server.AllowedOrigins, authToken)
@@ -270,7 +273,11 @@ func main() {
 			}
 
 			// Apply privacy filter (always safe to update).
-			broadcaster.SetPrivacyFilter(newCfg.Privacy.NewPrivacyFilter())
+			pf := newCfg.Privacy.NewPrivacyFilter()
+			broadcaster.SetPrivacyFilter(pf)
+			if rec != nil {
+				rec.SetPrivacyFilter(pf)
+			}
 
 			// Apply broadcaster timing changes.
 			if cfg.Monitor.BroadcastThrottle != newCfg.Monitor.BroadcastThrottle ||

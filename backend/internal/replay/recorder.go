@@ -13,6 +13,16 @@ import (
 	"github.com/agent-racer/backend/internal/session"
 )
 
+// replayPrivacy is a hardcoded privacy filter applied to all replay snapshots.
+// Fields with zero replay value (PID, TmuxTarget) are always stripped, and
+// working directories are always reduced to their basename — full filesystem
+// paths have no playback value and persist on disk for the retention period.
+var replayPrivacy = &session.PrivacyFilter{
+	MaskWorkingDirs: true,
+	MaskPIDs:        true,
+	MaskTmuxTargets: true,
+}
+
 // Snapshot is a point-in-time capture of all active session states.
 type Snapshot struct {
 	Timestamp time.Time               `json:"t"`
@@ -27,10 +37,17 @@ type snapshotFile interface {
 
 // Recorder appends session snapshots to a JSONL replay file.
 // One file is created per server run; old files are pruned on startup.
+//
+// Sessions are sanitized before writing: fields with zero replay value (PID,
+// TmuxTarget) are always stripped, working directories are reduced to basename,
+// and the user's privacy filter (path filtering, session ID masking) is applied.
 type Recorder struct {
 	mu      sync.Mutex
 	file    snapshotFile
 	encoder *json.Encoder
+
+	privMu  sync.RWMutex
+	privacy *session.PrivacyFilter // user-configured filter (may be nil)
 }
 
 // NewRecorder opens a new replay file under dir and returns a Recorder.
@@ -56,8 +73,43 @@ func NewRecorder(dir string, retentionDays int) (*Recorder, error) {
 	return &Recorder{file: f, encoder: json.NewEncoder(f)}, nil
 }
 
+// SetPrivacyFilter updates the user-configured privacy filter applied to
+// replay snapshots. This is applied in addition to the hardcoded replay
+// sanitization (PID, TmuxTarget, WorkingDir). Safe for concurrent use.
+func (r *Recorder) SetPrivacyFilter(f *session.PrivacyFilter) {
+	r.privMu.Lock()
+	r.privacy = f
+	r.privMu.Unlock()
+}
+
+func (r *Recorder) userPrivacy() *session.PrivacyFilter {
+	r.privMu.RLock()
+	f := r.privacy
+	r.privMu.RUnlock()
+	return f
+}
+
+// sanitize applies the user's privacy filter (path filtering, session ID
+// masking) followed by the hardcoded replay sanitization (strip PID,
+// TmuxTarget, reduce WorkingDir to basename).
+func (r *Recorder) sanitize(sessions []*session.SessionState) []*session.SessionState {
+	// Apply user's path-based filtering and field masking.
+	filtered := sessions
+	if userFilter := r.userPrivacy(); userFilter != nil {
+		filtered = userFilter.FilterSlice(sessions)
+	}
+
+	// Apply hardcoded replay sanitization on top.
+	result := make([]*session.SessionState, len(filtered))
+	for i := 0; i < len(filtered); i++ {
+		result[i] = replayPrivacy.Apply(filtered[i])
+	}
+	return result
+}
+
 // WriteSnapshot appends a snapshot to the replay file.
 // sessions must be safe to read concurrently (use cloned copies from store.GetAll).
+// Sessions are sanitized before writing (see Recorder doc).
 func (r *Recorder) WriteSnapshot(sessions []*session.SessionState) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -66,7 +118,7 @@ func (r *Recorder) WriteSnapshot(sessions []*session.SessionState) {
 	}
 	snap := Snapshot{
 		Timestamp: time.Now().UTC(),
-		Sessions:  sessions,
+		Sessions:  r.sanitize(sessions),
 	}
 	if err := r.encoder.Encode(snap); err != nil {
 		log.Printf("replay: write snapshot: %v", err)
