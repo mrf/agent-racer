@@ -112,7 +112,7 @@ func NewMonitor(cfg *config.Config, store *session.Store, broadcaster *ws.Broadc
 		newTmuxResolver:         NewTmuxResolver,
 		tmuxResolverTTL:         defaultTmuxResolverTTL,
 	}
-	broadcaster.SetHealthHook(m.sourceHealthSnapshot)
+	broadcaster.SetHealthHook(m.SourceHealthSnapshot)
 	return m
 }
 
@@ -1004,9 +1004,10 @@ func (m *Monitor) maybeEmitHealthEvents(cfg *config.Config, sources []Source, he
 	}
 }
 
-// sourceHealthSnapshot builds SourceHealthPayload entries for all non-healthy
-// sources. Used by the broadcaster's health hook for snapshot broadcasts.
-func (m *Monitor) sourceHealthSnapshot() []ws.SourceHealthPayload {
+// SourceHealthSnapshot builds SourceHealthPayload entries for all non-healthy
+// sources. Used by the broadcaster's health hook for snapshot broadcasts
+// and the /healthz HTTP endpoint.
+func (m *Monitor) SourceHealthSnapshot() []ws.SourceHealthPayload {
 	m.mu.RLock()
 	cfg := m.cfg
 	sources := m.sources

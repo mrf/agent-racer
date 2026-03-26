@@ -1093,14 +1093,14 @@ func TestPollHealthSnapshotIncludesFailingSources(t *testing.T) {
 
 	// Below threshold: snapshot should be empty.
 	m.poll()
-	snap := m.sourceHealthSnapshot()
+	snap := m.SourceHealthSnapshot()
 	if len(snap) != 0 {
 		t.Errorf("snapshot should be empty below threshold, got %d entries", len(snap))
 	}
 
 	// At threshold: snapshot should include the failing source.
 	m.poll()
-	snap = m.sourceHealthSnapshot()
+	snap = m.SourceHealthSnapshot()
 	if len(snap) != 1 {
 		t.Fatalf("snapshot should have 1 entry, got %d", len(snap))
 	}
@@ -1228,7 +1228,7 @@ func TestPollSourceHealthSnapshotRace(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < iterations; i++ {
-			_ = m.sourceHealthSnapshot()
+			_ = m.SourceHealthSnapshot()
 		}
 	}()
 

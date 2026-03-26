@@ -267,6 +267,145 @@ func TestServerWiring_AchievementsEndpoint(t *testing.T) {
 	}
 }
 
+func TestServerWiring_HealthzEndpoint(t *testing.T) {
+	mux := newTestStack(t)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /healthz: status %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	var resp struct {
+		Status        string  `json:"status"`
+		Uptime        string  `json:"uptime"`
+		UptimeSeconds float64 `json:"uptimeSeconds"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("response is not valid JSON: %v", err)
+	}
+	if resp.Status != "ok" {
+		t.Errorf("status = %q, want %q", resp.Status, "ok")
+	}
+	if resp.Uptime == "" {
+		t.Error("uptime should not be empty")
+	}
+	if resp.UptimeSeconds <= 0 {
+		t.Error("uptimeSeconds should be positive")
+	}
+}
+
+func TestServerWiring_HealthzNoAuth(t *testing.T) {
+	// /healthz must be accessible without auth (for load balancers).
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Port:           0,
+			Host:           "127.0.0.1",
+			MaxConnections: 10,
+		},
+		Monitor: config.MonitorConfig{
+			BroadcastThrottle: 50 * time.Millisecond,
+			SnapshotInterval:  10 * time.Second,
+		},
+	}
+
+	store := session.NewStore()
+	broadcaster := ws.NewBroadcaster(store, cfg.Monitor.BroadcastThrottle, cfg.Monitor.SnapshotInterval, cfg.Server.MaxConnections)
+	t.Cleanup(func() { broadcaster.Stop() })
+
+	server := ws.NewServer(cfg, store, broadcaster, "", false, nil, nil, "secret-token")
+	mux := http.NewServeMux()
+	server.SetupRoutes(mux)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	// No Authorization header.
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /healthz without auth: status %d, want %d", rec.Code, http.StatusOK)
+	}
+}
+
+func TestServerWiring_HealthzWithSources(t *testing.T) {
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Port:           0,
+			Host:           "127.0.0.1",
+			MaxConnections: 10,
+		},
+		Monitor: config.MonitorConfig{
+			BroadcastThrottle: 50 * time.Millisecond,
+			SnapshotInterval:  10 * time.Second,
+		},
+	}
+
+	store := session.NewStore()
+	broadcaster := ws.NewBroadcaster(store, cfg.Monitor.BroadcastThrottle, cfg.Monitor.SnapshotInterval, cfg.Server.MaxConnections)
+	t.Cleanup(func() { broadcaster.Stop() })
+
+	server := ws.NewServer(cfg, store, broadcaster, "", false, nil, nil, "")
+
+	// Wire a health hook that returns a degraded source.
+	server.SetHealthHook(func() []ws.SourceHealthPayload {
+		return []ws.SourceHealthPayload{
+			{
+				Source:           "test-source",
+				Status:           ws.StatusDegraded,
+				DiscoverFailures: 0,
+				ParseFailures:    3,
+				LastError:        "parse timeout",
+				Timestamp:        time.Now(),
+			},
+		}
+	})
+
+	mux := http.NewServeMux()
+	server.SetupRoutes(mux)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /healthz: status %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	var resp struct {
+		Status  string `json:"status"`
+		Sources []struct {
+			Source string `json:"source"`
+			Status string `json:"status"`
+		} `json:"sources"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("response is not valid JSON: %v", err)
+	}
+	if resp.Status != "degraded" {
+		t.Errorf("status = %q, want %q", resp.Status, "degraded")
+	}
+	if len(resp.Sources) != 1 {
+		t.Fatalf("sources count = %d, want 1", len(resp.Sources))
+	}
+	if resp.Sources[0].Source != "test-source" {
+		t.Errorf("source name = %q, want %q", resp.Sources[0].Source, "test-source")
+	}
+}
+
+func TestServerWiring_HealthzRejectsNonGET(t *testing.T) {
+	mux := newTestStack(t)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/healthz", nil)
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("POST /healthz: status %d, want %d", rec.Code, http.StatusMethodNotAllowed)
+	}
+}
+
 func TestServerWiring_AuthRequired(t *testing.T) {
 	cfg := &config.Config{
 		Server: config.ServerConfig{
