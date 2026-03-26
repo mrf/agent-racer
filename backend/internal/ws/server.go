@@ -53,6 +53,8 @@ type Server struct {
 	trackHandler      *tracks.Handler
 	apiRateLimiter    *clientRateLimiter
 	wsAuthRateLimiter *clientRateLimiter
+	healthHook        func() []SourceHealthPayload
+	startTime         time.Time
 }
 
 func NewServer(cfg *config.Config, store *session.Store, broadcaster *Broadcaster, frontendDir string, dev bool, embeddedHandler http.Handler, allowedOrigins []string, authToken string) *Server {
@@ -70,6 +72,7 @@ func NewServer(cfg *config.Config, store *session.Store, broadcaster *Broadcaste
 		rewardRegistry:    gamification.NewRewardRegistry(),
 		apiRateLimiter:    newClientRateLimiter(120, time.Minute, 30),
 		wsAuthRateLimiter: newClientRateLimiter(12, time.Minute, 4),
+		startTime:         time.Now(),
 	}
 
 	for _, origin := range allowedOrigins {
@@ -103,6 +106,47 @@ func (s *Server) SetTrackHandler(h *tracks.Handler) {
 	s.trackHandler = h
 }
 
+// SetHealthHook registers a function that returns source health status.
+// Used by the /healthz endpoint. Must be called before SetupRoutes.
+func (s *Server) SetHealthHook(hook func() []SourceHealthPayload) {
+	s.healthHook = hook
+}
+
+// healthzResponse is the JSON shape returned by GET /healthz.
+type healthzResponse struct {
+	Status        string                `json:"status"`
+	Uptime        string                `json:"uptime"`
+	UptimeSeconds float64               `json:"uptimeSeconds"`
+	Sources       []SourceHealthPayload `json:"sources,omitempty"`
+}
+
+func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	uptime := time.Since(s.startTime)
+	resp := healthzResponse{
+		Status:        "ok",
+		Uptime:        uptime.Truncate(time.Second).String(),
+		UptimeSeconds: uptime.Seconds(),
+	}
+
+	if s.healthHook != nil {
+		resp.Sources = s.healthHook()
+		for _, src := range resp.Sources {
+			if src.Status == StatusFailed || src.Status == StatusDegraded {
+				resp.Status = "degraded"
+				break
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
 func (s *Server) SetupRoutes(mux *http.ServeMux) {
 	apiMux := http.NewServeMux()
 	apiMux.HandleFunc("/api/sessions", s.handleSessions)
@@ -130,6 +174,7 @@ func (s *Server) SetupRoutes(mux *http.ServeMux) {
 		apiMux.HandleFunc("/api/tracks/", tracksAuth)
 	}
 
+	mux.HandleFunc("/healthz", s.handleHealthz)
 	mux.Handle("/ws", s.rateLimitWS(http.HandlerFunc(s.handleWS)))
 	mux.Handle("/api/", s.rateLimitAPI(apiMux))
 

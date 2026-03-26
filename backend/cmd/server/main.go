@@ -243,6 +243,10 @@ func main() {
 		go mon.Start(ctx)
 	}
 
+	if mon != nil {
+		server.SetHealthHook(mon.SourceHealthSnapshot)
+	}
+
 	mux := http.NewServeMux()
 	server.SetupRoutes(mux)
 	httpServer := ws.NewHTTPServer(cfg.Server.Host, cfg.Server.Port, mux)
