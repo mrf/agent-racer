@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
@@ -52,7 +52,7 @@ func NewRecorder(dir string, retentionDays int) (*Recorder, error) {
 		return nil, fmt.Errorf("replay: open file %s: %w", path, err)
 	}
 
-	log.Printf("Replay recorder: %s", path)
+	slog.Info("recorder started", "component", "replay", "path", path)
 	return &Recorder{file: f, encoder: json.NewEncoder(f)}, nil
 }
 
@@ -69,11 +69,11 @@ func (r *Recorder) WriteSnapshot(sessions []*session.SessionState) {
 		Sessions:  sessions,
 	}
 	if err := r.encoder.Encode(snap); err != nil {
-		log.Printf("replay: write snapshot: %v", err)
+		slog.Error("write snapshot failed", "component", "replay", "error", err)
 		return
 	}
 	if err := r.file.Sync(); err != nil {
-		log.Printf("replay: sync snapshot: %v", err)
+		slog.Error("sync snapshot failed", "component", "replay", "error", err)
 	}
 }
 
@@ -83,7 +83,7 @@ func (r *Recorder) Close() {
 	defer r.mu.Unlock()
 	if r.file != nil {
 		if err := r.file.Sync(); err != nil {
-			log.Printf("replay: sync close: %v", err)
+			slog.Error("sync close failed", "component", "replay", "error", err)
 		}
 		_ = r.file.Close()
 		r.file = nil
@@ -111,7 +111,7 @@ func pruneOldFiles(dir string, retentionDays int) {
 		if info.ModTime().Before(cutoff) {
 			path := filepath.Join(dir, e.Name())
 			if removeErr := os.Remove(path); removeErr == nil {
-				log.Printf("Replay: pruned %s", e.Name())
+				slog.Info("pruned old file", "component", "replay", "file", e.Name())
 			}
 		}
 	}

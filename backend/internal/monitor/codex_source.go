@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -106,7 +106,7 @@ func (c *CodexSource) Parse(handle SessionHandle, offset int64) (SourceUpdate, i
 		return SourceUpdate{}, offset, err
 	}
 	if info.Size() > maxFileSize {
-		log.Printf("[codex] Skipping %s: file size %d exceeds limit %d", handle.LogPath, info.Size(), maxFileSize)
+		slog.Warn("skipping oversized file", "source", "codex", "path", handle.LogPath, "size", info.Size(), "limit", maxFileSize)
 		return SourceUpdate{}, offset, fmt.Errorf("file size %d exceeds max %d", info.Size(), maxFileSize)
 	}
 
@@ -146,8 +146,7 @@ func (c *CodexSource) Parse(handle SessionHandle, offset int64) (SourceUpdate, i
 
 		// Skip oversized lines to prevent excessive memory use during JSON parsing.
 		if len(line) > maxLineLength {
-			log.Printf("[codex] Skipping oversized line (%d bytes) in %s at offset %d",
-				len(line), handle.LogPath, parsedOffset)
+			slog.Warn("skipping oversized line", "source", "codex", "bytes", len(line), "path", handle.LogPath, "offset", parsedOffset)
 			parsedOffset += int64(len(line))
 			if err == io.EOF {
 				break
@@ -171,7 +170,7 @@ func (c *CodexSource) Parse(handle SessionHandle, offset int64) (SourceUpdate, i
 	}
 
 	if parsedOffset > 0 && update.HasData() {
-		log.Printf("[codex] Parsed data from %s", handle.LogPath)
+		slog.Debug("parsed data", "source", "codex", "path", handle.LogPath)
 	}
 
 	return update, parsedOffset, nil

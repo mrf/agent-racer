@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -191,7 +191,7 @@ func (m *Monitor) emitEvent(evType session.EventType, state *session.SessionStat
 		m.statsDropped++
 		now := time.Now()
 		if m.statsLastDropLog.IsZero() || now.Sub(m.statsLastDropLog) >= 10*time.Second {
-			log.Printf("Stats events dropped: %d (channel full)", m.statsDropped)
+			slog.Warn("stats events dropped", "count", m.statsDropped)
 			m.statsDropped = 0
 			m.statsLastDropLog = now
 		}
@@ -210,7 +210,7 @@ func (m *Monitor) Start(ctx context.Context) {
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
-	log.Printf("Monitor started with sources: %v", sourceNames)
+	slog.Info("monitor started", "sources", sourceNames)
 
 	// Initial poll
 	m.poll()
@@ -218,7 +218,7 @@ func (m *Monitor) Start(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("Monitor stopped")
+			slog.Info("monitor stopped")
 			return
 		case <-m.reconfigureCh:
 			// PollInterval may have changed — recreate the ticker.
@@ -227,7 +227,7 @@ func (m *Monitor) Start(ctx context.Context) {
 			newInterval := m.cfg.Monitor.PollInterval
 			m.mu.RUnlock()
 			ticker = time.NewTicker(newInterval)
-			log.Printf("Monitor poll interval updated to %s", newInterval)
+			slog.Info("monitor poll interval updated", "interval", newInterval)
 		case <-ticker.C:
 			m.poll()
 		}
@@ -339,8 +339,7 @@ func (m *Monitor) poll() {
 			if !isStale {
 				continue
 			}
-			log.Printf("Session %s stale (lastData=%s, age=%s, threshold=%s)",
-				key, ts.lastDataTime.Format("15:04:05"), now.Sub(ts.lastDataTime).Round(time.Second), cfg.Monitor.SessionStaleAfter)
+			slog.Info("session stale", "session", key, "lastData", ts.lastDataTime.Format("15:04:05"), "age", now.Sub(ts.lastDataTime).Round(time.Second), "threshold", cfg.Monitor.SessionStaleAfter)
 		}
 
 		if state, ok := getSessionState(key); ok {
@@ -348,7 +347,7 @@ func (m *Monitor) poll() {
 				// Already terminal and file disappeared — just clean up tracking.
 				// Add to removedKeys so the session isn't re-created with offset 0
 				// if the file briefly reappears on the next poll cycle.
-				log.Printf("Cleaning up terminal session %s (activity=%s, file gone)", key, state.Activity)
+				slog.Debug("cleaning up terminal session", "session", key, "activity", state.Activity)
 				m.removedKeys[key] = true
 				toRemove = append(toRemove, key)
 				continue
@@ -361,7 +360,7 @@ func (m *Monitor) poll() {
 			if !activeKeys[key] {
 				reason = "file gone"
 			}
-			log.Printf("Marking session %s as lost (reason=%s, activity=%s)", key, reason, state.Activity)
+			slog.Info("marking session as lost", "session", key, "reason", reason, "activity", state.Activity)
 			m.markTerminal(cfg, state, session.Lost, completedAt)
 		}
 		// Keep tracked entry (and its file offset) while the file is still
@@ -470,14 +469,14 @@ func (m *Monitor) pollSource(src Source, cfg *config.Config, sh *sourceHealth, n
 		if r := recover(); r != nil {
 			buf := make([]byte, 4096)
 			n := runtime.Stack(buf, false)
-			log.Printf("[%s] PANIC recovered in poll: %v\n%s", src.Name(), r, buf[:n])
+			slog.Error("panic recovered in poll", "source", src.Name(), "error", r, "stack", string(buf[:n]))
 			sh.recordPanic(fmt.Errorf("panic: %v", r))
 		}
 	}()
 
 	handles, err := src.Discover()
 	if err != nil {
-		log.Printf("[%s] discovery error: %v", src.Name(), err)
+		slog.Warn("discovery error", "source", src.Name(), "error", err)
 		sh.recordDiscoverFailure(err)
 		return nil, activeKeys
 	}
@@ -502,7 +501,7 @@ func (m *Monitor) pollSource(src Source, cfg *config.Config, sh *sourceHealth, n
 				handle: h,
 			}
 			m.tracked[key] = ts
-			log.Printf("[%s] Tracking new session: %s (offset=0)", src.Name(), h.SessionID)
+			slog.Debug("tracking new session", "source", src.Name(), "session", h.SessionID)
 		}
 
 		oldOffset := ts.fileOffset
@@ -510,7 +509,7 @@ func (m *Monitor) pollSource(src Source, cfg *config.Config, sh *sourceHealth, n
 		ts.handle.KnownSubagentParents = m.knownSubagentParents(key)
 		update, newOffset, err := src.Parse(ts.handle, ts.fileOffset)
 		if err != nil {
-			log.Printf("[%s] parse error for %s: %v", src.Name(), h.SessionID, err)
+			slog.Warn("parse error", "source", src.Name(), "session", h.SessionID, "error", err)
 			sh.recordParseFailure(key, err)
 			continue
 		}
@@ -521,7 +520,7 @@ func (m *Monitor) pollSource(src Source, cfg *config.Config, sh *sourceHealth, n
 			ts.handle.WorkingDir = update.WorkingDir
 		}
 		if hasNewData && newOffset > oldOffset {
-			log.Printf("[%s] Parsed %d new bytes from %s (offset %d→%d)", src.Name(), newOffset-oldOffset, h.LogPath, oldOffset, newOffset)
+			slog.Debug("parsed new data", "source", src.Name(), "bytes", newOffset-oldOffset, "path", h.LogPath, "oldOffset", oldOffset, "newOffset", newOffset)
 		}
 		if hasNewData {
 			// Use the actual timestamp from parsed data when available
@@ -540,7 +539,7 @@ func (m *Monitor) pollSource(src Source, cfg *config.Config, sh *sourceHealth, n
 				continue
 			}
 			delete(m.removedKeys, key)
-			log.Printf("[%s] Session resumed after removal: %s (newData=%d bytes)", src.Name(), h.SessionID, newOffset-oldOffset)
+			slog.Info("session resumed after removal", "source", src.Name(), "session", h.SessionID, "newData", newOffset-oldOffset)
 		}
 
 		state, existed := m.store.Get(key)
@@ -551,7 +550,7 @@ func (m *Monitor) pollSource(src Source, cfg *config.Config, sh *sourceHealth, n
 			// New JSONL data on a terminal session — it's being resumed.
 			state.CompletedAt = nil
 			delete(m.pendingRemoval, key)
-			log.Printf("[%s] Session resumed from %s: %s (newData=%d bytes)", src.Name(), state.Activity, h.SessionID, newOffset-oldOffset)
+			slog.Info("session resumed", "source", src.Name(), "from", state.Activity, "session", h.SessionID, "newData", newOffset-oldOffset)
 		}
 
 		if !existed {
@@ -561,8 +560,7 @@ func (m *Monitor) pollSource(src Source, cfg *config.Config, sh *sourceHealth, n
 			if !update.LastTime.IsZero() && cfg.Monitor.SessionStaleAfter > 0 {
 				if now.Sub(update.LastTime) > cfg.Monitor.SessionStaleAfter {
 					m.removedKeys[key] = true
-					log.Printf("[%s] Suppressing stale session on initial discovery: %s (lastData=%s)",
-						src.Name(), h.SessionID, update.LastTime.Format(time.RFC3339Nano))
+					slog.Debug("suppressing stale session on initial discovery", "source", src.Name(), "session", h.SessionID, "lastData", update.LastTime.Format(time.RFC3339Nano))
 					continue
 				}
 			}
@@ -675,7 +673,7 @@ func (m *Monitor) markTerminal(cfg *config.Config, state *session.SessionState, 
 	state.CompletedAt = &completedAt
 	m.store.UpdateAndNotify(state, func() {
 		if !wasTerminal {
-			log.Printf("Session %s terminal: %s → %s (broadcasting completion)", state.ID, state.Name, activity)
+			slog.Info("session terminal", "session", state.ID, "name", state.Name, "activity", activity)
 			m.broadcaster.QueueCompletion(state.ID, activity, state.Name)
 		}
 		m.broadcaster.QueueUpdate([]*session.SessionState{state})
@@ -708,7 +706,7 @@ func (m *Monitor) flushRemovals(now time.Time) {
 	var removeIDs []string
 	for id, removeAt := range m.pendingRemoval {
 		if !now.Before(removeAt) {
-			log.Printf("Removing session %s from store (scheduled at %s)", id, removeAt.Format("15:04:05"))
+			slog.Debug("removing session from store", "session", id, "scheduledAt", removeAt.Format("15:04:05"))
 			removeIDs = append(removeIDs, id)
 			delete(m.pendingRemoval, id)
 			m.removedKeys[id] = true
@@ -735,7 +733,7 @@ func (m *Monitor) consumeSessionEndMarkers(cfg *config.Config, now time.Time) {
 		if os.IsNotExist(err) {
 			return
 		}
-		log.Printf("Session end dir read error: %v", err)
+		slog.Warn("session end dir read error", "error", err)
 		return
 	}
 
@@ -746,13 +744,13 @@ func (m *Monitor) consumeSessionEndMarkers(cfg *config.Config, now time.Time) {
 		path := filepath.Join(dir, entry.Name())
 		data, err := os.ReadFile(path)
 		if err != nil {
-			log.Printf("Session end marker read error: %v", err)
+			slog.Warn("session end marker read error", "error", err)
 			continue
 		}
 
 		var marker sessionEndMarker
 		if err := json.Unmarshal(data, &marker); err != nil {
-			log.Printf("Session end marker parse error: %v", err)
+			slog.Warn("session end marker parse error", "error", err)
 			_ = os.Remove(path)
 			continue
 		}
@@ -764,7 +762,7 @@ func (m *Monitor) consumeSessionEndMarkers(cfg *config.Config, now time.Time) {
 		m.handleSessionEnd(cfg, marker, now)
 
 		if err := os.Remove(path); err != nil {
-			log.Printf("Session end marker cleanup error: %v", err)
+			slog.Warn("session end marker cleanup error", "error", err)
 		}
 	}
 }
@@ -786,7 +784,7 @@ func (m *Monitor) handleSessionEnd(cfg *config.Config, marker sessionEndMarker, 
 	}
 
 	if !ok {
-		log.Printf("Session end marker for unknown session %s (transcript=%s) — ignoring", marker.SessionID, marker.TranscriptPath)
+		slog.Debug("session end marker for unknown session", "sessionID", marker.SessionID, "transcript", marker.TranscriptPath)
 		return
 	}
 
@@ -995,12 +993,11 @@ func (m *Monitor) maybeEmitHealthEvents(cfg *config.Config, sources []Source, he
 			Timestamp:        now,
 		})
 		if err != nil {
-			log.Printf("[%s] source health marshal error: %v", src.Name(), err)
+			slog.Error("source health marshal failed", "source", src.Name(), "error", err)
 			continue
 		}
 		m.broadcaster.BroadcastMessage(msg)
-		log.Printf("[%s] health status: %s (discover=%d, parseDegraded=%d)",
-			src.Name(), status, discoverFailures, parseFailures)
+		slog.Info("health status changed", "source", src.Name(), "status", status, "discoverFailures", discoverFailures, "parseFailures", parseFailures)
 	}
 }
 
@@ -1332,7 +1329,7 @@ func (m *Monitor) updatePositions(updates []*session.SessionState) {
 			NewPosition:   np,
 		})
 		if err != nil {
-			log.Printf("updatePositions: marshal overtake event: %v", err)
+			slog.Error("marshal overtake event failed", "error", err)
 			continue
 		}
 		m.broadcaster.BroadcastMessage(msg)

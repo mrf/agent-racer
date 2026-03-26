@@ -3,7 +3,7 @@ package monitor
 import (
 	"bufio"
 	"encoding/json"
-	"log"
+	"log/slog"
 	"os"
 	"time"
 )
@@ -113,7 +113,7 @@ func (c *ClaudeSource) Parse(handle SessionHandle, offset int64) (SourceUpdate, 
 		update.WorkingDir = workingDirFromFile(handle.LogPath)
 	}
 
-	log.Printf("[claude] Parsed %d new bytes from %s", newOffset-offset, handle.LogPath)
+	slog.Debug("parsed new data", "source", "claude", "bytes", newOffset-offset, "path", handle.LogPath)
 
 	return update, newOffset, nil
 }

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"math"
 	"net/http"
 	"net/url"
@@ -134,10 +134,10 @@ func (s *Server) SetupRoutes(mux *http.ServeMux) {
 	mux.Handle("/api/", s.rateLimitAPI(apiMux))
 
 	if s.dev {
-		log.Printf("Serving frontend from filesystem: %s", s.frontendDir)
+		slog.Info("serving frontend from filesystem", "dir", s.frontendDir)
 		mux.Handle("/", http.FileServer(http.Dir(s.frontendDir)))
 	} else if s.embeddedHandler != nil {
-		log.Println("Serving embedded frontend")
+		slog.Info("serving embedded frontend")
 		mux.Handle("/", s.embeddedHandler)
 	}
 }
@@ -155,7 +155,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("ws upgrade error: %v", err)
+		slog.Warn("ws upgrade failed", "error", err)
 		return
 	}
 
@@ -178,15 +178,15 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 
 	c, err := s.broadcaster.AddClient(conn)
 	if err != nil {
-		log.Printf("WebSocket rejected %s: %v", r.RemoteAddr, err)
+		slog.Warn("websocket rejected", "addr", r.RemoteAddr, "error", err)
 		return
 	}
-	log.Printf("WebSocket client connected: %s", r.RemoteAddr)
+	slog.Info("websocket client connected", "addr", r.RemoteAddr)
 
 	go func() {
 		defer func() {
 			s.broadcaster.RemoveClient(c)
-			log.Printf("WebSocket client disconnected: %s", r.RemoteAddr)
+			slog.Info("websocket client disconnected", "addr", r.RemoteAddr)
 		}()
 		for {
 			_, msg, err := conn.ReadMessage()
@@ -394,7 +394,7 @@ func (s *Server) handleEquip(w http.ResponseWriter, r *http.Request) {
 
 	// Broadcast the change to all WebSocket clients.
 	if msg, err := NewEquippedMessage(EquippedPayload{Loadout: loadout}); err != nil {
-		log.Printf("equip marshal error: %v", err)
+		slog.Error("equip marshal failed", "error", err)
 	} else {
 		s.broadcaster.BroadcastMessage(msg)
 	}
@@ -444,7 +444,7 @@ func (s *Server) handleUnequip(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if msg, err := NewEquippedMessage(EquippedPayload{Loadout: loadout}); err != nil {
-		log.Printf("unequip marshal error: %v", err)
+		slog.Error("unequip marshal failed", "error", err)
 	} else {
 		s.broadcaster.BroadcastMessage(msg)
 	}
@@ -500,7 +500,7 @@ func (s *Server) handleFocus(w http.ResponseWriter, r *http.Request, sessionID s
 	}
 
 	if err := tmuxFocusSession(state.TmuxTarget); err != nil {
-		log.Printf("tmux focus failed for session %s (target %s): %v", sessionID, state.TmuxTarget, err)
+		slog.Error("tmux focus failed", "session", sessionID, "target", state.TmuxTarget, "error", err)
 		http.Error(w, "tmux focus failed", http.StatusInternalServerError)
 		return
 	}
@@ -539,7 +539,7 @@ func (s *Server) handleTail(w http.ResponseWriter, r *http.Request, sessionID st
 
 	entries, newOffset, err := session.ParseTailEntries(state.LogPath, offset, limit)
 	if err != nil {
-		log.Printf("tail parse error for session %s: %v", sessionID, err)
+		slog.Error("tail parse failed", "session", sessionID, "error", err)
 		http.Error(w, "failed to read log", http.StatusInternalServerError)
 		return
 	}
@@ -669,6 +669,6 @@ func NewHTTPServer(host string, port int, mux *http.ServeMux) *http.Server {
 
 func ListenAndServe(host string, port int, mux *http.ServeMux) error {
 	server := NewHTTPServer(host, port, mux)
-	log.Printf("Server listening on %s", server.Addr)
+	slog.Info("server listening", "addr", server.Addr)
 	return server.ListenAndServe()
 }

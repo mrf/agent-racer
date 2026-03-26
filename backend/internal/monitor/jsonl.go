@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -188,7 +188,7 @@ func ParseSessionJSONL(path string, offset int64, knownSlug string, knownParents
 		return nil, offset, err
 	}
 	if info.Size() > maxFileSize {
-		log.Printf("[jsonl] Skipping %s: file size %d exceeds limit %d", path, info.Size(), maxFileSize)
+		slog.Warn("skipping oversized file", "source", "jsonl", "path", path, "size", info.Size(), "limit", maxFileSize)
 		return nil, offset, fmt.Errorf("file size %d exceeds max %d", info.Size(), maxFileSize)
 	}
 
@@ -230,8 +230,7 @@ func ParseSessionJSONL(path string, offset int64, knownSlug string, knownParents
 
 		// Skip oversized lines to prevent excessive memory use during JSON parsing.
 		if len(line) > maxLineLength {
-			log.Printf("[jsonl] Skipping oversized line (%d bytes) in %s at offset %d",
-				len(line), path, parsedOffset)
+			slog.Warn("skipping oversized line", "source", "jsonl", "bytes", len(line), "path", path, "offset", parsedOffset)
 			parsedOffset += int64(len(line))
 			if err == io.EOF {
 				break
@@ -648,8 +647,7 @@ func decodeTryPaths(parts []string) string {
 			}
 
 			if len(nextCandidates) > maxDecodePathCandidates {
-				log.Printf("[jsonl] Aborting ambiguous path decode after %d candidates for %q",
-					len(nextCandidates), "/"+strings.Join(parts, "-"))
+				slog.Warn("aborting ambiguous path decode", "source", "jsonl", "candidates", len(nextCandidates), "encoded", "/"+strings.Join(parts, "-"))
 				return ""
 			}
 		}
@@ -735,7 +733,7 @@ func FindSessionForProcess(workingDir string, processStartTime time.Time) (strin
 
 	// Allow 30s tolerance
 	if info.ModTime().Before(processStartTime.Add(-30 * time.Second)) {
-		log.Printf("Session file %s is older than process start, may be stale", sessionFile)
+		slog.Warn("session file may be stale", "path", sessionFile)
 	}
 
 	return sessionFile, nil
