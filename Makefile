@@ -1,4 +1,4 @@
-.PHONY: dev run build test test-race test-frontend test-e2e lint ci deps clean embed build-frontend validate-embed dist tui tui-build tui-deps tui-test tui-lint coverage coverage-frontend
+.PHONY: dev run build test test-all test-race test-frontend test-e2e lint ci check deps clean embed build-frontend validate-embed dist tui tui-build tui-deps tui-test tui-lint coverage coverage-frontend
 
 SERVER_BINARY := agent-racer-server
 BINARY := agent-racer
@@ -73,7 +73,11 @@ lint:
 tui-lint:
 	cd $(TUI) && golangci-lint run --config ../.golangci.yml
 
-ci: test-race lint test-frontend test-e2e tui-test tui-lint
+test-all: test-race test-frontend test-e2e tui-test
+
+ci: test-all lint tui-lint
+
+check: ci
 
 clean:
 	rm -f $(SERVER_BINARY) $(BINARY)
