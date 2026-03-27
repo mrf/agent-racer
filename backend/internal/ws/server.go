@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/agent-racer/backend/internal/config"
@@ -45,7 +46,7 @@ func tmuxFocusSession(target string) error {
 }
 
 type Server struct {
-	config            *config.Config
+	config            atomic.Pointer[config.Config]
 	store             *session.Store
 	broadcaster       *Broadcaster
 	frontendDir       string
@@ -67,7 +68,6 @@ type Server struct {
 
 func NewServer(cfg *config.Config, store *session.Store, broadcaster *Broadcaster, frontendDir string, dev bool, embeddedHandler http.Handler, allowedOrigins []string, authToken string) *Server {
 	s := &Server{
-		config:            cfg,
 		store:             store,
 		broadcaster:       broadcaster,
 		frontendDir:       frontendDir,
@@ -82,6 +82,7 @@ func NewServer(cfg *config.Config, store *session.Store, broadcaster *Broadcaste
 		wsAuthRateLimiter: newClientRateLimiter(12, time.Minute, 4),
 		startTime:         time.Now(),
 	}
+	s.config.Store(cfg)
 
 	for _, origin := range allowedOrigins {
 		trimmed := strings.TrimSpace(origin)
@@ -95,6 +96,16 @@ func NewServer(cfg *config.Config, store *session.Store, broadcaster *Broadcaste
 	}
 
 	return s
+}
+
+// Config returns the current configuration (safe for concurrent use).
+func (s *Server) Config() *config.Config {
+	return s.config.Load()
+}
+
+// SetConfig atomically replaces the server's configuration.
+func (s *Server) SetConfig(cfg *config.Config) {
+	s.config.Store(cfg)
 }
 
 // SetStatsTracker configures the stats tracker used by the /api/stats endpoint.
@@ -305,7 +316,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(s.config.Sound)
+	_ = json.NewEncoder(w).Encode(s.Config().Sound)
 }
 
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {

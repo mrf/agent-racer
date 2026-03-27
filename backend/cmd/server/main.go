@@ -274,7 +274,8 @@ func main() {
 				continue
 			}
 
-			changes := config.Diff(cfg, newCfg)
+			oldCfg := server.Config()
+			changes := config.Diff(oldCfg, newCfg)
 			if len(changes) == 0 {
 				log.Println("Config reloaded: no changes detected")
 				continue
@@ -292,8 +293,8 @@ func main() {
 			}
 
 			// Apply broadcaster timing changes.
-			if cfg.Monitor.BroadcastThrottle != newCfg.Monitor.BroadcastThrottle ||
-				cfg.Monitor.SnapshotInterval != newCfg.Monitor.SnapshotInterval {
+			if oldCfg.Monitor.BroadcastThrottle != newCfg.Monitor.BroadcastThrottle ||
+				oldCfg.Monitor.SnapshotInterval != newCfg.Monitor.SnapshotInterval {
 				broadcaster.SetConfig(newCfg.Monitor.BroadcastThrottle, newCfg.Monitor.SnapshotInterval)
 			}
 
@@ -302,12 +303,12 @@ func main() {
 				mon.SetConfig(newCfg)
 
 				// Rebuild sources if source configuration changed.
-				if cfg.Sources != newCfg.Sources {
+				if oldCfg.Sources != newCfg.Sources {
 					mon.SetSources(buildSources(newCfg))
 				}
 			}
 
-			cfg = newCfg
+			server.SetConfig(newCfg)
 			log.Printf("Config reload complete (%d change(s) applied)", len(changes))
 		}
 	}()
