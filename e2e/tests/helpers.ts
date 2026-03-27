@@ -1,7 +1,13 @@
 import type { Page } from '@playwright/test';
 
-/** Auth token matching e2e/config.yaml — used to authenticate with the backend. */
-export const AUTH_TOKEN = 'e2e-test-token';
+/** Auth token generated at test time by playwright.config.ts — never hardcoded. */
+export const AUTH_TOKEN: string = (() => {
+  const token = process.env.E2E_AUTH_TOKEN;
+  if (!token) {
+    throw new Error('E2E_AUTH_TOKEN env var is not set — tests must be run via Playwright');
+  }
+  return token;
+})();
 
 /** Navigate to the app root with the auth token in the query string. */
 export async function gotoApp(page: Page): Promise<void> {
