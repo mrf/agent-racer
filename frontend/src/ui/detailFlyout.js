@@ -6,6 +6,13 @@ function contextBarColor(utilization) {
   return '#22c55e';
 }
 
+// Structural key captures conditional sections. When it changes, a full
+// re-render is needed. Otherwise we can patch individual value elements.
+function detailStructuralKey(state) {
+  const subIds = (state.subagents || []).map(s => s.id).join(',');
+  return `${state.isChurning ? 1 : 0}|${state.completedAt ? 1 : 0}|${state.slug ? 1 : 0}|${subIds}`;
+}
+
 function renderDetailContent(state) {
   const pct = (state.contextUtilization * 100).toFixed(1);
   const barColor = contextBarColor(state.contextUtilization);
@@ -13,19 +20,19 @@ function renderDetailContent(state) {
   return `
     <div class="detail-row">
       <span class="label">Activity</span>
-      <span class="value"><span class="detail-activity ${esc(state.activity)}">${esc(state.activity)}</span></span>
+      <span class="value" data-field="activity"><span class="detail-activity ${esc(state.activity)}">${esc(state.activity)}</span></span>
     </div>
     ${state.isChurning ? `<div class="detail-row">
       <span class="label">Process</span>
       <span class="value"><span class="detail-activity thinking">CPU Active</span></span>
     </div>` : ''}
     <div class="detail-progress">
-      <div class="detail-progress-bar" style="width:${pct}%;background:${barColor}"></div>
-      <span class="detail-progress-label">${formatTokens(state.tokensUsed)} / ${formatTokens(state.maxContextTokens)} (${pct}%)</span>
+      <div class="detail-progress-bar" data-field="progress-bar" style="width:${pct}%;background:${barColor}"></div>
+      <span class="detail-progress-label" data-field="progress-label">${formatTokens(state.tokensUsed)} / ${formatTokens(state.maxContextTokens)} (${pct}%)</span>
     </div>
     <div class="detail-row">
       <span class="label">Burn Rate</span>
-      <span class="value burn-rate">${formatBurnRate(state.burnRatePerMinute)}</span>
+      <span class="value burn-rate" data-field="burn-rate">${formatBurnRate(state.burnRatePerMinute)}</span>
     </div>
     <div class="detail-row">
       <span class="label">Model</span>
@@ -66,15 +73,15 @@ function renderDetailContent(state) {
     </div>
     <div class="detail-row">
       <span class="label">Messages</span>
-      <span class="value">${state.messageCount}</span>
+      <span class="value" data-field="messages">${state.messageCount}</span>
     </div>
     <div class="detail-row">
       <span class="label">Tool Calls</span>
-      <span class="value">${state.toolCallCount}</span>
+      <span class="value" data-field="tool-calls">${state.toolCallCount}</span>
     </div>
     <div class="detail-row">
       <span class="label">Current Tool</span>
-      <span class="value">${esc(state.currentTool) || '-'}</span>
+      <span class="value" data-field="current-tool">${esc(state.currentTool) || '-'}</span>
     </div>
     <div class="detail-row">
       <span class="label">Started</span>
@@ -82,20 +89,20 @@ function renderDetailContent(state) {
     </div>
     <div class="detail-row">
       <span class="label">Last Activity</span>
-      <span class="value">${formatTime(state.lastActivityAt)}</span>
+      <span class="value" data-field="last-activity">${formatTime(state.lastActivityAt)}</span>
     </div>
     <div class="detail-row">
       <span class="label">Elapsed</span>
-      <span class="value">${formatElapsed(state.startedAt)}</span>
+      <span class="value" data-field="elapsed">${formatElapsed(state.startedAt)}</span>
     </div>
     ${state.completedAt ? `
     <div class="detail-row">
       <span class="label">Completed</span>
-      <span class="value">${formatTime(state.completedAt)}</span>
+      <span class="value" data-field="completed">${formatTime(state.completedAt)}</span>
     </div>` : ''}
     <div class="detail-row">
       <span class="label">Input Tokens</span>
-      <span class="value">${formatTokens(state.tokensUsed)}</span>
+      <span class="value" data-field="input-tokens">${formatTokens(state.tokensUsed)}</span>
     </div>
     <div class="detail-row">
       <span class="label">Max Tokens</span>
@@ -103,16 +110,16 @@ function renderDetailContent(state) {
     </div>
     <div class="detail-row">
       <span class="label">Context %</span>
-      <span class="value">${pct}%</span>
+      <span class="value" data-field="context-pct">${pct}%</span>
     </div>
     ${(state.subagents && state.subagents.length > 0) ? `
     <div class="detail-row" style="margin-top:10px;padding-top:8px;border-top:1px solid #333">
-      <span class="label" style="font-size:11px;font-weight:bold;color:#aaa">Subagents (${state.subagents.length})</span>
+      <span class="label" style="font-size:11px;font-weight:bold;color:#aaa" data-field="subagents-header">Subagents (${state.subagents.length})</span>
     </div>
-    ${state.subagents.map(sub => `
+    ${state.subagents.map((sub, i) => `
     <div class="detail-row">
       <span class="label">${esc(sub.slug || sub.id)}</span>
-      <span class="value"><span class="detail-activity ${esc(sub.activity)}">${esc(sub.activity)}</span>${sub.currentTool ? ' · ' + esc(sub.currentTool) : ''}</span>
+      <span class="value" data-field="sub-${i}"><span class="detail-activity ${esc(sub.activity)}">${esc(sub.activity)}</span>${sub.currentTool ? ' · ' + esc(sub.currentTool) : ''}</span>
     </div>`).join('')}` : ''}
   `;
 }
@@ -124,7 +131,7 @@ function renderHamsterContent(hamsterState, parentState) {
     </div>
     <div class="detail-row">
       <span class="label">Activity</span>
-      <span class="value"><span class="detail-activity ${esc(hamsterState.activity)}">${esc(hamsterState.activity)}</span></span>
+      <span class="value" data-field="h-activity"><span class="detail-activity ${esc(hamsterState.activity)}">${esc(hamsterState.activity)}</span></span>
     </div>
     <div class="detail-row">
       <span class="label">Model</span>
@@ -132,19 +139,19 @@ function renderHamsterContent(hamsterState, parentState) {
     </div>
     <div class="detail-row">
       <span class="label">Current Tool</span>
-      <span class="value">${esc(hamsterState.currentTool) || '-'}</span>
+      <span class="value" data-field="h-current-tool">${esc(hamsterState.currentTool) || '-'}</span>
     </div>
     <div class="detail-row">
       <span class="label">Messages</span>
-      <span class="value">${hamsterState.messageCount || 0}</span>
+      <span class="value" data-field="h-messages">${hamsterState.messageCount || 0}</span>
     </div>
     <div class="detail-row">
       <span class="label">Tool Calls</span>
-      <span class="value">${hamsterState.toolCallCount || 0}</span>
+      <span class="value" data-field="h-tool-calls">${hamsterState.toolCallCount || 0}</span>
     </div>
     <div class="detail-row">
       <span class="label">Duration</span>
-      <span class="value">${formatElapsed(hamsterState.startedAt)}</span>
+      <span class="value" data-field="h-duration">${formatElapsed(hamsterState.startedAt)}</span>
     </div>
     <div class="detail-row" style="margin-top:10px;padding-top:8px;border-top:1px solid #333">
       <span class="label">Parent</span>
@@ -155,12 +162,68 @@ function renderHamsterContent(hamsterState, parentState) {
   `;
 }
 
+function patchText(container, field, value) {
+  const el = container.querySelector(`[data-field="${field}"]`);
+  if (el && el.textContent !== value) el.textContent = value;
+}
+
+function patchHtml(container, field, html) {
+  const el = container.querySelector(`[data-field="${field}"]`);
+  if (el && el.innerHTML !== html) el.innerHTML = html;
+}
+
+function patchDetailContent(container, state) {
+  const pct = (state.contextUtilization * 100).toFixed(1);
+  const barColor = contextBarColor(state.contextUtilization);
+
+  patchHtml(container, 'activity',
+    `<span class="detail-activity ${esc(state.activity)}">${esc(state.activity)}</span>`);
+
+  const bar = container.querySelector('[data-field="progress-bar"]');
+  if (bar) {
+    const w = `${pct}%`;
+    if (bar.style.width !== w) bar.style.width = w;
+    if (bar.style.background !== barColor) bar.style.background = barColor;
+  }
+  patchText(container, 'progress-label',
+    `${formatTokens(state.tokensUsed)} / ${formatTokens(state.maxContextTokens)} (${pct}%)`);
+
+  patchText(container, 'burn-rate', formatBurnRate(state.burnRatePerMinute));
+  patchText(container, 'messages', String(state.messageCount));
+  patchText(container, 'tool-calls', String(state.toolCallCount));
+  patchText(container, 'current-tool', state.currentTool || '-');
+  patchText(container, 'last-activity', formatTime(state.lastActivityAt));
+  patchText(container, 'elapsed', formatElapsed(state.startedAt));
+  patchText(container, 'input-tokens', formatTokens(state.tokensUsed));
+  patchText(container, 'context-pct', `${pct}%`);
+
+  if (state.subagents && state.subagents.length > 0) {
+    patchText(container, 'subagents-header', `Subagents (${state.subagents.length})`);
+    for (let i = 0; i < state.subagents.length; i++) {
+      const sub = state.subagents[i];
+      patchHtml(container, `sub-${i}`,
+        `<span class="detail-activity ${esc(sub.activity)}">${esc(sub.activity)}</span>${sub.currentTool ? ' · ' + esc(sub.currentTool) : ''}`);
+    }
+  }
+}
+
+function patchHamsterContent(container, hamsterState) {
+  patchHtml(container, 'h-activity',
+    `<span class="detail-activity ${esc(hamsterState.activity)}">${esc(hamsterState.activity)}</span>`);
+  patchText(container, 'h-current-tool', hamsterState.currentTool || '-');
+  patchText(container, 'h-messages', String(hamsterState.messageCount || 0));
+  patchText(container, 'h-tool-calls', String(hamsterState.toolCallCount || 0));
+  patchText(container, 'h-duration', formatElapsed(hamsterState.startedAt));
+}
+
 export function createFlyout({ detailFlyout, flyoutContent, canvas }) {
   let selectedSessionId = null;
   let selectedHamsterId = null;
   let flyoutAnchor = null;
   let flyoutCurrentX = null;
   let flyoutCurrentY = null;
+  let lastMode = null;       // 'detail' | 'hamster'
+  let lastStructKey = null;  // structural fingerprint for patch eligibility
 
   function positionFlyout(carX, carY) {
     const canvasRect = canvas.getBoundingClientRect();
@@ -247,6 +310,8 @@ export function createFlyout({ detailFlyout, flyoutContent, canvas }) {
     selectedHamsterId = null;
     resetPosition();
     flyoutContent.innerHTML = renderDetailContent(state);
+    lastMode = 'detail';
+    lastStructKey = detailStructuralKey(state);
     detailFlyout.classList.remove('hidden');
     positionFlyout(carX, carY);
   }
@@ -256,6 +321,8 @@ export function createFlyout({ detailFlyout, flyoutContent, canvas }) {
     selectedHamsterId = hamsterState.id;
     resetPosition();
     flyoutContent.innerHTML = renderHamsterContent(hamsterState, parentState);
+    lastMode = 'hamster';
+    lastStructKey = null;
     detailFlyout.classList.remove('hidden');
     positionFlyout(hamsterX, hamsterY);
   }
@@ -264,6 +331,8 @@ export function createFlyout({ detailFlyout, flyoutContent, canvas }) {
     detailFlyout.classList.add('hidden');
     selectedSessionId = null;
     selectedHamsterId = null;
+    lastMode = null;
+    lastStructKey = null;
     resetPosition();
   }
 
@@ -274,13 +343,28 @@ export function createFlyout({ detailFlyout, flyoutContent, canvas }) {
     if (selectedHamsterId) {
       const sub = (state.subagents || []).find(s => s.id === selectedHamsterId);
       if (sub) {
-        flyoutContent.innerHTML = renderHamsterContent(sub, state);
+        if (lastMode === 'hamster') {
+          patchHamsterContent(flyoutContent, sub);
+        } else {
+          flyoutContent.innerHTML = renderHamsterContent(sub, state);
+          lastMode = 'hamster';
+          lastStructKey = null;
+        }
       } else {
         selectedHamsterId = null;
         flyoutContent.innerHTML = renderDetailContent(state);
+        lastMode = 'detail';
+        lastStructKey = detailStructuralKey(state);
       }
     } else {
-      flyoutContent.innerHTML = renderDetailContent(state);
+      const newKey = detailStructuralKey(state);
+      if (lastMode === 'detail' && lastStructKey === newKey) {
+        patchDetailContent(flyoutContent, state);
+      } else {
+        flyoutContent.innerHTML = renderDetailContent(state);
+        lastMode = 'detail';
+        lastStructKey = newKey;
+      }
     }
   }
 
