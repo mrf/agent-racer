@@ -16,6 +16,10 @@ import (
 // concurrent WebSocket connections has been reached.
 var ErrTooManyConnections = errors.New("too many WebSocket connections")
 
+// writeWait is the maximum time allowed for a write to complete before the
+// connection is considered dead. Prevents goroutine leaks from stalled clients.
+var writeWait = 10 * time.Second
+
 type client struct {
 	conn   *websocket.Conn
 	send   chan []byte
@@ -37,6 +41,7 @@ func newClient(conn *websocket.Conn, b *Broadcaster) *client {
 func (c *client) writePump() {
 	defer func() { _ = c.conn.Close() }()
 	for msg := range c.send {
+		_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 		if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
 			c.b.RemoveClient(c)
 			return
@@ -145,6 +150,7 @@ func (b *Broadcaster) AddClient(conn *websocket.Conn) (*client, error) {
 	b.mu.Lock()
 	if b.maxConns > 0 && len(b.clients) >= b.maxConns {
 		b.mu.Unlock()
+		_ = conn.SetWriteDeadline(time.Now().Add(writeWait))
 		_ = conn.WriteMessage(websocket.CloseMessage,
 			websocket.FormatCloseMessage(websocket.CloseTryAgainLater, "too many connections"))
 		_ = conn.Close()
