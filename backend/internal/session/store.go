@@ -1,6 +1,7 @@
 package session
 
 import (
+	"sort"
 	"sync"
 )
 
@@ -33,6 +34,9 @@ func (s *Store) GetAll() []*SessionState {
 	for _, st := range s.sessions {
 		result = append(result, st.Clone())
 	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].ID < result[j].ID
+	})
 	return result
 }
 

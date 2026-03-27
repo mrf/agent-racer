@@ -122,12 +122,28 @@ func TestGetAll(t *testing.T) {
 		t.Fatalf("GetAll() returned %d items, want 2", len(all))
 	}
 
-	ids := map[string]bool{}
-	for _, st := range all {
-		ids[st.ID] = true
+	if all[0].ID != "a" || all[1].ID != "b" {
+		t.Errorf("GetAll() not sorted by ID, got [%s, %s]", all[0].ID, all[1].ID)
 	}
-	if !ids["a"] || !ids["b"] {
-		t.Errorf("GetAll() missing expected IDs, got %v", ids)
+}
+
+func TestGetAllDeterministicOrder(t *testing.T) {
+	s := NewStore()
+	// Insert in reverse order to ensure sort, not insertion order, determines output.
+	s.Update(&SessionState{ID: "z-session"})
+	s.Update(&SessionState{ID: "a-session"})
+	s.Update(&SessionState{ID: "m-session"})
+
+	// Call GetAll multiple times — order must be stable.
+	for i := 0; i < 10; i++ {
+		all := s.GetAll()
+		if len(all) != 3 {
+			t.Fatalf("iter %d: GetAll() returned %d items, want 3", i, len(all))
+		}
+		if all[0].ID != "a-session" || all[1].ID != "m-session" || all[2].ID != "z-session" {
+			t.Fatalf("iter %d: GetAll() not sorted, got [%s, %s, %s]",
+				i, all[0].ID, all[1].ID, all[2].ID)
+		}
 	}
 }
 
