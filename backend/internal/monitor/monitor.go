@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -721,6 +722,11 @@ func (m *Monitor) flushRemovals(now time.Time) {
 	}
 }
 
+// maxEndMarkersPerPoll caps how many session-end marker files are processed
+// in a single poll cycle. This prevents unbounded memory use if the directory
+// accumulates many files. Remaining files are picked up in subsequent polls.
+const maxEndMarkersPerPoll = 256
+
 // consumeSessionEndMarkers handles Claude-specific SessionEnd hook markers.
 // These are JSON files dropped into a directory by the Claude CLI when a
 // session ends. Other sources don't use this mechanism.
@@ -730,11 +736,18 @@ func (m *Monitor) consumeSessionEndMarkers(cfg *config.Config, now time.Time) {
 		return
 	}
 
-	entries, err := os.ReadDir(dir)
+	f, err := os.Open(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return
 		}
+		log.Printf("Session end dir open error: %v", err)
+		return
+	}
+	defer f.Close()
+
+	entries, err := f.ReadDir(maxEndMarkersPerPoll)
+	if err != nil && err != io.EOF {
 		log.Printf("Session end dir read error: %v", err)
 		return
 	}
