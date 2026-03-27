@@ -242,17 +242,6 @@ export class RaceCanvas extends BaseCanvas {
     }
     this._prevLeaderOrder = currentOrder;
 
-    // Mexican wave when 3+ sessions are actively thinking/running
-    let activeCount = 0;
-    for (const racer of this.racers.values()) {
-      if (racer.state.activity === 'thinking' || racer.state.activity === 'tool_use') {
-        activeCount++;
-      }
-    }
-    if (activeCount >= 3) {
-      this.grandstand.trigger('mexican');
-    }
-
     this.grandstand.update(dt);
     this._updateSharedFrameState(dt);
   }
