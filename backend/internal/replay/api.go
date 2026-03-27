@@ -2,6 +2,7 @@ package replay
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -10,6 +11,10 @@ import (
 	"strings"
 	"time"
 )
+
+// MaxReplayResponseBytes is the maximum replay file size the API will serve.
+// Files larger than this receive a 413 Payload Too Large response.
+const MaxReplayResponseBytes = 100 << 20 // 100 MiB
 
 // ReplayInfo describes a single replay file available for playback.
 type ReplayInfo struct {
@@ -115,7 +120,18 @@ func (h *Handler) handleGet(w http.ResponseWriter, r *http.Request) {
 		_ = f.Close()
 	}()
 
+	fi, err := f.Stat()
+	if err != nil {
+		http.Error(w, "failed to stat replay", http.StatusInternalServerError)
+		return
+	}
+	if fi.Size() > MaxReplayResponseBytes {
+		http.Error(w, fmt.Sprintf("replay too large (%d bytes, max %d)", fi.Size(), MaxReplayResponseBytes), http.StatusRequestEntityTooLarge)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/x-ndjson")
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", fi.Size()))
 	w.Header().Set("Cache-Control", "no-cache")
 	_, _ = io.Copy(w, f)
 }
