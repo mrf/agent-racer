@@ -529,8 +529,8 @@ describe('RaceCanvas', () => {
       expect(rc.height).toBeGreaterThan(0);
     });
 
-    it('resizes when active lane count changes', () => {
-      const resizeSpy = vi.spyOn(rc, 'resize');
+    it('schedules resize when active lane count changes', () => {
+      rc._needsResize = false;
 
       rc.setAllRacers([
         makeState({ id: 'a', activity: 'thinking', lane: 0 }),
@@ -540,12 +540,12 @@ describe('RaceCanvas', () => {
       rc.update();
 
       expect(rc._activeLaneCount).toBe(3);
-      expect(resizeSpy).toHaveBeenCalled();
+      expect(rc._needsResize).toBe(true);
     });
 
-    it('resizes when pit lane count changes', () => {
+    it('schedules resize when pit lane count changes', () => {
       const stale = agoISO(31_000);
-      const resizeSpy = vi.spyOn(rc, 'resize');
+      rc._needsResize = false;
 
       rc.setAllRacers([
         makeState({ id: 'a', activity: 'thinking' }),
@@ -555,11 +555,11 @@ describe('RaceCanvas', () => {
       rc.update();
 
       expect(rc._pitLaneCount).toBe(2);
-      expect(resizeSpy).toHaveBeenCalled();
+      expect(rc._needsResize).toBe(true);
     });
 
-    it('resizes when parking lot lane count changes', () => {
-      const resizeSpy = vi.spyOn(rc, 'resize');
+    it('schedules resize when parking lot lane count changes', () => {
+      rc._needsResize = false;
 
       rc.setAllRacers([
         makeState({ id: 'a', activity: 'thinking' }),
@@ -569,16 +569,16 @@ describe('RaceCanvas', () => {
       rc.update();
 
       expect(rc._parkingLotLaneCount).toBe(2);
-      expect(resizeSpy).toHaveBeenCalled();
+      expect(rc._needsResize).toBe(true);
     });
 
-    it('only resizes when lane counts actually change', () => {
+    it('does not schedule resize when lane counts are unchanged', () => {
       rc.setAllRacers([makeState({ id: 'a', activity: 'thinking' })]);
       rc.update();
+      rc._needsResize = false;
 
-      const resizeSpy = vi.spyOn(rc, 'resize');
       rc.update();
-      expect(resizeSpy).not.toHaveBeenCalled();
+      expect(rc._needsResize).toBe(false);
     });
 
     it('defaults _activeLaneCount to 1 when all racers are off-track', () => {
@@ -864,31 +864,31 @@ describe('RaceCanvas', () => {
       ]);
     });
 
-    it('resizes when group composition changes', () => {
+    it('schedules resize when group composition changes', () => {
       rc.setAllRacers([
         makeState({ id: 'a', activity: 'thinking', maxContextTokens: 200000 }),
       ]);
       rc.update();
+      rc._needsResize = false;
 
-      const resizeSpy = vi.spyOn(rc, 'resize');
       rc.setAllRacers([
         makeState({ id: 'a', activity: 'thinking', maxContextTokens: 200000 }),
         makeState({ id: 'b', activity: 'thinking', maxContextTokens: 1000000 }),
       ]);
       rc.update();
 
-      expect(resizeSpy).toHaveBeenCalled();
+      expect(rc._needsResize).toBe(true);
     });
 
-    it('does not resize when groups are unchanged', () => {
+    it('does not schedule resize when groups are unchanged', () => {
       rc.setAllRacers([
         makeState({ id: 'a', activity: 'thinking', maxContextTokens: 200000 }),
       ]);
       rc.update();
+      rc._needsResize = false;
 
-      const resizeSpy = vi.spyOn(rc, 'resize');
       rc.update();
-      expect(resizeSpy).not.toHaveBeenCalled();
+      expect(rc._needsResize).toBe(false);
     });
   });
 

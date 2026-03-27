@@ -60,6 +60,7 @@ export class BaseCanvas {
     this._trackGroups = [{ maxTokens: DEFAULT_CONTEXT_WINDOW, laneCount: 1 }];
     this._trackGroupsKey = '';
     this._zoneCounts = { racing: 0, pit: 0, parked: 0 };
+    this._needsResize = false;
 
     this.resize();
     this._resizeHandler = () => this.resize();
@@ -97,12 +98,17 @@ export class BaseCanvas {
     const dashHeight = Math.max(dashMinHeight, dashFromViewport);
     const height = zonesHeight + dashHeight;
 
+    if (this.width === viewportWidth && this.height === height && this._dpr === dpr) {
+      return;
+    }
+
     this.canvas.style.height = `${height}px`;
     this.canvas.width = viewportWidth * dpr;
     this.canvas.height = height * dpr;
     this.ctx.scale(dpr, dpr);
     this.width = viewportWidth;
     this.height = height;
+    this._dpr = dpr;
 
     this.glowCanvas.width = Math.ceil(viewportWidth / 4);
     this.glowCanvas.height = Math.ceil(height / 4);
@@ -159,6 +165,11 @@ export class BaseCanvas {
       const rawDt = (timestamp - this.lastFrameTime) / 1000;
       this.dt = Math.min(rawDt, 0.05);
       this.lastFrameTime = timestamp;
+
+      if (this._needsResize) {
+        this._needsResize = false;
+        this.resize();
+      }
 
       this.update();
       this.draw();
@@ -254,7 +265,7 @@ export class BaseCanvas {
       this._activeLaneCount = trackGroups.reduce((sum, group) => sum + group.laneCount, 0) || 1;
       this._pitLaneCount = pitLaneCount;
       this._parkingLotLaneCount = parkingLotLaneCount;
-      this.resize();
+      this._needsResize = true;
     }
   }
 
