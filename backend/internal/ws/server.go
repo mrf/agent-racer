@@ -159,6 +159,10 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Clients only send small messages (auth, resync). Limit inbound
+	// message size to 4 KiB to prevent memory abuse.
+	conn.SetReadLimit(4096)
+
 	if s.authToken != "" {
 		_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 		_, msg, err := conn.ReadMessage()
