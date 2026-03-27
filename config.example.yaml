@@ -81,13 +81,13 @@ token_normalization:
 privacy:
   # Replace full directory paths with just the last component
   # e.g. "/home/user/secret-project" becomes "secret-project"
-  mask_working_dirs: false
+  mask_working_dirs: true
   # Replace session IDs with opaque short hashes
   mask_session_ids: false
   # Hide process IDs from broadcast data
-  mask_pids: false
+  mask_pids: true
   # Hide tmux pane locations from broadcast data
-  mask_tmux_targets: false
+  mask_tmux_targets: true
   # Allowlist: only broadcast sessions whose working directory (or a
   # parent directory) matches at least one glob pattern. Empty list means
   # all sessions are allowed. Uses Go filepath.Match syntax (* matches

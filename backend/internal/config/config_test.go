@@ -150,6 +150,19 @@ func TestLoadOrDefaultMissingFile(t *testing.T) {
 	if cfg.Models["default"] != DefaultContextWindow {
 		t.Errorf("Models[default] = %d, want default %d", cfg.Models["default"], DefaultContextWindow)
 	}
+	// Privacy defaults should mask working dirs, PIDs, and tmux targets.
+	if !cfg.Privacy.MaskWorkingDirs {
+		t.Error("Privacy.MaskWorkingDirs = false, want default true")
+	}
+	if !cfg.Privacy.MaskPIDs {
+		t.Error("Privacy.MaskPIDs = false, want default true")
+	}
+	if !cfg.Privacy.MaskTmuxTargets {
+		t.Error("Privacy.MaskTmuxTargets = false, want default true")
+	}
+	if cfg.Privacy.MaskSessionIDs {
+		t.Error("Privacy.MaskSessionIDs = true, want default false")
+	}
 }
 
 func TestLoadInvalidYAML(t *testing.T) {
@@ -413,7 +426,7 @@ func TestDiffDetectsChanges(t *testing.T) {
 	new.Sources.Codex = true
 
 	// Privacy
-	new.Privacy.MaskWorkingDirs = true
+	new.Privacy.MaskWorkingDirs = false
 	new.Privacy.BlockedPaths = []string{"/tmp/secret"}
 
 	// Token norm
@@ -434,7 +447,7 @@ func TestDiffDetectsChanges(t *testing.T) {
 		"models: added claude-opus-4-5=300000",
 		"models: removed default",
 		"sources.codex: false → true",
-		"privacy.mask_working_dirs: false → true",
+		"privacy.mask_working_dirs: true → false",
 		"privacy.blocked_paths: [] → [/tmp/secret]",
 		"token_normalization.tokens_per_message: 2000 → 3000",
 	}
