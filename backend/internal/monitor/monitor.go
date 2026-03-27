@@ -1207,10 +1207,14 @@ func detectBranch(dir string) string {
 	if dir == "" {
 		return ""
 	}
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		return ""
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "git", "-C", dir, "rev-parse", "--abbrev-ref", "HEAD")
+	cmd := exec.CommandContext(ctx, gitPath, "-C", dir, "rev-parse", "--abbrev-ref", "HEAD")
 	out, err := cmd.Output()
 	if err != nil {
 		return ""
