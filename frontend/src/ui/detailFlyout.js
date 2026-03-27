@@ -293,9 +293,9 @@ export function createFlyout({ detailFlyout, flyoutContent, canvas }) {
     detailFlyout.style.left = `${Math.round(flyoutCurrentX)}px`;
     detailFlyout.style.top = `${Math.round(flyoutCurrentY)}px`;
 
-    const currentArrow = detailFlyout.className.match(/arrow-\w+/)?.[0];
-    if (currentArrow !== arrowClass) {
-      detailFlyout.className = detailFlyout.className.replace(/arrow-\w+/g, '').trim() + ` ${arrowClass}`;
+    if (!detailFlyout.classList.contains(arrowClass)) {
+      detailFlyout.classList.remove('arrow-left', 'arrow-right', 'arrow-up', 'arrow-down');
+      detailFlyout.classList.add(arrowClass);
     }
   }
 
