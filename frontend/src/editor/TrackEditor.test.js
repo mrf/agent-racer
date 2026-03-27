@@ -143,6 +143,21 @@ describe('TrackEditor save form', () => {
     expect(window.alert).not.toHaveBeenCalled();
   });
 
+  it('does not render track list panel if editor is deactivated during fetch', async () => {
+    let resolveResp;
+    mocks.authFetch.mockReturnValue(new Promise((r) => { resolveResp = r; }));
+    editor.activate();
+
+    editor._showTrackList();
+    editor.deactivate();
+    resolveResp({ ok: true, json: () => Promise.resolve([{ id: 't1', name: 'Track 1' }]) });
+    await flushAsyncWork();
+    await flushAsyncWork();
+
+    expect(editor._trackListEl).toBeNull();
+    expect(document.querySelector('[style*="zIndex"]')).toBeNull();
+  });
+
   it('prefills the loaded track name and shows save failures inline', async () => {
     mocks.authFetch.mockResolvedValue({ ok: false, status: 500 });
     editor.activate();

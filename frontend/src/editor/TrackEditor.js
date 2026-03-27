@@ -311,6 +311,7 @@ export class TrackEditor {
   async _showTrackList() {
     try {
       const resp = await authFetch('/api/tracks');
+      if (!this.active) return;
       if (!resp.ok) { alert('Could not load tracks'); return; }
       const tracks = await resp.json();
 
