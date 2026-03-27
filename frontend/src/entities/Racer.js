@@ -11,7 +11,6 @@ const FLAG_COLORS = { bg: '#ffffff', text: '#000', stripe: '#cccccc', pole: '#aa
 const DIRECTORY_FLAG_MARGIN = 6;
 const DIRECTORY_FLAG_MIN_FONT = 11;
 const DIRECTORY_FLAG_MAX_FONT = 14;
-const DIRECTORY_FLAG_MAX_WIDTH = 240;
 const DIRECTORY_FLAG_MIN_WIDTH = 84;
 const TRACK_COMPLETE_ALPHA = 0.72;
 
@@ -37,27 +36,6 @@ function getCanvasViewport(ctx) {
     width: rect?.width || canvas.width || 1200,
     height: rect?.height || canvas.height || 800,
   };
-}
-
-function truncateMiddleToWidth(ctx, text, maxWidth) {
-  if (!text || ctx.measureText(text).width <= maxWidth) {
-    return text;
-  }
-
-  const ellipsis = '...';
-  let keep = text.length - 1;
-
-  while (keep > 1) {
-    const left = Math.ceil(keep / 2);
-    const right = Math.floor(keep / 2);
-    const candidate = `${text.slice(0, left)}${ellipsis}${text.slice(text.length - right)}`;
-    if (ctx.measureText(candidate).width <= maxWidth) {
-      return candidate;
-    }
-    keep--;
-  }
-
-  return ellipsis;
 }
 
 /**
@@ -1678,12 +1656,9 @@ export class Racer {
 
     ctx.font = font;
     const badgeW = badgeText ? ctx.measureText(badgeText).width + 4 : 0;
-    const maxFlagW = clamp(viewport.width * 0.28, 120, DIRECTORY_FLAG_MAX_WIDTH);
-    const maxTextW = Math.max(56, maxFlagW - badgeW - 18);
-    const label = truncateMiddleToWidth(ctx, dirName, maxTextW);
-    const textW = ctx.measureText(label).width;
+    const textW = ctx.measureText(dirName).width;
     const flagH = fontSize + 8;
-    const flagW = clamp(textW + badgeW + 18, DIRECTORY_FLAG_MIN_WIDTH, maxFlagW);
+    const flagW = Math.max(textW + badgeW + 18, DIRECTORY_FLAG_MIN_WIDTH);
     const notchDepth = Math.max(6, Math.round(flagH * 0.4));
 
     const poleBaseX = x - (15 + LIMO_STRETCH) * S;
@@ -1694,9 +1669,8 @@ export class Racer {
       DIRECTORY_FLAG_MARGIN,
       Math.max(DIRECTORY_FLAG_MARGIN, viewport.height - flagH - DIRECTORY_FLAG_MARGIN),
     );
-    const flagLeft = clamp(
+    const flagLeft = Math.min(
       poleBaseX - flagW + 6,
-      DIRECTORY_FLAG_MARGIN,
       Math.max(DIRECTORY_FLAG_MARGIN, viewport.width - flagW - DIRECTORY_FLAG_MARGIN),
     );
     const flagRight = flagLeft + flagW;
@@ -1713,7 +1687,7 @@ export class Racer {
       flagTop,
       font,
       fontSize,
-      label,
+      label: dirName,
       notchDepth,
       poleBaseX,
       poleBaseY,
