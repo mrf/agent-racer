@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -68,6 +69,73 @@ type tailContentBlock struct {
 	ToolUseID string          `json:"tool_use_id,omitempty"`
 	Input     json.RawMessage `json:"input,omitempty"`
 	Content   json.RawMessage `json:"content,omitempty"` // tool_result content
+}
+
+// allowedLogDirs returns the base directories that may contain session logs.
+// Paths resolved via EvalSymlinks must fall under one of these prefixes.
+func allowedLogDirs() []string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+
+	dirs := []string{
+		filepath.Join(home, ".claude", "projects"),
+		filepath.Join(home, ".codex", "sessions"),
+		filepath.Join(home, ".gemini", "tmp"),
+	}
+
+	// Respect CODEX_HOME override.
+	if env := os.Getenv("CODEX_HOME"); env != "" {
+		dirs = append(dirs, filepath.Join(env, "sessions"))
+	}
+
+	return dirs
+}
+
+// ValidateLogPath checks that path is an absolute path to a regular file
+// within one of the known agent log directories. It resolves symlinks and
+// ".." components before checking, preventing path-traversal and symlink
+// attacks against the tail endpoint.
+func ValidateLogPath(path string) error {
+	if !filepath.IsAbs(path) {
+		return fmt.Errorf("log path must be absolute")
+	}
+
+	// Resolve symlinks and clean the path.
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return fmt.Errorf("cannot resolve log path: %w", err)
+	}
+
+	// Verify the resolved path is under an allowed directory.
+	allowed := false
+	for _, dir := range allowedLogDirs() {
+		// Also resolve the allowed dir in case it contains symlinks.
+		resolvedDir, dirErr := filepath.EvalSymlinks(dir)
+		if dirErr != nil {
+			continue
+		}
+		prefix := resolvedDir + string(filepath.Separator)
+		if strings.HasPrefix(resolved, prefix) {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		return fmt.Errorf("log path outside allowed directories")
+	}
+
+	// Verify it's a regular file (not a directory, device, etc.).
+	info, err := os.Lstat(resolved)
+	if err != nil {
+		return fmt.Errorf("cannot stat log path: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("log path is not a regular file")
+	}
+
+	return nil
 }
 
 // ParseTailEntries reads a JSONL file from offset and returns display entries.
