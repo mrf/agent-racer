@@ -231,6 +231,11 @@ func defaultConfig() *Config {
 			"codex-*":       200000,
 			"default":       DefaultContextWindow,
 		},
+		Privacy: PrivacyConfig{
+			MaskWorkingDirs: true,
+			MaskPIDs:        true,
+			MaskTmuxTargets: true,
+		},
 		Sound: SoundConfig{
 			Enabled:       true,
 			MasterVolume:  1.0,
