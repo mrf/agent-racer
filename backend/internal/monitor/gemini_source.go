@@ -4,7 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -209,7 +209,7 @@ func (g *GeminiSource) Parse(handle SessionHandle, offset int64) (SourceUpdate, 
 
 	if update.HasData() {
 		update.LastTime = currentMtime
-		log.Printf("[gemini] Parsed session from %s", handle.LogPath)
+		slog.Debug("parsed session", "source", "gemini", "path", handle.LogPath)
 	}
 
 	return update, newOffset, nil
@@ -473,7 +473,7 @@ func (g *GeminiSource) refreshHashMappings() {
 		hash := hashProjectPath(cwd)
 		if _, exists := g.hashToPath[hash]; !exists {
 			g.hashToPath[hash] = cwd
-			log.Printf("[gemini] Mapped hash %s -> %s", hash[:12], cwd)
+			slog.Debug("mapped hash to path", "source", "gemini", "hash", hash[:12], "cwd", cwd)
 		}
 	}
 }

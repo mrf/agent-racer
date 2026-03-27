@@ -2,7 +2,7 @@ package gamification
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -411,7 +411,7 @@ func (t *StatsTracker) mutateLoadout(fn func() error) (Equipped, error) {
 	t.mu.Unlock()
 
 	if err := t.persist.Save(stats); err != nil {
-		log.Printf("Failed to save stats after loadout change: %v", err)
+		slog.Error("failed to save stats after loadout change", "error", err)
 	}
 	return equipped, nil
 }
@@ -423,6 +423,6 @@ func (t *StatsTracker) save() {
 	t.mu.Unlock()
 
 	if err := t.persist.Save(stats); err != nil {
-		log.Printf("Failed to save stats: %v", err)
+		slog.Error("failed to save stats", "error", err)
 	}
 }
