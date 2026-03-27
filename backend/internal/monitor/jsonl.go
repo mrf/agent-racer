@@ -1,98 +1,25 @@
 package monitor
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/agent-racer/backend/internal/jsonl"
 )
 
-const (
-	// maxFileSize is the maximum JSONL file size we'll parse (500 MB).
-	// Files exceeding this are skipped to prevent OOM from runaway logs.
-	maxFileSize = 500 * 1024 * 1024
+// maxDecodePathCandidates bounds ambiguous decode search so a long
+// hyphen chain cannot grow without limit.
+const maxDecodePathCandidates = 4096
 
-	// maxLineLength is the maximum length of a single JSONL line (1 MB).
-	// Lines exceeding this are skipped to prevent excessive memory use.
-	maxLineLength = 1024 * 1024
-
-	// maxDecodePathCandidates bounds ambiguous decode search so a long
-	// hyphen chain cannot grow without limit.
-	maxDecodePathCandidates = 4096
-)
-
-type TokenUsage struct {
-	InputTokens              int `json:"input_tokens"`
-	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
-	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
-	OutputTokens             int `json:"output_tokens"`
-}
-
-func (t TokenUsage) TotalContext() int {
-	return t.InputTokens + t.CacheCreationInputTokens + t.CacheReadInputTokens
-}
-
-type jsonlEntry struct {
-	Type      string          `json:"type"`
-	Subtype   string          `json:"subtype,omitempty"`
-	UUID      string          `json:"uuid"`
-	SessionID string          `json:"sessionId"`
-	Slug      string          `json:"slug"`
-	Timestamp string          `json:"timestamp"`
-	Cwd       string          `json:"cwd"`
-	Message   json.RawMessage `json:"message"`
-}
-
-type messageContent struct {
-	Model   string          `json:"model"`
-	Role    string          `json:"role"`
-	Usage   *TokenUsage     `json:"usage,omitempty"`
-	Content json.RawMessage `json:"content"`
-}
-
-type contentBlock struct {
-	Type      string `json:"type"`
-	Name      string `json:"name,omitempty"`
-	ID        string `json:"id,omitempty"`          // tool_use block ID
-	ToolUseID string `json:"tool_use_id,omitempty"` // tool_result references the tool_use
-	Text      string `json:"text,omitempty"`        // text content block
-}
-
-// progressEntry is the top-level structure for type:"progress" JSONL entries
-// emitted by Claude Code. These appear in the parent's JSONL file for both
-// self-progress (hook/mcp/bash progress) and subagent progress (Agent tool
-// invocations). Subagent entries have data.type=="agent_progress" and
-// toolUseID != parentToolUseID. Self-progress entries have
-// toolUseID == parentToolUseID.
-type progressEntry struct {
-	Type            string          `json:"type"`
-	ToolUseID       string          `json:"toolUseID"`
-	ParentToolUseID string          `json:"parentToolUseID"`
-	SessionID       string          `json:"sessionId"`
-	Slug            string          `json:"slug"`
-	Timestamp       string          `json:"timestamp"`
-	Data            json.RawMessage `json:"data"`
-}
-
-// progressDataHeader is used for fast pre-parsing of data.type to distinguish
-// agent_progress (subagent) from hook_progress/mcp_progress (self-progress).
-type progressDataHeader struct {
-	Type string `json:"type"`
-}
-
-// progressData wraps the nested data.message structure inside a progress entry.
-type progressData struct {
-	Message struct {
-		Type    string          `json:"type"` // "assistant" or "user"
-		Message json.RawMessage `json:"message"`
-	} `json:"message"`
-}
+// Type aliases so existing monitor code continues to compile without
+// updating every reference.
+type TokenUsage = jsonl.TokenUsage
 
 // SubagentParseResult accumulates parsed data for a single subagent across
 // all its progress entries. Keyed by toolUseID in ParseResult.Subagents.
@@ -101,7 +28,7 @@ type SubagentParseResult struct {
 	ParentToolUseID string
 	Slug            string
 	Model           string
-	LatestUsage     *TokenUsage
+	LatestUsage     *jsonl.TokenUsage
 	MessageCount    int
 	ToolCalls       int
 	LastTool        string
@@ -119,7 +46,7 @@ type ParseResult struct {
 	SessionID         string
 	Slug              string // Internal session name (e.g. "mighty-cuddling-castle")
 	Model             string
-	LatestUsage       *TokenUsage
+	LatestUsage       *jsonl.TokenUsage
 	MessageCount      int
 	ToolCalls         int
 	LastTool          string
@@ -176,85 +103,12 @@ func FindSessionFile(workingDir string) (string, error) {
 // tool_result arrives in a batch with no new progress entries. Pass ""
 // and nil when no prior state exists.
 func ParseSessionJSONL(path string, offset int64, knownSlug string, knownParents map[string]string) (*ParseResult, int64, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, offset, err
-	}
-	defer func() { _ = f.Close() }()
-
-	// Check file size before parsing to avoid OOM on huge files.
-	info, err := f.Stat()
-	if err != nil {
-		return nil, offset, err
-	}
-	if info.Size() > maxFileSize {
-		log.Printf("[jsonl] Skipping %s: file size %d exceeds limit %d", path, info.Size(), maxFileSize)
-		return nil, offset, fmt.Errorf("file size %d exceeds max %d", info.Size(), maxFileSize)
-	}
-
-	if offset > 0 {
-		if _, err := f.Seek(offset, io.SeekStart); err != nil {
-			return nil, offset, err
-		}
-	}
-
 	result := &ParseResult{
 		Slug:      knownSlug,
 		Subagents: make(map[string]*SubagentParseResult),
 	}
-	reader := bufio.NewReader(f)
-	parsedOffset := offset // Track offset only after successfully parsing complete lines
 
-	for {
-		line, err := reader.ReadBytes('\n')
-
-		// Handle read errors (except EOF for last incomplete line)
-		if err != nil && err != io.EOF {
-			return result, parsedOffset, err
-		}
-
-		// Empty read means we've reached EOF with nothing left
-		if len(line) == 0 {
-			break
-		}
-
-		// Only process lines that end with newline (complete lines).
-		// Incomplete lines (no trailing newline) are preserved for next read.
-		if line[len(line)-1] != '\n' {
-			// Line is incomplete - don't parse or advance offset
-			if err == io.EOF {
-				break
-			}
-			continue
-		}
-
-		// Skip oversized lines to prevent excessive memory use during JSON parsing.
-		if len(line) > maxLineLength {
-			log.Printf("[jsonl] Skipping oversized line (%d bytes) in %s at offset %d",
-				len(line), path, parsedOffset)
-			parsedOffset += int64(len(line))
-			if err == io.EOF {
-				break
-			}
-			continue
-		}
-
-		// Trim the newline for JSON parsing
-		lineData := line[:len(line)-1]
-
-		var entry jsonlEntry
-		if err := json.Unmarshal(lineData, &entry); err != nil {
-			// Silently skip malformed lines but do advance offset
-			parsedOffset += int64(len(line))
-			if err == io.EOF {
-				break
-			}
-			continue
-		}
-
-		// Successfully parsed complete line, advance offset
-		parsedOffset += int64(len(line))
-
+	newOffset, err := jsonl.ForEachEntry(path, offset, func(entry *jsonl.Entry, line []byte) bool {
 		if entry.SessionID != "" && result.SessionID == "" {
 			result.SessionID = entry.SessionID
 		}
@@ -269,10 +123,8 @@ func ParseSessionJSONL(path string, offset int64, knownSlug string, knownParents
 			result.WorkingDir = entry.Cwd
 		}
 
-		if entry.Timestamp != "" {
-			if t, err := time.Parse(time.RFC3339Nano, entry.Timestamp); err == nil {
-				result.LastTime = t
-			}
+		if t, ok := entry.ParseTimestamp(); ok {
+			result.LastTime = t
 		}
 
 		switch entry.Type {
@@ -287,7 +139,7 @@ func ParseSessionJSONL(path string, offset int64, knownSlug string, knownParents
 			checkSubagentCompletion(entry.Message, result, knownParents)
 
 		case "progress":
-			parseProgressEntry(lineData, result)
+			parseProgressEntry(line, result)
 
 		case "system":
 			if entry.Subtype == "compact_boundary" {
@@ -295,12 +147,13 @@ func ParseSessionJSONL(path string, offset int64, knownSlug string, knownParents
 			}
 		}
 
-		if err == io.EOF {
-			break
-		}
+		return true
+	})
+	if err != nil {
+		return result, newOffset, err
 	}
 
-	return result, parsedOffset, nil
+	return result, newOffset, nil
 }
 
 func parseAssistantMessage(raw json.RawMessage, result *ParseResult) {
@@ -308,7 +161,7 @@ func parseAssistantMessage(raw json.RawMessage, result *ParseResult) {
 		return
 	}
 
-	var msg messageContent
+	var msg jsonl.MessageContent
 	if err := json.Unmarshal(raw, &msg); err != nil {
 		return
 	}
@@ -322,7 +175,7 @@ func parseAssistantMessage(raw json.RawMessage, result *ParseResult) {
 	}
 
 	// Parse content blocks for tool use and text content.
-	var blocks []contentBlock
+	var blocks []jsonl.ContentBlock
 	if err := json.Unmarshal(msg.Content, &blocks); err != nil {
 		return
 	}
