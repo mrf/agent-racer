@@ -131,42 +131,6 @@ type ParseResult struct {
 	LastAssistantText string                          // last text content block from an assistant message
 }
 
-func FindSessionFile(workingDir string) (string, error) {
-	encoded := encodeProjectPath(workingDir)
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-
-	projectDir := filepath.Join(homeDir, ".claude", "projects", encoded)
-	entries, err := os.ReadDir(projectDir)
-	if err != nil {
-		return "", fmt.Errorf("reading project dir %s: %w", projectDir, err)
-	}
-
-	var bestPath string
-	var bestTime time.Time
-
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".jsonl") {
-			continue
-		}
-		info, err := entry.Info()
-		if err != nil {
-			continue
-		}
-		if info.ModTime().After(bestTime) {
-			bestTime = info.ModTime()
-			bestPath = filepath.Join(projectDir, entry.Name())
-		}
-	}
-
-	if bestPath == "" {
-		return "", fmt.Errorf("no session files found in %s", projectDir)
-	}
-	return bestPath, nil
-}
-
 // ParseSessionJSONL incrementally parses a Claude JSONL session file from
 // the given byte offset. knownSlug is the session's slug from a previous
 // parse batch — it seeds the result so incremental batches can filter
@@ -717,26 +681,4 @@ func decodePathExists(path string, cache map[string]bool) bool {
 	exists := err == nil
 	cache[path] = exists
 	return exists
-}
-
-// FindSessionForProcess tries to find the most recent session file
-// for a process working in the given directory
-func FindSessionForProcess(workingDir string, processStartTime time.Time) (string, error) {
-	sessionFile, err := FindSessionFile(workingDir)
-	if err != nil {
-		return "", err
-	}
-
-	// Verify the file was modified after (or around) process start
-	info, err := os.Stat(sessionFile)
-	if err != nil {
-		return "", err
-	}
-
-	// Allow 30s tolerance
-	if info.ModTime().Before(processStartTime.Add(-30 * time.Second)) {
-		log.Printf("Session file %s is older than process start, may be stale", sessionFile)
-	}
-
-	return sessionFile, nil
 }
