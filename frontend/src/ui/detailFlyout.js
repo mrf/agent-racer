@@ -15,7 +15,6 @@ function detailStructuralKey(state) {
 
 function renderDetailContent(state) {
   const pct = (state.contextUtilization * 100).toFixed(1);
-  const barColor = contextBarColor(state.contextUtilization);
 
   return `
     <div class="detail-row">
@@ -27,7 +26,7 @@ function renderDetailContent(state) {
       <span class="value"><span class="detail-activity thinking">CPU Active</span></span>
     </div>` : ''}
     <div class="detail-progress">
-      <div class="detail-progress-bar" data-field="progress-bar" style="width:${pct}%;background:${barColor}"></div>
+      <div class="detail-progress-bar" data-field="progress-bar"></div>
       <span class="detail-progress-label" data-field="progress-label">${formatTokens(state.tokensUsed)} / ${formatTokens(state.maxContextTokens)} (${pct}%)</span>
     </div>
     <div class="detail-row">
@@ -113,8 +112,8 @@ function renderDetailContent(state) {
       <span class="value" data-field="context-pct">${pct}%</span>
     </div>
     ${(state.subagents && state.subagents.length > 0) ? `
-    <div class="detail-row" style="margin-top:10px;padding-top:8px;border-top:1px solid #333">
-      <span class="label" style="font-size:11px;font-weight:bold;color:#aaa" data-field="subagents-header">Subagents (${state.subagents.length})</span>
+    <div class="detail-row detail-section-divider">
+      <span class="label detail-section-header" data-field="subagents-header">Subagents (${state.subagents.length})</span>
     </div>
     ${state.subagents.map((sub, i) => `
     <div class="detail-row">
@@ -126,8 +125,8 @@ function renderDetailContent(state) {
 
 function renderHamsterContent(hamsterState, parentState) {
   return `
-    <div class="detail-row" style="margin-bottom:8px">
-      <span class="label" style="font-size:13px;font-weight:bold;color:#ccc">Subagent: ${esc(hamsterState.slug || hamsterState.id)}</span>
+    <div class="detail-row detail-row-spaced">
+      <span class="label detail-subagent-title">Subagent: ${esc(hamsterState.slug || hamsterState.id)}</span>
     </div>
     <div class="detail-row">
       <span class="label">Activity</span>
@@ -153,7 +152,7 @@ function renderHamsterContent(hamsterState, parentState) {
       <span class="label">Duration</span>
       <span class="value" data-field="h-duration">${formatElapsed(hamsterState.startedAt)}</span>
     </div>
-    <div class="detail-row" style="margin-top:10px;padding-top:8px;border-top:1px solid #333">
+    <div class="detail-row detail-section-divider">
       <span class="label">Parent</span>
       <span class="value" title="${esc(parentState.workingDir) || ''}">${
         parentState.workingDir ? esc(basename(parentState.workingDir)) : esc(parentState.name) || '-'
@@ -311,6 +310,7 @@ export function createFlyout({ detailFlyout, flyoutContent, canvas }) {
     selectedHamsterId = null;
     resetPosition();
     flyoutContent.innerHTML = renderDetailContent(state);
+    patchDetailContent(flyoutContent, state);
     lastMode = 'detail';
     lastStructKey = detailStructuralKey(state);
     detailFlyout.classList.remove('hidden');
@@ -354,6 +354,7 @@ export function createFlyout({ detailFlyout, flyoutContent, canvas }) {
       } else {
         selectedHamsterId = null;
         flyoutContent.innerHTML = renderDetailContent(state);
+        patchDetailContent(flyoutContent, state);
         lastMode = 'detail';
         lastStructKey = detailStructuralKey(state);
       }
@@ -363,6 +364,7 @@ export function createFlyout({ detailFlyout, flyoutContent, canvas }) {
         patchDetailContent(flyoutContent, state);
       } else {
         flyoutContent.innerHTML = renderDetailContent(state);
+        patchDetailContent(flyoutContent, state);
         lastMode = 'detail';
         lastStructKey = newKey;
       }

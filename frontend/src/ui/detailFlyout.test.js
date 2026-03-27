@@ -383,17 +383,20 @@ describe('createFlyout', () => {
 
     it('renders green bar for low utilization (<=0.5)', () => {
       flyout.show(makeSession({ contextUtilization: 0.3 }), 400, 300);
-      expect(els.flyoutContent.innerHTML).toContain('background:#22c55e');
+      const bar = els.flyoutContent.querySelector('[data-field="progress-bar"]');
+      expect(bar.style.background).toBe('rgb(34, 197, 94)');
     });
 
     it('renders orange bar for medium utilization (>0.5, <=0.8)', () => {
       flyout.show(makeSession({ contextUtilization: 0.6 }), 400, 300);
-      expect(els.flyoutContent.innerHTML).toContain('background:#d97706');
+      const bar = els.flyoutContent.querySelector('[data-field="progress-bar"]');
+      expect(bar.style.background).toBe('rgb(217, 119, 6)');
     });
 
     it('renders red bar for high utilization (>0.8)', () => {
       flyout.show(makeSession({ contextUtilization: 0.9 }), 400, 300);
-      expect(els.flyoutContent.innerHTML).toContain('background:#e94560');
+      const bar = els.flyoutContent.querySelector('[data-field="progress-bar"]');
+      expect(bar.style.background).toBe('rgb(233, 69, 96)');
     });
   });
 

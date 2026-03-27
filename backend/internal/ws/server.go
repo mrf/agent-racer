@@ -773,9 +773,8 @@ func (s *Server) checkOrigin(r *http.Request) bool {
 //   - connect-src 'self' ws://host wss://host: allows fetch/XHR to the same origin and WebSocket
 //     connections only to the server's own host. The ws/wss origins are derived from the request's
 //     Host header because 'self' alone does not reliably cover ws/wss across all browsers.
-//   - style-src 'self' 'unsafe-inline': permits dynamically injected <style> elements (used by
-//     the RewardSelector UI component). 'unsafe-inline' is required because the styles are created
-//     at runtime without a nonce.
+//   - style-src 'self': permits only same-origin stylesheets. All component styles live in the
+//     static styles.css file; no runtime <style> injection or inline style= attributes are used.
 //   - img-src 'self' data:: allows same-origin images and data: URIs. Canvas drawImage() with
 //     data: URLs and any canvas.toDataURL() output fall under this directive.
 //   - object-src 'none': disables Flash/plugin embeds entirely.
@@ -800,7 +799,7 @@ func securityHeaders(next http.Handler) http.Handler {
 
 		csp := "default-src 'self'; " +
 			"connect-src 'self' " + wsOrigin + " " + wssOrigin + "; " +
-			"style-src 'self' 'unsafe-inline'; " +
+			"style-src 'self'; " +
 			"img-src 'self' data:; " +
 			"object-src 'none'; " +
 			"base-uri 'self'"

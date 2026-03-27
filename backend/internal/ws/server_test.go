@@ -59,7 +59,7 @@ func TestSecurityHeaders(t *testing.T) {
 	requiredDirectives := []string{
 		"default-src 'self'",
 		"connect-src 'self' ws://example.com wss://example.com",
-		"style-src 'self' 'unsafe-inline'",
+		"style-src 'self'",
 		"img-src 'self' data:",
 		"object-src 'none'",
 		"base-uri 'self'",
