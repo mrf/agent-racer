@@ -57,6 +57,87 @@ models:
   # Add model-specific overrides as needed
 ```
 
+### Token Normalization
+
+Controls how context utilization is derived for each agent source. Sources that report real token counts can use `usage`; others use heuristics. The `tokenEstimated` field on each session indicates whether the value is actual or heuristic.
+
+```yaml
+token_normalization:
+  # Per-source strategy: "usage", "estimate", or "message_count"
+  #   usage         - use real token counts from the source
+  #   estimate      - estimate tokens from message count × tokens_per_message
+  #   message_count - same as estimate
+  # The "default" key applies to any source not listed explicitly.
+  strategies:
+    claude: usage
+    codex: usage
+    gemini: usage
+    default: estimate
+  # Estimated token cost per message. Used by estimate/message_count strategies,
+  # and as a fallback for "usage" sources that haven't reported data yet.
+  tokens_per_message: 2000
+```
+
+### Privacy
+
+Controls what session metadata is exposed to connected clients. Useful when sharing a dashboard publicly or with a team.
+
+```yaml
+privacy:
+  # Replace full directory paths with just the last component
+  # e.g. "/home/user/secret-project" → "secret-project"
+  mask_working_dirs: false
+  # Replace session IDs with opaque short hashes
+  mask_session_ids: false
+  # Hide process IDs from broadcast data
+  mask_pids: false
+  # Hide tmux pane locations from broadcast data
+  mask_tmux_targets: false
+  # Allowlist: only broadcast sessions matching at least one glob pattern.
+  # Empty = all sessions allowed. See "Path Filtering" below for details.
+  allowed_paths: []
+  # Denylist: exclude sessions matching any pattern.
+  blocked_paths: []
+```
+
+#### Path Filtering
+
+`allowed_paths` and `blocked_paths` accept glob patterns using Go `filepath.Match` syntax (`*` matches any non-separator sequence). Patterns are checked against the session's working directory and all its parent directories, so `/home/user/work/*` matches nested paths like `/home/user/work/foo/bar`.
+
+When both are configured, `allowed_paths` is evaluated first (session must match at least one pattern), then `blocked_paths` excludes any remaining matches.
+
+### Gamification
+
+```yaml
+gamification:
+  battle_pass:
+    # Enable the seasonal battle pass system (default: false)
+    enabled: false
+    # Current season identifier (e.g. "2025-07").
+    # Changing this triggers a season rotation on next startup.
+    season: ""
+```
+
+### Replay
+
+Controls session replay recording. Replay files are stored in `$XDG_STATE_HOME/agent-racer/replays/`.
+
+```yaml
+replay:
+  # Enable replay recording (default: true)
+  enabled: true
+  # Days of replay files to retain. 0 = keep forever. (default: 7)
+  retention_days: 7
+```
+
+### Track
+
+```yaml
+track:
+  # Track ID to use. Empty string uses the default linear track.
+  active: ""
+```
+
 ### Sound Configuration
 
 The sound system supports fine-grained control over audio playback:
