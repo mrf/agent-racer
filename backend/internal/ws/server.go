@@ -36,6 +36,10 @@ func tmuxFocusSession(target string) error {
 	return nil
 }
 
+// HealthCheckFunc returns source health status for the readiness probe.
+// Nil return means no source health info is available (e.g. mock mode).
+type HealthCheckFunc func() []SourceHealthPayload
+
 type Server struct {
 	config            *config.Config
 	store             *session.Store
@@ -53,6 +57,8 @@ type Server struct {
 	trackHandler      *tracks.Handler
 	apiRateLimiter    *clientRateLimiter
 	wsAuthRateLimiter *clientRateLimiter
+	healthCheck       HealthCheckFunc
+	startTime         time.Time
 }
 
 func NewServer(cfg *config.Config, store *session.Store, broadcaster *Broadcaster, frontendDir string, dev bool, embeddedHandler http.Handler, allowedOrigins []string, authToken string) *Server {
@@ -70,6 +76,7 @@ func NewServer(cfg *config.Config, store *session.Store, broadcaster *Broadcaste
 		rewardRegistry:    gamification.NewRewardRegistry(),
 		apiRateLimiter:    newClientRateLimiter(120, time.Minute, 30),
 		wsAuthRateLimiter: newClientRateLimiter(12, time.Minute, 4),
+		startTime:         time.Now(),
 	}
 
 	for _, origin := range allowedOrigins {
@@ -95,6 +102,12 @@ func (s *Server) SetStatsTracker(tracker *gamification.StatsTracker) {
 // SetReplayHandler configures the replay API handler. Must be called before SetupRoutes.
 func (s *Server) SetReplayHandler(h *replay.Handler) {
 	s.replayHandler = h
+}
+
+// SetHealthCheck configures the function used by /api/health to report source
+// health in readiness probes. Must be called before SetupRoutes.
+func (s *Server) SetHealthCheck(fn HealthCheckFunc) {
+	s.healthCheck = fn
 }
 
 // SetTrackHandler configures the track handler used by /api/tracks endpoints.
@@ -130,6 +143,7 @@ func (s *Server) SetupRoutes(mux *http.ServeMux) {
 		apiMux.HandleFunc("/api/tracks/", tracksAuth)
 	}
 
+	mux.HandleFunc("/api/health", s.handleHealth)
 	mux.Handle("/ws", s.rateLimitWS(http.HandlerFunc(s.handleWS)))
 	mux.Handle("/api/", s.rateLimitAPI(apiMux))
 
@@ -239,6 +253,56 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	sessions := s.broadcaster.FilterSessions(s.store.GetAll())
 	_ = json.NewEncoder(w).Encode(sessions)
+}
+
+// handleHealth serves liveness and readiness probes at /api/health.
+// No authentication or rate limiting — probes must always be reachable.
+//
+//	GET /api/health              → liveness (always 200 if server is up)
+//	GET /api/health?probe=ready  → readiness (503 if any source is failed)
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	type sourceStatus struct {
+		Source string             `json:"source"`
+		Status SourceHealthStatus `json:"status"`
+		Error  string             `json:"error,omitempty"`
+	}
+	type healthResponse struct {
+		Status  string         `json:"status"`
+		Uptime  string         `json:"uptime"`
+		Sources []sourceStatus `json:"sources,omitempty"`
+	}
+
+	probe := r.URL.Query().Get("probe")
+
+	resp := healthResponse{
+		Status: "ok",
+		Uptime: time.Since(s.startTime).Truncate(time.Second).String(),
+	}
+
+	if probe == "ready" && s.healthCheck != nil {
+		snapshots := s.healthCheck()
+		for _, sh := range snapshots {
+			resp.Sources = append(resp.Sources, sourceStatus{
+				Source: sh.Source,
+				Status: sh.Status,
+				Error:  sh.LastError,
+			})
+			if sh.Status == StatusFailed {
+				resp.Status = "degraded"
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if resp.Status != "ok" {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {

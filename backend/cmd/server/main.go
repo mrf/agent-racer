@@ -240,6 +240,7 @@ func main() {
 		if rec != nil {
 			mon.SetSnapshotHook(rec.WriteSnapshot)
 		}
+		server.SetHealthCheck(mon.SourceHealthSnapshot)
 		go mon.Start(ctx)
 	}
 
