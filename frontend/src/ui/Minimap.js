@@ -7,6 +7,7 @@ const PAD = 7;
 const LABEL_H = 10;
 const DOT_MIN_R = 3;
 const DOT_MAX_R = 6;
+const HIT_PAD = 4; // extra px beyond dot edge for click detection
 const FRAME_MS = 100; // 10 fps
 
 function roundRect(ctx, x, y, w, h, r) {
@@ -288,19 +289,19 @@ export class Minimap {
     const my = (e.clientY - rect.top) * scaleY;
 
     let bestDist = Infinity;
-    let bestState = null;
+    let bestTarget = null;
     for (const t of this._hitTargets) {
       const dx = t.mx - mx;
       const dy = t.my - my;
       const dist = Math.sqrt(dx * dx + dy * dy);
       if (dist < bestDist) {
         bestDist = dist;
-        bestState = t.state;
+        bestTarget = t;
       }
     }
 
-    if (bestDist < DOT_MAX_R + 6 && bestState) {
-      this.onDotClick(bestState);
+    if (bestTarget && bestDist < bestTarget.r + HIT_PAD) {
+      this.onDotClick(bestTarget.state);
     }
   }
 
