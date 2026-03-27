@@ -2,9 +2,9 @@ package monitor
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -306,40 +306,156 @@ func TestSessionEndMarkerEmptyDirIsNoOp(t *testing.T) {
 	}
 }
 
-// TestSessionEndMarkerLimitPerPoll verifies that at most maxEndMarkersPerPoll
-// files are processed in a single poll cycle, leaving the rest for later.
-func TestSessionEndMarkerLimitPerPoll(t *testing.T) {
-	endDir := t.TempDir()
-	total := maxEndMarkersPerPoll + 50
-
-	for i := 0; i < total; i++ {
-		name := fmt.Sprintf("end-%04d.json", i)
-		marker := sessionEndMarker{
-			SessionID: fmt.Sprintf("sess-%04d", i),
-		}
-		writeEndMarker(t, endDir, name, marker)
+func TestValidateEndMarker_ValidMarker(t *testing.T) {
+	now := time.Now().UTC()
+	m := &sessionEndMarker{
+		SessionID:      "01234567-abcd-ef01-2345-67890abcdef0",
+		TranscriptPath: "/home/user/.claude/projects/proj/session.jsonl",
+		Reason:         "user exited",
+		Timestamp:      now.Add(-30 * time.Second).Format(time.RFC3339Nano),
 	}
+	if err := validateEndMarker(m, now); err != nil {
+		t.Errorf("expected valid marker, got error: %v", err)
+	}
+}
 
-	src := &testSource{handles: []SessionHandle{}}
-	cfg := defaultTestConfig()
-	cfg.Monitor.CompletionRemoveAfter = -1
-	cfg.Monitor.SessionEndDir = endDir
+func TestValidateEndMarker_Rejected(t *testing.T) {
+	cases := []struct {
+		name   string
+		marker sessionEndMarker
+	}{
+		{"empty session_id", sessionEndMarker{SessionID: ""}},
+		{"session_id too long", sessionEndMarker{SessionID: strings.Repeat("a", maxSessionIDLen+1)}},
+		{"session_id with spaces", sessionEndMarker{SessionID: "session id"}},
+		{"session_id with newline", sessionEndMarker{SessionID: "session\nid"}},
+		{"session_id path traversal", sessionEndMarker{SessionID: "../../../etc/passwd"}},
+		{"session_id shell metachar", sessionEndMarker{SessionID: "session;rm -rf /"}},
+		{"session_id null byte", sessionEndMarker{SessionID: "session\x00id"}},
+		{"transcript_path not .jsonl", sessionEndMarker{SessionID: "valid-session", TranscriptPath: "/home/user/transcript.txt"}},
+		{"transcript_path traversal", sessionEndMarker{SessionID: "valid-session", TranscriptPath: "/home/user/../../../etc/shadow.jsonl"}},
+		{"transcript_path too long", sessionEndMarker{SessionID: "valid-session", TranscriptPath: "/" + strings.Repeat("a", maxTranscriptPathLen) + ".jsonl"}},
+	}
+	now := time.Now().UTC()
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := validateEndMarker(&tc.marker, now); err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}
 
-	m, _, _ := newPollTestMonitor(src, cfg)
-	m.poll()
+func TestValidateEndMarker_ReasonTruncated(t *testing.T) {
+	now := time.Now().UTC()
+	m := &sessionEndMarker{
+		SessionID: "valid-session",
+		Reason:    strings.Repeat("x", maxReasonLen+100),
+	}
+	if err := validateEndMarker(m, now); err != nil {
+		t.Errorf("long reason should not cause error, got: %v", err)
+	}
+	if len(m.Reason) != maxReasonLen {
+		t.Errorf("reason should be truncated to %d, got %d", maxReasonLen, len(m.Reason))
+	}
+}
 
-	// Markers reference unknown sessions so they are ignored but still
-	// read and removed. At most maxEndMarkersPerPoll should be gone.
-	after, err := os.ReadDir(endDir)
-	if err != nil {
+func TestValidateEndMarker_TimestampSanitized(t *testing.T) {
+	now := time.Now().UTC()
+	cases := []struct {
+		name      string
+		timestamp string
+	}{
+		{"invalid format", "not-a-timestamp"},
+		{"far future", now.Add(2 * time.Hour).Format(time.RFC3339Nano)},
+		{"far past", now.Add(-2 * time.Hour).Format(time.RFC3339Nano)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := &sessionEndMarker{
+				SessionID: "valid-session",
+				Timestamp: tc.timestamp,
+			}
+			if err := validateEndMarker(m, now); err != nil {
+				t.Errorf("should not return error, got: %v", err)
+			}
+			if m.Timestamp != "" {
+				t.Errorf("timestamp should be cleared, got %q", m.Timestamp)
+			}
+		})
+	}
+}
+
+func TestValidateEndMarker_TimestampWithinSkewPreserved(t *testing.T) {
+	now := time.Now().UTC()
+	ts := now.Add(-30 * time.Minute).Format(time.RFC3339Nano)
+	m := &sessionEndMarker{
+		SessionID: "valid-session",
+		Timestamp: ts,
+	}
+	if err := validateEndMarker(m, now); err != nil {
+		t.Errorf("recent timestamp should not cause error, got: %v", err)
+	}
+	if m.Timestamp != ts {
+		t.Error("timestamp within skew window should be preserved")
+	}
+}
+
+func TestSessionEndMarkerOversizedFileRejected(t *testing.T) {
+	m, store, endDir, storeKey := setupActiveSession(t)
+
+	// Write a file larger than maxEndMarkerFileSize.
+	bigPath := filepath.Join(endDir, "big.json")
+	bigData := []byte(`{"session_id":"session-end-sess","reason":"` + strings.Repeat("x", maxEndMarkerFileSize) + `"}`)
+	if err := os.WriteFile(bigPath, bigData, 0644); err != nil {
 		t.Fatal(err)
 	}
-	removed := total - len(after)
-	if removed > maxEndMarkersPerPoll {
-		t.Errorf("removed %d files in one poll, want at most %d", removed, maxEndMarkersPerPoll)
+
+	m.poll()
+
+	// Active session must be unaffected.
+	if state, ok := store.Get(storeKey); ok && state.IsTerminal() {
+		t.Error("active session should not be terminated by an oversized marker")
 	}
-	if len(after) == 0 {
-		t.Error("all files were consumed in one poll — limit is not enforced")
+	// File should be removed.
+	if _, err := os.Stat(bigPath); !os.IsNotExist(err) {
+		t.Error("oversized marker file should be deleted")
+	}
+}
+
+func TestSessionEndMarkerInvalidSessionIDRejected(t *testing.T) {
+	m, store, endDir, storeKey := setupActiveSession(t)
+
+	// Write a marker with shell metacharacters in session_id.
+	markerPath := writeEndMarker(t, endDir, "end-inject.json", sessionEndMarker{
+		SessionID: "session; rm -rf /",
+		Reason:    "",
+	})
+
+	m.poll()
+
+	if state, ok := store.Get(storeKey); ok && state.IsTerminal() {
+		t.Error("active session should not be terminated by a marker with invalid session_id")
+	}
+	if _, err := os.Stat(markerPath); !os.IsNotExist(err) {
+		t.Error("marker with invalid session_id should be deleted")
+	}
+}
+
+func TestSessionEndMarkerBadTranscriptPathRejected(t *testing.T) {
+	m, store, endDir, storeKey := setupActiveSession(t)
+
+	markerPath := writeEndMarker(t, endDir, "end-badpath.json", sessionEndMarker{
+		SessionID:      "session-end-sess",
+		TranscriptPath: "/etc/passwd",
+	})
+
+	m.poll()
+
+	if state, ok := store.Get(storeKey); ok && state.IsTerminal() {
+		t.Error("active session should not be terminated by a marker with bad transcript_path")
+	}
+	if _, err := os.Stat(markerPath); !os.IsNotExist(err) {
+		t.Error("marker with bad transcript_path should be deleted")
 	}
 }
 

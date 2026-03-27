@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -55,6 +56,88 @@ type sessionEndMarker struct {
 	Cwd            string `json:"cwd"`
 	Reason         string `json:"reason"`
 	Timestamp      string `json:"timestamp"`
+}
+
+const (
+	// maxEndMarkerFileSize caps the size of end-marker files we'll read.
+	// Legitimate markers are a few hundred bytes; anything larger is suspect.
+	maxEndMarkerFileSize = 4096
+
+	// maxSessionIDLen is the upper bound on session ID length.
+	maxSessionIDLen = 128
+
+	// maxReasonLen caps the reason field to prevent abuse with huge strings.
+	maxReasonLen = 512
+
+	// maxTranscriptPathLen caps the transcript_path field length.
+	maxTranscriptPathLen = 1024
+
+	// endMarkerTimestampSkew is the maximum amount a marker timestamp may
+	// deviate from the current time. Markers outside this window are treated
+	// as having an invalid timestamp (current time is used instead).
+	endMarkerTimestampSkew = time.Hour
+)
+
+// validSessionIDRe matches session IDs that contain only safe characters:
+// alphanumeric, hyphens, and underscores.
+var validSessionIDRe = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+
+// validateEndMarker checks that a parsed marker has reasonable field values.
+// Returns an error describing the first validation failure, or nil if valid.
+// Fields that fail validation but are non-critical (timestamp, reason) are
+// sanitised in place rather than rejected outright.
+func validateEndMarker(marker *sessionEndMarker, now time.Time) error {
+	// SessionID: required, safe characters, bounded length.
+	if marker.SessionID == "" {
+		return fmt.Errorf("empty session_id")
+	}
+	if len(marker.SessionID) > maxSessionIDLen {
+		return fmt.Errorf("session_id too long (%d > %d)", len(marker.SessionID), maxSessionIDLen)
+	}
+	if !validSessionIDRe.MatchString(marker.SessionID) {
+		return fmt.Errorf("session_id contains invalid characters")
+	}
+
+	// TranscriptPath: optional, but if present must look like a .jsonl path
+	// and must not contain path traversal sequences.
+	if marker.TranscriptPath != "" {
+		if len(marker.TranscriptPath) > maxTranscriptPathLen {
+			return fmt.Errorf("transcript_path too long (%d > %d)", len(marker.TranscriptPath), maxTranscriptPathLen)
+		}
+		if !strings.HasSuffix(marker.TranscriptPath, ".jsonl") {
+			return fmt.Errorf("transcript_path does not end with .jsonl")
+		}
+		if strings.Contains(marker.TranscriptPath, "..") {
+			return fmt.Errorf("transcript_path contains path traversal")
+		}
+	}
+
+	// Reason: truncate silently if too long (non-critical field).
+	if len(marker.Reason) > maxReasonLen {
+		marker.Reason = marker.Reason[:maxReasonLen]
+	}
+
+	// Timestamp: if present, must parse and be within the skew window.
+	// Invalid or out-of-range timestamps are cleared so the caller falls
+	// back to the current time.
+	if marker.Timestamp != "" {
+		parsed, err := time.Parse(time.RFC3339Nano, marker.Timestamp)
+		if err != nil {
+			marker.Timestamp = ""
+		} else if absDuration(now.Sub(parsed)) > endMarkerTimestampSkew {
+			marker.Timestamp = ""
+		}
+	}
+
+	return nil
+}
+
+// absDuration returns the absolute value of a time.Duration.
+func absDuration(d time.Duration) time.Duration {
+	if d < 0 {
+		return -d
+	}
+	return d
 }
 
 const defaultTmuxResolverTTL = 5 * time.Second
@@ -751,7 +834,20 @@ func (m *Monitor) consumeSessionEndMarkers(cfg *config.Config, now time.Time) {
 		if entry.IsDir() {
 			continue
 		}
+
+		// Check file size before reading to avoid DoS via huge files.
+		info, err := entry.Info()
+		if err != nil {
+			log.Printf("Session end marker stat error: %v", err)
+			continue
+		}
 		path := filepath.Join(dir, entry.Name())
+		if info.Size() > maxEndMarkerFileSize {
+			log.Printf("Session end marker too large (%d bytes), removing: %s", info.Size(), entry.Name())
+			_ = os.Remove(path)
+			continue
+		}
+
 		data, err := os.ReadFile(path)
 		if err != nil {
 			slog.Warn("session end marker read error", "error", err)
@@ -764,7 +860,8 @@ func (m *Monitor) consumeSessionEndMarkers(cfg *config.Config, now time.Time) {
 			_ = os.Remove(path)
 			continue
 		}
-		if marker.SessionID == "" {
+		if err := validateEndMarker(&marker, now); err != nil {
+			log.Printf("Session end marker validation failed (%s): %v", entry.Name(), err)
 			_ = os.Remove(path)
 			continue
 		}
