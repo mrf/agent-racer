@@ -174,9 +174,7 @@ export class Racer {
     this.hammerActive = false;
     this.hammerImpactEmitted = false;
 
-    // Pit lane dimming (0=normal, 1=fully dimmed)
     this.inPit = false;
-
     this.inParkingLot = false;
 
     // Zone transition waypoints (track <-> pit <-> parking lot)
@@ -695,11 +693,10 @@ export class Racer {
     }
 
     // Draw hamsters behind the car (before error spin so they don't rotate)
-    const zoneAlpha = this.opacity;
     for (const hamster of this.hamsters.values()) {
       this.drawTowRope(ctx, hamster);
       const origOpacity = hamster.opacity;
-      hamster.opacity *= zoneAlpha;
+      hamster.opacity *= this.opacity;
       hamster.draw(ctx);
       hamster.opacity = origOpacity;
     }
@@ -823,7 +820,7 @@ export class Racer {
     ctx.restore();
 
     // Speech bubble: drawn outside the main save/restore so it is not affected
-    // by the error-spin transform or parking-lot filter.
+    // by the error-spin transform.
     if (this.bubble.isVisible) {
       ctx.save();
       ctx.globalAlpha = this.opacity;

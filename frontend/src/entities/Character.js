@@ -65,7 +65,6 @@ export class Character {
     this.headTurnPhase = 0;
 
     this.inPit = false;
-
     this.inParkingLot = false;
 
     // Zone transition waypoints

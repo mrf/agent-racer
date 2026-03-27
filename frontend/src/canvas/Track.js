@@ -44,19 +44,19 @@ const PIT_ZONE_STYLE = Object.freeze({
 });
 
 const PARKING_ZONE_STYLE = Object.freeze({
-  backdrop: 'rgba(45, 72, 118, 0.22)',
-  tint: 'rgba(108, 168, 224, 0.1)',
-  gradientEdge: '#243247',
-  gradientMid: '#1d293c',
-  border: '#6f9cd4',
+  backdrop: 'rgba(45, 72, 118, 0.12)',
+  tint: 'rgba(108, 168, 224, 0.05)',
+  gradientEdge: 'rgba(36, 50, 71, 0.45)',
+  gradientMid: 'rgba(29, 41, 60, 0.35)',
+  border: 'rgba(111, 156, 212, 0.5)',
   borderDash: [8, 6],
-  rail: 'rgba(142, 196, 255, 0.58)',
-  borderWidth: 1.5,
+  rail: 'rgba(142, 196, 255, 0.35)',
+  borderWidth: 1,
   label: 'PARKED',
-  labelColor: '#e4f3ff',
-  labelBg: 'rgba(22, 32, 48, 0.96)',
-  labelBorder: 'rgba(142, 196, 255, 0.78)',
-  divider: 'rgba(111, 156, 212, 0.72)',
+  labelColor: 'rgba(228, 243, 255, 0.7)',
+  labelBg: 'rgba(22, 32, 48, 0.8)',
+  labelBorder: 'rgba(142, 196, 255, 0.5)',
+  divider: 'rgba(111, 156, 212, 0.4)',
   dividerWidth: 1,
 });
 
