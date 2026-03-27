@@ -622,9 +622,9 @@ func (s *Server) checkOrigin(r *http.Request) bool {
 //
 // Content-Security-Policy directives:
 //   - default-src 'self': baseline — only same-origin resources allowed unless overridden below.
-//   - connect-src 'self' ws: wss:: allows fetch/XHR to the same origin and WebSocket connections
-//     over plain (ws:) or secure (wss:) transports. 'self' alone does not reliably cover ws/wss
-//     across all browsers, so both schemes are listed explicitly.
+//   - connect-src 'self' ws://host wss://host: allows fetch/XHR to the same origin and WebSocket
+//     connections only to the server's own host. The ws/wss origins are derived from the request's
+//     Host header because 'self' alone does not reliably cover ws/wss across all browsers.
 //   - style-src 'self' 'unsafe-inline': permits dynamically injected <style> elements (used by
 //     the RewardSelector UI component). 'unsafe-inline' is required because the styles are created
 //     at runtime without a nonce.
@@ -633,14 +633,18 @@ func (s *Server) checkOrigin(r *http.Request) bool {
 //   - object-src 'none': disables Flash/plugin embeds entirely.
 //   - base-uri 'self': prevents <base> tag injection from redirecting relative URLs.
 func securityHeaders(next http.Handler) http.Handler {
-	const csp = "default-src 'self'; " +
-		"connect-src 'self' ws: wss:; " +
-		"style-src 'self' 'unsafe-inline'; " +
-		"img-src 'self' data:; " +
-		"object-src 'none'; " +
-		"base-uri 'self'"
-
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host := r.Host
+		wsOrigin := "ws://" + host
+		wssOrigin := "wss://" + host
+
+		csp := "default-src 'self'; " +
+			"connect-src 'self' " + wsOrigin + " " + wssOrigin + "; " +
+			"style-src 'self' 'unsafe-inline'; " +
+			"img-src 'self' data:; " +
+			"object-src 'none'; " +
+			"base-uri 'self'"
+
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("X-XSS-Protection", "1; mode=block")
