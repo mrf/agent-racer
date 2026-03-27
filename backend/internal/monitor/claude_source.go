@@ -3,7 +3,6 @@ package monitor
 import (
 	"bufio"
 	"encoding/json"
-	"log"
 	"os"
 	"time"
 )
@@ -112,8 +111,6 @@ func (c *ClaudeSource) Parse(handle SessionHandle, offset int64) (SourceUpdate, 
 	if handle.WorkingDir == "" && update.WorkingDir == "" {
 		update.WorkingDir = workingDirFromFile(handle.LogPath)
 	}
-
-	log.Printf("[claude] Parsed %d new bytes from %s", newOffset-offset, handle.LogPath)
 
 	return update, newOffset, nil
 }
