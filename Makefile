@@ -17,7 +17,10 @@ tui-deps:
 	cd $(TUI) && go mod download
 
 dev: deps
-	cd $(BACKEND) && go run ./cmd/server --mock --dev --config ../config.yaml
+	@trap 'kill 0' EXIT; \
+	cd $(BACKEND) && go run ./cmd/server --mock --config ../config.yaml & \
+	cd $(FRONTEND) && npm run dev & \
+	wait
 
 run: deps
 	cd $(BACKEND) && go run ./cmd/server --config ../config.yaml
