@@ -2,6 +2,7 @@ package client
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -17,11 +18,16 @@ type HTTPClient struct {
 }
 
 // NewHTTPClient creates a client targeting the given base URL (e.g. "http://127.0.0.1:8080").
-func NewHTTPClient(baseURL, token string) *HTTPClient {
+// If tlsCfg is non-nil, it is used for HTTPS connections.
+func NewHTTPClient(baseURL, token string, tlsCfg *tls.Config) *HTTPClient {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	if tlsCfg != nil {
+		transport.TLSClientConfig = tlsCfg
+	}
 	return &HTTPClient{
 		baseURL: baseURL,
 		token:   token,
-		client:  &http.Client{Timeout: 10 * time.Second},
+		client:  &http.Client{Timeout: 10 * time.Second, Transport: transport},
 	}
 }
 
@@ -110,7 +116,7 @@ func (c *HTTPClient) FocusSession(sessionID string) error {
 	return nil
 }
 
-func (c *HTTPClient) get(path string, out interface{}) error {
+func (c *HTTPClient) get(path string, out any) error {
 	req, err := http.NewRequest(http.MethodGet, c.baseURL+path, nil)
 	if err != nil {
 		return err
@@ -128,7 +134,7 @@ func (c *HTTPClient) get(path string, out interface{}) error {
 	return json.NewDecoder(resp.Body).Decode(out)
 }
 
-func (c *HTTPClient) post(path string, body interface{}, out interface{}) error {
+func (c *HTTPClient) post(path string, body any, out any) error {
 	data, err := json.Marshal(body)
 	if err != nil {
 		return err

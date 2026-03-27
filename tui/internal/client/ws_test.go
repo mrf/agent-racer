@@ -13,7 +13,7 @@ import (
 )
 
 func TestNewWSClient(t *testing.T) {
-	c := NewWSClient("ws://localhost:8080/ws", "tok")
+	c := NewWSClient("ws://localhost:8080/ws", "tok", nil)
 	if c.url != "ws://localhost:8080/ws" {
 		t.Errorf("url = %q", c.url)
 	}
@@ -26,7 +26,7 @@ func TestNewWSClient(t *testing.T) {
 }
 
 func TestResyncNotConnected(t *testing.T) {
-	c := NewWSClient("ws://localhost:9999/ws", "")
+	c := NewWSClient("ws://localhost:9999/ws", "", nil)
 	err := c.Resync()
 	if err == nil {
 		t.Error("Resync should return error when not connected")
@@ -34,7 +34,7 @@ func TestResyncNotConnected(t *testing.T) {
 }
 
 func TestDispatchSnapshot(t *testing.T) {
-	c := NewWSClient("ws://localhost/ws", "")
+	c := NewWSClient("ws://localhost/ws", "", nil)
 	payload, _ := json.Marshal(SnapshotPayload{})
 	msg := WSMessage{Type: MsgSnapshot, Seq: 1, Payload: json.RawMessage(payload)}
 	got := c.dispatch(msg)
@@ -44,7 +44,7 @@ func TestDispatchSnapshot(t *testing.T) {
 }
 
 func TestDispatchDelta(t *testing.T) {
-	c := NewWSClient("ws://localhost/ws", "")
+	c := NewWSClient("ws://localhost/ws", "", nil)
 	payload, _ := json.Marshal(DeltaPayload{})
 	msg := WSMessage{Type: MsgDelta, Seq: 2, Payload: json.RawMessage(payload)}
 	got := c.dispatch(msg)
@@ -54,7 +54,7 @@ func TestDispatchDelta(t *testing.T) {
 }
 
 func TestDispatchCompletion(t *testing.T) {
-	c := NewWSClient("ws://localhost/ws", "")
+	c := NewWSClient("ws://localhost/ws", "", nil)
 	payload, _ := json.Marshal(CompletionPayload{SessionID: "s1", Activity: ActivityComplete})
 	msg := WSMessage{Type: MsgCompletion, Payload: json.RawMessage(payload)}
 	got := c.dispatch(msg)
@@ -68,7 +68,7 @@ func TestDispatchCompletion(t *testing.T) {
 }
 
 func TestDispatchEquipped(t *testing.T) {
-	c := NewWSClient("ws://localhost/ws", "")
+	c := NewWSClient("ws://localhost/ws", "", nil)
 	payload, _ := json.Marshal(EquippedPayload{Loadout: Equipped{Paint: "red"}})
 	msg := WSMessage{Type: MsgEquipped, Payload: json.RawMessage(payload)}
 	got := c.dispatch(msg)
@@ -78,7 +78,7 @@ func TestDispatchEquipped(t *testing.T) {
 }
 
 func TestDispatchAchievement(t *testing.T) {
-	c := NewWSClient("ws://localhost/ws", "")
+	c := NewWSClient("ws://localhost/ws", "", nil)
 	payload, _ := json.Marshal(AchievementUnlockedPayload{ID: "a1", Name: "First Lap"})
 	msg := WSMessage{Type: MsgAchievementUnlocked, Payload: json.RawMessage(payload)}
 	got := c.dispatch(msg)
@@ -92,7 +92,7 @@ func TestDispatchAchievement(t *testing.T) {
 }
 
 func TestDispatchSourceHealth(t *testing.T) {
-	c := NewWSClient("ws://localhost/ws", "")
+	c := NewWSClient("ws://localhost/ws", "", nil)
 	payload, _ := json.Marshal(SourceHealthPayload{Source: "claude", Status: StatusHealthy, Timestamp: time.Now()})
 	msg := WSMessage{Type: MsgSourceHealth, Payload: json.RawMessage(payload)}
 	got := c.dispatch(msg)
@@ -102,7 +102,7 @@ func TestDispatchSourceHealth(t *testing.T) {
 }
 
 func TestDispatchBattlePass(t *testing.T) {
-	c := NewWSClient("ws://localhost/ws", "")
+	c := NewWSClient("ws://localhost/ws", "", nil)
 	payload, _ := json.Marshal(BattlePassProgressPayload{XP: 100, Tier: 3})
 	msg := WSMessage{Type: MsgBattlePassProgress, Payload: json.RawMessage(payload)}
 	got := c.dispatch(msg)
@@ -116,7 +116,7 @@ func TestDispatchBattlePass(t *testing.T) {
 }
 
 func TestDispatchError(t *testing.T) {
-	c := NewWSClient("ws://localhost/ws", "")
+	c := NewWSClient("ws://localhost/ws", "", nil)
 	msg := WSMessage{Type: MsgError, Payload: json.RawMessage(`"something went wrong"`)}
 	got := c.dispatch(msg)
 	if _, ok := got.(WSErrorMsg); !ok {
@@ -125,7 +125,7 @@ func TestDispatchError(t *testing.T) {
 }
 
 func TestDispatchUnknown(t *testing.T) {
-	c := NewWSClient("ws://localhost/ws", "")
+	c := NewWSClient("ws://localhost/ws", "", nil)
 	msg := WSMessage{Type: "unknown_type", Payload: json.RawMessage(`{}`)}
 	got := c.dispatch(msg)
 	if got != nil {
@@ -134,7 +134,7 @@ func TestDispatchUnknown(t *testing.T) {
 }
 
 func TestDispatchInvalidPayload(t *testing.T) {
-	c := NewWSClient("ws://localhost/ws", "")
+	c := NewWSClient("ws://localhost/ws", "", nil)
 	// A snapshot message with invalid JSON payload should return nil.
 	msg := WSMessage{Type: MsgSnapshot, Payload: json.RawMessage(`not-json`)}
 	got := c.dispatch(msg)
@@ -175,7 +175,7 @@ func TestWSConnectAndDisconnect(t *testing.T) {
 	defer srv.Close()
 
 	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws"
-	c := NewWSClient(wsURL, "")
+	c := NewWSClient(wsURL, "", nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -225,7 +225,7 @@ func TestWSReconnectOnDisconnect(t *testing.T) {
 	defer srv.Close()
 
 	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws"
-	c := NewWSClient(wsURL, "")
+	c := NewWSClient(wsURL, "", nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

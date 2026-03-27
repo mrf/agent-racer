@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/url"
 	"os"
-	"strings"
 
 	"github.com/agent-racer/tui/internal/app"
 	"github.com/agent-racer/tui/internal/client"
@@ -76,11 +75,24 @@ func main() {
 		effectiveToken = opts.token
 	}
 
+	// Build TLS config if enabled.
+	tlsCfg, err := cfg.TLSConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "TLS configuration error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Warn when connecting to a non-loopback host without TLS.
+	if !cfg.IsLoopback() && !cfg.Server.TLS {
+		fmt.Fprintf(os.Stderr, "WARNING: connecting to %s without TLS — auth tokens sent in cleartext (MitM risk)\n",
+			cfg.Server.Host)
+	}
+
 	// Derive HTTP base URL from WebSocket URL.
 	httpBase := deriveHTTPBase(effectiveURL)
 
-	ws := client.NewWSClient(effectiveURL, effectiveToken)
-	httpClient := client.NewHTTPClient(httpBase, effectiveToken)
+	ws := client.NewWSClient(effectiveURL, effectiveToken, tlsCfg)
+	httpClient := client.NewHTTPClient(httpBase, effectiveToken, tlsCfg)
 
 	m := app.New(ws, httpClient)
 	p := tea.NewProgram(m, tea.WithAltScreen())
@@ -98,7 +110,7 @@ func deriveHTTPBase(wsURL string) string {
 		return "http://127.0.0.1:8080"
 	}
 	scheme := "http"
-	if strings.HasPrefix(u.Scheme, "wss") {
+	if u.Scheme == "wss" {
 		scheme = "https"
 	}
 	return fmt.Sprintf("%s://%s", scheme, u.Host)
