@@ -365,6 +365,55 @@ func TestPrivacyFilter_Apply_MaskSessionIDs_MasksSubagentSessionID(t *testing.T)
 	}
 }
 
+func TestPrivacyFilter_Apply_MaskSessionIDs_MasksSubagentToolUseIDs(t *testing.T) {
+	original := &SessionState{
+		ID:         "claude:abc123",
+		WorkingDir: "/home/user/project",
+		Subagents: []SubagentState{
+			{ID: "toolu_01", ParentToolUseID: "toolu_parent_01", SessionID: "claude:abc123", Slug: "task-a"},
+			{ID: "toolu_02", ParentToolUseID: "", SessionID: "claude:abc123", Slug: "task-b"},
+		},
+	}
+
+	f := &PrivacyFilter{MaskSessionIDs: true}
+	result := f.Apply(original)
+
+	// ID (toolUseID) should be hashed.
+	for i, sa := range result.Subagents {
+		if sa.ID == original.Subagents[i].ID && original.Subagents[i].ID != "" {
+			t.Errorf("subagent[%d].ID should have been masked, got %q", i, sa.ID)
+		}
+		if sa.ID == "" {
+			t.Errorf("subagent[%d].ID should not be empty after masking", i)
+		}
+	}
+
+	// ParentToolUseID should be hashed when non-empty.
+	if result.Subagents[0].ParentToolUseID == "toolu_parent_01" {
+		t.Error("subagent[0].ParentToolUseID should have been masked")
+	}
+	if result.Subagents[0].ParentToolUseID == "" {
+		t.Error("subagent[0].ParentToolUseID should not be empty after masking")
+	}
+	// Empty ParentToolUseID stays empty.
+	if result.Subagents[1].ParentToolUseID != "" {
+		t.Errorf("subagent[1].ParentToolUseID should remain empty, got %q", result.Subagents[1].ParentToolUseID)
+	}
+
+	// Different inputs produce different hashes.
+	if result.Subagents[0].ID == result.Subagents[1].ID {
+		t.Error("different toolUseIDs should produce different masked values")
+	}
+
+	// Original must not be modified.
+	if original.Subagents[0].ID != "toolu_01" {
+		t.Errorf("original subagent[0].ID was modified: got %q", original.Subagents[0].ID)
+	}
+	if original.Subagents[0].ParentToolUseID != "toolu_parent_01" {
+		t.Errorf("original subagent[0].ParentToolUseID was modified: got %q", original.Subagents[0].ParentToolUseID)
+	}
+}
+
 func TestShortHash_Deterministic(t *testing.T) {
 	a := shortHash("claude:abc123")
 	b := shortHash("claude:abc123")

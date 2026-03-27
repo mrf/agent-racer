@@ -79,6 +79,12 @@ func (f *PrivacyFilter) Apply(s *SessionState) *SessionState {
 		subagents := make([]SubagentState, len(masked.Subagents))
 		for i := 0; i < len(masked.Subagents); i++ {
 			sa := masked.Subagents[i]
+			if sa.ID != "" {
+				sa.ID = shortHash(sa.ID)
+			}
+			if sa.ParentToolUseID != "" {
+				sa.ParentToolUseID = shortHash(sa.ParentToolUseID)
+			}
 			if sa.SessionID != "" {
 				sa.SessionID = shortHash(sa.SessionID)
 			}
