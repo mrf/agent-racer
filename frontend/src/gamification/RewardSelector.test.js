@@ -278,9 +278,19 @@ describe('RewardSelector', () => {
       });
     });
 
-    it('unequip sets slot to empty string via setEquipped', async () => {
+    it('unequip calls /api/unequip and updates loadout via setEquipped', async () => {
       Object.assign(mockLoadout, { paint: 'rookie_paint' });
-      mockEndpoints([{ id: 'first_lap', name: 'First Lap', unlocked: true }]);
+      authFetch.mockImplementation((url) => {
+        if (url === '/api/achievements') return Promise.resolve(mockAchievementsResponse([
+          { id: 'first_lap', name: 'First Lap', unlocked: true },
+        ]));
+        if (url === '/api/stats') return Promise.resolve(mockStatsResponse(1));
+        if (url === '/api/unequip') return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ ...DEFAULT_LOADOUT }),
+        });
+        return Promise.resolve({ ok: false, status: 404 });
+      });
 
       rs = new RewardSelector();
       rs.show();
@@ -295,11 +305,15 @@ describe('RewardSelector', () => {
           const nameEl = t.querySelector('.rs-tile-name');
           return nameEl && nameEl.textContent === 'None' && t.classList.contains('equippable');
         });
+      expect(noneTiles.length).toBeGreaterThan(0);
 
-      if (noneTiles.length > 0) {
-        noneTiles[0].click();
+      noneTiles[0].click();
+      await vi.waitFor(() => {
+        expect(authFetch).toHaveBeenCalledWith('/api/unequip', expect.objectContaining({
+          method: 'POST',
+        }));
         expect(setEquipped).toHaveBeenCalledWith(expect.objectContaining({ paint: '' }));
-      }
+      });
     });
   });
 

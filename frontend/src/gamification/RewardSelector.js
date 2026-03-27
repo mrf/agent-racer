@@ -664,35 +664,37 @@ export class RewardSelector {
   // ── Equip / Unequip ──────────────────────────────────────────────
 
   async _doEquip(rewardId, slot) {
+    await this._postLoadoutChange('/api/equip', { rewardId, slot });
+  }
+
+  async _doUnequip(slot) {
+    await this._postLoadoutChange('/api/unequip', { slot });
+  }
+
+  async _postLoadoutChange(url, payload) {
     if (this._equipping) return;
     this._equipping = true;
     this._columns.classList.add('rs-equipping');
 
     try {
-      const resp = await authFetch('/api/equip', {
+      const resp = await authFetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rewardId, slot }),
+        body: JSON.stringify(payload),
       });
       if (!resp.ok) {
         const text = await resp.text();
-        console.error('Equip failed:', text);
+        console.error(`${url} failed:`, text);
         return;
       }
       const loadout = await resp.json();
       setEquipped(loadout);
     } catch (err) {
-      console.error('Equip error:', err);
+      console.error(`${url} error:`, err);
     } finally {
       this._equipping = false;
       this._columns.classList.remove('rs-equipping');
     }
-  }
-
-  _doUnequip(slot) {
-    if (this._equipping) return;
-    // Update locally — the backend persists on the next equip call or page reload
-    setEquipped({ [slot]: '' });
   }
 
   destroy() {
