@@ -32,11 +32,11 @@ func writeJSONLFile(t testing.TB, lines [][]byte) string {
 	}
 	for _, line := range lines {
 		if _, err := f.Write(line); err != nil {
-			f.Close()
+			_ = f.Close()
 			t.Fatal(err)
 		}
 	}
-	f.Close()
+	_ = f.Close()
 	return path
 }
 
