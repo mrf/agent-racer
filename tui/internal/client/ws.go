@@ -110,6 +110,10 @@ func (c *WSClient) Listen(ctx context.Context) tea.Cmd {
 			c.pingCtx = pingCancel
 			c.mu.Unlock()
 
+			// Limit inbound messages to 1 MiB to prevent memory exhaustion
+			// from unexpectedly large server responses.
+			conn.SetReadLimit(1 << 20)
+
 			// Start a single ping ticker for this connection.
 			go c.pingLoop(pingCtx, conn)
 

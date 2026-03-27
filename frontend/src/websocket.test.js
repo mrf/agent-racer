@@ -198,6 +198,38 @@ describe('RaceConnection', () => {
     });
   });
 
+  describe('message size limit', () => {
+    it('drops messages larger than 1 MiB', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const onSnapshot = vi.fn();
+      const conn = createConnection({ onSnapshot });
+
+      conn.connect();
+      latestSocket().simulateOpen();
+      const huge = 'x'.repeat(1024 * 1024 + 1);
+      latestSocket().simulateRawMessage(huge);
+
+      expect(warnSpy).toHaveBeenCalled();
+      expect(onSnapshot).not.toHaveBeenCalled();
+    });
+
+    it('accepts messages at exactly 1 MiB', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const onSnapshot = vi.fn();
+      const conn = createConnection({ onSnapshot });
+
+      conn.connect();
+      latestSocket().simulateOpen();
+      const data = JSON.stringify({ type: 'snapshot', payload: { ok: true } });
+      // Pad to exactly 1 MiB — should NOT be dropped by the size check
+      const padded = data + ' '.repeat(1024 * 1024 - data.length);
+      latestSocket().simulateRawMessage(padded);
+
+      expect(warnSpy).not.toHaveBeenCalled();
+      expect(onSnapshot).toHaveBeenCalledWith({ ok: true });
+    });
+  });
+
   describe('malformed JSON handling', () => {
     it('logs error and does not throw on invalid JSON', () => {
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});

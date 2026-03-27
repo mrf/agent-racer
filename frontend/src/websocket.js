@@ -44,6 +44,11 @@ export class RaceConnection {
     };
 
     this.ws.onmessage = (event) => {
+      // Reject messages larger than 1 MiB to prevent memory exhaustion.
+      if (typeof event.data === 'string' && event.data.length > 1024 * 1024) {
+        console.warn('WS message too large, dropping:', event.data.length, 'bytes');
+        return;
+      }
       try {
         const msg = JSON.parse(event.data);
         const seq = msg.seq || 0;
