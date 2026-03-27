@@ -36,6 +36,8 @@ export class BaseCanvas {
     this._isInsideHamsterHitbox = options.isInsideHamsterHitbox;
     this._backgroundColor = options.backgroundColor;
     this._emptyStateColor = options.emptyStateColor;
+    this._emptyStateText = options.emptyStateText || 'No active sessions detected';
+    this._emptyStateSubtext = options.emptyStateSubtext || 'Start a session to see it race';
 
     this.connected = false;
     this.animFrameId = null;
@@ -457,9 +459,9 @@ export class BaseCanvas {
       ctx.fillStyle = this._emptyStateColor;
       ctx.font = '16px Courier New';
       ctx.textAlign = 'center';
-      ctx.fillText('No active Claude sessions detected', this.width / 2, this.height / 2 - 10);
+      ctx.fillText(this._emptyStateText, this.width / 2, this.height / 2 - 10);
       ctx.font = '12px Courier New';
-      ctx.fillText('Start a Claude Code session to see it race', this.width / 2, this.height / 2 + 14);
+      ctx.fillText(this._emptyStateSubtext, this.width / 2, this.height / 2 + 14);
     }
   }
 
