@@ -226,6 +226,7 @@ export function createFlyout({ detailFlyout, flyoutContent, canvas }) {
   let lastStructKey = null;  // structural fingerprint for patch eligibility
 
   function positionFlyout(carX, carY) {
+    if (!isVisible()) return;
     const canvasRect = canvas.getBoundingClientRect();
     const margin = 50;
     const padding = 10;

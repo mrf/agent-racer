@@ -441,6 +441,14 @@ describe('createFlyout', () => {
       expect(left).toBeGreaterThanOrEqual(10);
       expect(top).toBeGreaterThanOrEqual(10);
     });
+
+    it('skips positioning when flyout is hidden', () => {
+      flyout.show(makeSession(), 200, 300);
+      const initialLeft = els.detailFlyout.style.left;
+      flyout.hide();
+      flyout.updatePosition(500, 500);
+      expect(els.detailFlyout.style.left).toBe(initialLeft);
+    });
   });
 
   describe('renderHamsterContent', () => {
