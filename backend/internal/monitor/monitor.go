@@ -550,6 +550,7 @@ func (m *Monitor) pollSource(src Source, cfg *config.Config, sh *sourceHealth, n
 			}
 			// New JSONL data on a terminal session — it's being resumed.
 			state.CompletedAt = nil
+			state.Subagents = nil // Reset stale subagent state to prevent double-counting.
 			delete(m.pendingRemoval, key)
 			log.Printf("[%s] Session resumed from %s: %s (newData=%d bytes)", src.Name(), state.Activity, h.SessionID, newOffset-oldOffset)
 		}
