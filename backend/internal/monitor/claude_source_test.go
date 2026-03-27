@@ -3,6 +3,7 @@ package monitor
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -145,6 +146,25 @@ func TestReadFirstTimestamp(t *testing.T) {
 		_, ok := readFirstTimestamp(path)
 		if ok {
 			t.Error("expected false when timestamp field is absent")
+		}
+	})
+
+	t.Run("long first line exceeding default scanner buffer", func(t *testing.T) {
+		path := filepath.Join(dir, "long-line.jsonl")
+		// Build a first line longer than bufio.MaxScanTokenSize (64KB).
+		padding := strings.Repeat("x", 100*1024) // 100KB of padding
+		line := `{"type":"user","sessionId":"abc","timestamp":"2026-03-01T12:00:00.000Z","padding":"` + padding + `"}`
+		if err := os.WriteFile(path, []byte(line+"\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		got, ok := readFirstTimestamp(path)
+		if !ok {
+			t.Fatal("readFirstTimestamp returned false for long line, want true")
+		}
+		want := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+		if !got.Equal(want) {
+			t.Errorf("StartedAt = %v, want %v", got, want)
 		}
 	})
 

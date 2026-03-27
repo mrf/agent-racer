@@ -19,6 +19,7 @@ func readFirstTimestamp(path string) (time.Time, bool) {
 	defer func() { _ = f.Close() }()
 
 	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024) // 1MB buffer for long first lines
 	if !scanner.Scan() {
 		return time.Time{}, false
 	}
