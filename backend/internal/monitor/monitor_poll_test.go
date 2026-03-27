@@ -52,20 +52,44 @@ func (s *testSource) Parse(handle SessionHandle, offset int64) (SourceUpdate, in
 // sourceUpdateFromResult converts a ParseResult into a SourceUpdate.
 func sourceUpdateFromResult(r *ParseResult) SourceUpdate {
 	update := SourceUpdate{
-		SessionID:    r.SessionID,
-		Model:        r.Model,
-		MessageCount: r.MessageCount,
-		ToolCalls:    r.ToolCalls,
-		LastTool:     r.LastTool,
-		Activity:     r.LastActivity,
-		LastTime:     r.LastTime,
-		WorkingDir:   r.WorkingDir,
+		SessionID:         r.SessionID,
+		Slug:              r.Slug,
+		Model:             r.Model,
+		MessageCount:      r.MessageCount,
+		ToolCalls:         r.ToolCalls,
+		LastTool:          r.LastTool,
+		Activity:          r.LastActivity,
+		LastTime:          r.LastTime,
+		WorkingDir:        r.WorkingDir,
+		Subagents:         r.Subagents,
+		CompactionCount:   r.CompactionCount,
+		LastAssistantText: r.LastAssistantText,
 	}
 	if r.LatestUsage != nil {
 		update.TokensIn = r.LatestUsage.TotalContext()
 		update.TokensOut = r.LatestUsage.OutputTokens
 	}
 	return update
+}
+
+// progressLine builds a JSONL progress entry for a subagent.
+func progressLine(toolUseID, parentToolUseID, sessionID, slug, ts, msgType, model string) string {
+	var msgContent string
+	switch msgType {
+	case "assistant":
+		msgContent = fmt.Sprintf(
+			`"message":{"type":"assistant","message":{"model":"%s","role":"assistant","content":[{"type":"text","text":"thinking"}],"usage":{"input_tokens":100,"cache_creation_input_tokens":200,"cache_read_input_tokens":1000,"output_tokens":50}}}`,
+			model,
+		)
+	case "user":
+		msgContent = `"message":{"type":"user","message":{"role":"user","content":[{"type":"text","text":"continue"}]}}`
+	default:
+		msgContent = `"message":null`
+	}
+	return fmt.Sprintf(
+		`{"type":"progress","toolUseID":"%s","parentToolUseID":"%s","sessionId":"%s","slug":"%s","timestamp":"%s","data":{%s}}`+"\n",
+		toolUseID, parentToolUseID, sessionID, slug, ts, msgContent,
+	)
 }
 
 // jsonlLine builds a single JSONL entry with the given fields.
@@ -2092,5 +2116,117 @@ func TestPollConcurrentGetAllDuringMarkTerminal(t *testing.T) {
 		// No deadlock.
 	case <-time.After(pollDeadlockTimeout):
 		t.Fatal("DEADLOCK: concurrent poll()+GetAll()/ActiveCount() did not complete — store.mu permanently locked")
+	}
+}
+
+func TestPollSubagentMessageCountResetsOnResume(t *testing.T) {
+	dir := t.TempDir()
+	jsonlPath := filepath.Join(dir, "session-sub-resume.jsonl")
+
+	now := time.Now().UTC()
+	ts1 := now.Format(time.RFC3339Nano)
+	ts2 := now.Add(time.Second).Format(time.RFC3339Nano)
+	ts3 := now.Add(2 * time.Second).Format(time.RFC3339Nano)
+
+	// Initial data: parent session + subagent with 2 messages.
+	writeJSONL(t, jsonlPath,
+		jsonlLine("user", "session-sub", ts1, "", "", "/tmp/sub")+
+			jsonlLine("assistant", "session-sub", ts2, "claude-opus-4-5-20251101", "", "/tmp/sub")+
+			progressLine("toolu_sub1", "toolu_sub1", "session-sub", "my-subagent", ts2, "assistant", "claude-sonnet-4-6")+
+			progressLine("toolu_sub1", "toolu_sub1", "session-sub", "my-subagent", ts3, "user", ""))
+
+	src := &testSource{
+		handles: []SessionHandle{newTestHandle("session-sub", jsonlPath, "/tmp/sub", now)},
+	}
+
+	cfg := defaultTestConfig()
+	m, store, _ := newPollTestMonitor(src, cfg)
+
+	m.poll()
+
+	state, ok := store.Get("claude:session-sub")
+	if !ok {
+		t.Fatal("session should exist after first poll")
+	}
+	if len(state.Subagents) != 1 {
+		t.Fatalf("expected 1 subagent after first poll, got %d", len(state.Subagents))
+	}
+	if state.Subagents[0].MessageCount != 2 {
+		t.Errorf("subagent MessageCount after first poll = %d, want 2", state.Subagents[0].MessageCount)
+	}
+
+	// Mark session terminal.
+	m.markTerminal(m.cfg, state, session.Complete, now.Add(3*time.Second))
+	state, _ = store.Get("claude:session-sub")
+	if !state.IsTerminal() {
+		t.Fatal("session should be terminal")
+	}
+
+	// Append resumed data with a new subagent message.
+	ts4 := now.Add(10 * time.Second).Format(time.RFC3339Nano)
+	ts5 := now.Add(11 * time.Second).Format(time.RFC3339Nano)
+	appendJSONL(t, jsonlPath,
+		jsonlLine("user", "session-sub", ts4, "", "", "/tmp/sub")+
+			progressLine("toolu_sub1", "toolu_sub1", "session-sub", "my-subagent", ts5, "assistant", "claude-sonnet-4-6"))
+
+	m.poll()
+
+	state, _ = store.Get("claude:session-sub")
+	if state.IsTerminal() {
+		t.Error("session should no longer be terminal after resume")
+	}
+	// Subagent state should reflect only the post-resume data (1 message),
+	// not the accumulated pre-terminal count (2) + post-resume (1) = 3.
+	if len(state.Subagents) != 1 {
+		t.Fatalf("expected 1 subagent after resume, got %d", len(state.Subagents))
+	}
+	if state.Subagents[0].MessageCount != 1 {
+		t.Errorf("subagent MessageCount after resume = %d, want 1 (only post-resume data)", state.Subagents[0].MessageCount)
+	}
+}
+
+func TestPollSubagentMessageCountStableOnNoData(t *testing.T) {
+	dir := t.TempDir()
+	jsonlPath := filepath.Join(dir, "session-sub-stable.jsonl")
+
+	now := time.Now().UTC()
+	ts1 := now.Format(time.RFC3339Nano)
+	ts2 := now.Add(time.Second).Format(time.RFC3339Nano)
+
+	// Session with a subagent that has 1 message.
+	writeJSONL(t, jsonlPath,
+		jsonlLine("user", "session-stable", ts1, "", "", "/tmp/stable")+
+			jsonlLine("assistant", "session-stable", ts2, "claude-opus-4-5-20251101", "", "/tmp/stable")+
+			progressLine("toolu_s1", "toolu_s1", "session-stable", "task-1", ts2, "assistant", "claude-sonnet-4-6"))
+
+	src := &testSource{
+		handles: []SessionHandle{newTestHandle("session-stable", jsonlPath, "/tmp/stable", now)},
+	}
+
+	cfg := defaultTestConfig()
+	m, store, _ := newPollTestMonitor(src, cfg)
+
+	m.poll()
+
+	state, ok := store.Get("claude:session-stable")
+	if !ok {
+		t.Fatal("session should exist")
+	}
+	if len(state.Subagents) != 1 {
+		t.Fatalf("expected 1 subagent, got %d", len(state.Subagents))
+	}
+	if state.Subagents[0].MessageCount != 1 {
+		t.Errorf("subagent MessageCount = %d, want 1", state.Subagents[0].MessageCount)
+	}
+
+	// Poll again with no new data — subagent MessageCount must not change.
+	m.poll()
+
+	state, _ = store.Get("claude:session-stable")
+	if len(state.Subagents) != 1 {
+		t.Fatalf("expected 1 subagent after no-data poll, got %d", len(state.Subagents))
+	}
+	if state.Subagents[0].MessageCount != 1 {
+		t.Errorf("subagent MessageCount after no-data poll = %d, want 1 (unchanged)", state.Subagents[0].MessageCount)
 	}
 }
