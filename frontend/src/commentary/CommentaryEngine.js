@@ -41,6 +41,7 @@ export class CommentaryEngine {
     this._knownSessions = new Set();    // session ids we've seen
     this._prevTokens = new Map();       // id -> { tokens, time }
     this._idleCommented = new Set();    // session ids we've commented as idle
+    this._highBurnCommented = new Set(); // session ids we've commented as high burn
     this._prevSubagentCounts = new Map(); // id -> subagent count
 
     /** Callback: (message: string) => void */
@@ -77,7 +78,7 @@ export class CommentaryEngine {
         this._enqueue('context_90', { name });
       }
 
-      // High burn rate detection
+      // High burn rate detection (fires once, resets when rate drops)
       const prevTokenData = this._prevTokens.get(session.id);
       const currentTokens = session.tokensUsed || 0;
       if (prevTokenData) {
@@ -85,7 +86,12 @@ export class CommentaryEngine {
         if (dtSec > 0.5) {
           const rate = (currentTokens - prevTokenData.tokens) / dtSec;
           if (rate > HIGH_BURN_TOKENS_PER_SEC) {
-            this._enqueue('high_burn', { name });
+            if (!this._highBurnCommented.has(session.id)) {
+              this._highBurnCommented.add(session.id);
+              this._enqueue('high_burn', { name });
+            }
+          } else {
+            this._highBurnCommented.delete(session.id);
           }
         }
       }
@@ -215,6 +221,7 @@ export class CommentaryEngine {
     this._prevPositions.delete(id);
     this._prevTokens.delete(id);
     this._idleCommented.delete(id);
+    this._highBurnCommented.delete(id);
     this._prevSubagentCounts.delete(id);
   }
 }
