@@ -4,6 +4,7 @@ const SHORTCUTS = [
   { key: 'g', label: 'garage', id: 'garage' },
   { key: 'c', label: 'commentary', id: 'commentary' },
   { key: 'd', label: 'debug', id: 'debug' },
+  { key: 'e', label: 'track editor', id: 'track-editor' },
   { key: 'm', label: 'mute', id: 'mute' },
   { key: 'n', label: 'minimap', id: 'minimap' },
   { key: 'r', label: 'replay', id: 'replay' },
