@@ -544,6 +544,8 @@ func (s *Server) handleTail(w http.ResponseWriter, r *http.Request, sessionID st
 		return
 	}
 
+	entries = session.SanitizeTailEntries(entries)
+
 	resp := session.TailResponse{
 		Entries: entries,
 		Offset:  newOffset,

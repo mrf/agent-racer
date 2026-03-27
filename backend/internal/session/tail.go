@@ -467,6 +467,63 @@ func toolResultSummary(content json.RawMessage) string {
 	return "result"
 }
 
+// SanitizeTailEntries strips sensitive content (assistant text, thinking,
+// tool parameters, tool output) from tail entries, keeping only structural
+// metadata: timestamps, types, activity names, and tool names.
+func SanitizeTailEntries(entries []TailEntry) []TailEntry {
+	result := make([]TailEntry, len(entries))
+	for i := 0; i < len(entries); i++ {
+		result[i] = sanitizeTailEntry(entries[i])
+	}
+	return result
+}
+
+func sanitizeTailEntry(e TailEntry) TailEntry {
+	// Never expose extended content.
+	e.Detail = ""
+
+	switch e.Activity {
+	case "text":
+		if e.Type == "assistant" {
+			e.Summary = "(text output)"
+		} else {
+			e.Summary = "(user input)"
+		}
+	case "thinking":
+		prefix, _ := splitProgressPrefix(e.Summary)
+		e.Summary = prefix + "(thinking)"
+	case "tool_result":
+		prefix, _ := splitProgressPrefix(e.Summary)
+		e.Summary = prefix + "(result)"
+	case "tool_use":
+		prefix, rest := splitProgressPrefix(e.Summary)
+		e.Summary = prefix + extractToolName(rest)
+	}
+
+	return e
+}
+
+// splitProgressPrefix splits a summary like "[slug] rest" into the prefix
+// "[slug] " and the remainder "rest". If no [slug] prefix is present,
+// the prefix is empty.
+func splitProgressPrefix(s string) (string, string) {
+	if len(s) > 0 && s[0] == '[' {
+		if idx := strings.Index(s, "] "); idx >= 0 {
+			return s[:idx+2], s[idx+2:]
+		}
+	}
+	return "", s
+}
+
+// extractToolName returns just the tool name from a tool_use summary like
+// "Bash: cat /etc/passwd" → "Bash", "Read tail.go" → "Read".
+func extractToolName(summary string) string {
+	if idx := strings.IndexAny(summary, " :"); idx >= 0 {
+		return summary[:idx]
+	}
+	return summary
+}
+
 // truncateLine truncates a string to maxLen, adding "…" if truncated.
 // Multi-line strings are collapsed to the first line.
 func truncateLine(s string, maxLen int) string {
