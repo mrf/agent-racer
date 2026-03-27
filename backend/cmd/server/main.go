@@ -120,6 +120,11 @@ func main() {
 		}
 	}
 
+	// Verify embedded frontend integrity before serving.
+	if err := frontend.Verify(); err != nil {
+		log.Fatalf("Frontend integrity check failed: %v", err)
+	}
+
 	// Embedded frontend handler: when built with -tags embed, serves from binary.
 	// Otherwise falls back to serving from the filesystem.
 	var embeddedHandler http.Handler

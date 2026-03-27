@@ -36,13 +36,20 @@ embed: build-frontend
 		echo "ERROR: $(FRONTEND)/dist is empty — frontend build may have failed"; \
 		exit 1; \
 	fi
+	@echo "Generating build manifest..."
+	@cd $(FRONTEND)/dist && find . -type f ! -name '.build-manifest' | LC_ALL=C sort | xargs sha256sum > .build-manifest
 	rm -rf $(BACKEND)/internal/frontend/static
 	cp -r $(FRONTEND)/dist $(BACKEND)/internal/frontend/static
+	@echo "Verifying embed integrity..."
+	@cd $(BACKEND)/internal/frontend/static && sha256sum -c .build-manifest --quiet
+	@echo "Embed integrity verified: all files match checksums"
 
 validate-embed: embed
 	@test -f $(BACKEND)/internal/frontend/static/index.html || \
 		(echo "ERROR: embed validation failed — index.html missing from static/"; exit 1)
-	@echo "embed validated: static/index.html present"
+	@test -f $(BACKEND)/internal/frontend/static/.build-manifest || \
+		(echo "ERROR: embed validation failed — .build-manifest missing from static/"; exit 1)
+	@echo "embed validated: static/index.html and .build-manifest present"
 
 tui: tui-deps
 	cd $(TUI) && go build -ldflags "$(TUI_LDFLAGS)" -o ../$(BINARY) ./cmd/racer-tui
