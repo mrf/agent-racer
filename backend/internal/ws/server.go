@@ -620,6 +620,9 @@ func (s *Server) checkOrigin(r *http.Request) bool {
 
 // securityHeaders wraps a handler to set standard HTTP security headers on all responses.
 //
+// Referrer-Policy: no-referrer prevents the browser from sending a Referer header on any
+// request. This stops auth tokens embedded in URLs from leaking to third-party resources.
+//
 // Content-Security-Policy directives:
 //   - default-src 'self': baseline — only same-origin resources allowed unless overridden below.
 //   - connect-src 'self' ws: wss:: allows fetch/XHR to the same origin and WebSocket connections
@@ -645,6 +648,7 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("X-XSS-Protection", "1; mode=block")
 		w.Header().Set("Content-Security-Policy", csp)
+		w.Header().Set("Referrer-Policy", "no-referrer")
 		next.ServeHTTP(w, r)
 	})
 }
