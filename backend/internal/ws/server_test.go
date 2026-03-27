@@ -31,13 +31,15 @@ func TestSecurityHeaders(t *testing.T) {
 	}
 
 	// Verify each required CSP directive is present.
+	// The connect-src directive should restrict WebSocket origins to the
+	// request's Host, not blanket ws:/wss: schemes.
 	csp := rec.Header().Get("Content-Security-Policy")
 	if csp == "" {
 		t.Fatal("Content-Security-Policy header is missing")
 	}
 	requiredDirectives := []string{
 		"default-src 'self'",
-		"connect-src 'self' ws: wss:",
+		"connect-src 'self' ws://example.com wss://example.com",
 		"style-src 'self' 'unsafe-inline'",
 		"img-src 'self' data:",
 		"object-src 'none'",
@@ -47,6 +49,11 @@ func TestSecurityHeaders(t *testing.T) {
 		if !strings.Contains(csp, directive) {
 			t.Errorf("CSP %q missing directive %q", csp, directive)
 		}
+	}
+
+	// Verify blanket ws:/wss: schemes are NOT present.
+	if strings.Contains(csp, " ws: ") || strings.Contains(csp, " wss:;") || strings.Contains(csp, " wss: ") {
+		t.Errorf("CSP should not contain blanket ws:/wss: schemes, got %q", csp)
 	}
 }
 
