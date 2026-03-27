@@ -264,6 +264,20 @@ describe('RaceConnection', () => {
       expect(MockWebSocket.instances).toHaveLength(4);
     });
 
+    it('clears pending reconnect timer when connect() is called directly', () => {
+      const conn = createConnection();
+
+      conn.connect();
+      latestSocket().simulateClose(); // schedules reconnect timer
+
+      // Call connect() manually before the timer fires
+      conn.connect();
+
+      // Advance past the original timer — it should NOT fire a third connect
+      vi.advanceTimersByTime(30000);
+      expect(MockWebSocket.instances).toHaveLength(2);
+    });
+
     it('caps delay at 30s', () => {
       const conn = createConnection();
 
