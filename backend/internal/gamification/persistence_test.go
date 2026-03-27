@@ -639,6 +639,66 @@ func TestStore_RoundTripWithAllFields(t *testing.T) {
 	}
 }
 
+func TestBattlePass_UnmarshalJSON_NullSeason(t *testing.T) {
+	// Null season field should leave Season as empty string.
+	raw := `{"season":null,"tier":1,"xp":50}`
+	var bp BattlePass
+	if err := json.Unmarshal([]byte(raw), &bp); err != nil {
+		t.Fatalf("UnmarshalJSON error: %v", err)
+	}
+	if bp.Season != "" {
+		t.Errorf("Season = %q, want empty string", bp.Season)
+	}
+}
+
+func TestBattlePass_UnmarshalJSON_FullStatsRoundTrip(t *testing.T) {
+	// Simulate loading a legacy stats file with int season through Store.Load.
+	dir := t.TempDir()
+	s := NewStore(dir)
+
+	legacy := `{
+		"version": 1,
+		"totalSessions": 10,
+		"totalCompletions": 5,
+		"totalErrors": 0,
+		"consecutiveCompletions": 3,
+		"sessionsPerSource": {},
+		"sessionsPerModel": {},
+		"distinctModelsUsed": 1,
+		"distinctSourcesUsed": 1,
+		"maxContextUtilization": 0.5,
+		"maxBurnRate": 0,
+		"maxConcurrentActive": 1,
+		"maxHighUtilizationSimultaneous": 0,
+		"maxToolCalls": 0,
+		"maxMessages": 0,
+		"maxSessionDurationSec": 0,
+		"photoFinishSeen": false,
+		"achievementsUnlocked": {},
+		"battlePass": {"season": 3, "tier": 7, "xp": 3500},
+		"equipped": {},
+		"weeklyChallenges": {},
+		"lastUpdated": "2026-01-01T00:00:00Z"
+	}`
+	if err := os.WriteFile(s.Path(), []byte(legacy), 0o644); err != nil {
+		t.Fatalf("WriteFile error: %v", err)
+	}
+
+	st, err := s.Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if st.BattlePass.Season != "3" {
+		t.Errorf("BattlePass.Season = %q, want %q", st.BattlePass.Season, "3")
+	}
+	if st.BattlePass.Tier != 7 {
+		t.Errorf("BattlePass.Tier = %d, want 7", st.BattlePass.Tier)
+	}
+	if st.BattlePass.XP != 3500 {
+		t.Errorf("BattlePass.XP = %d, want 3500", st.BattlePass.XP)
+	}
+}
+
 func TestStats_CloneDeepCopiesWeeklyChallengesCompleted(t *testing.T) {
 	// Create original Stats with populated Completed slice
 	original := newStats()
