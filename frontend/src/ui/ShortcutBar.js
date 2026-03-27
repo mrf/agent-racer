@@ -5,6 +5,7 @@ const SHORTCUTS = [
   { key: 'c', label: 'commentary', id: 'commentary' },
   { key: 'd', label: 'debug', id: 'debug' },
   { key: 'm', label: 'mute', id: 'mute' },
+  { key: 's', label: 'sound', id: 'sound' },
   { key: 'n', label: 'minimap', id: 'minimap' },
   { key: 'r', label: 'replay', id: 'replay' },
   { key: 'w', label: 'weather', id: 'weather' },

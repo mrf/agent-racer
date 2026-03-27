@@ -16,6 +16,7 @@ import { initAmbientAudio } from './ui/ambientAudio.js';
 import { ShortcutBar } from './ui/ShortcutBar.js';
 import { HelpPopup } from './ui/HelpPopup.js';
 import { Minimap } from './ui/Minimap.js';
+import { VolumePanel } from './ui/VolumePanel.js';
 import { CommentaryEngine } from './commentary/CommentaryEngine.js';
 import { Ticker } from './commentary/Ticker.js';
 import { Announcer } from './commentary/Announcer.js';
@@ -92,6 +93,7 @@ const flyout = createFlyout({ detailFlyout, flyoutContent, canvas });
 const tracker = createSessionTracker(engine);
 const shortcutBar = new ShortcutBar(document.getElementById('shortcut-bar'));
 const helpPopup = new HelpPopup();
+const volumePanel = new VolumePanel(engine);
 let minimap = new Minimap();
 
 function bindMinimapToActiveView() {
@@ -152,6 +154,13 @@ commentary.onMessage = (text) => {
 
 initAmbientAudio(engine);
 
+// Sync mute state when toggled from within the volume panel
+volumePanel.onMuteChange((panelMuted) => {
+  muted = panelMuted;
+  updateShortcutHighlights();
+  log(`Sound ${muted ? 'muted' : 'unmuted'}`, 'info');
+});
+
 async function loadSoundConfig() {
   try {
     const response = await authFetch('/api/config');
@@ -163,6 +172,9 @@ async function loadSoundConfig() {
   } catch (err) {
     log(`Failed to load sound config: ${err.message}`, 'error');
   }
+  // Apply user's local volume preferences on top of server config
+  volumePanel.applyLocalPreferences();
+  muted = engine.muted;
 }
 
 function log(msg, type = '') {
@@ -406,6 +418,7 @@ function updateShortcutHighlights() {
   shortcutBar.setActive('minimap', minimap.visible);
   shortcutBar.setActive('bubbles', bubblesEnabled);
   shortcutBar.setActive('fullscreen', !!document.fullscreenElement);
+  shortcutBar.setActive('sound', volumePanel.isVisible);
   shortcutBar.setActive('help', helpPopup.isVisible);
   shortcutBar.setActive('replay', replayActive);
 }
@@ -456,7 +469,11 @@ document.addEventListener('keydown', (e) => {
     case 'm':
       muted = !muted;
       engine.setMuted(muted);
+      volumePanel.syncMuteState(muted);
       log(`Sound ${muted ? 'muted' : 'unmuted'}`, 'info');
+      break;
+    case 's':
+      volumePanel.toggle();
       break;
     case 'n':
       minimap.toggle();
@@ -478,6 +495,8 @@ document.addEventListener('keydown', (e) => {
     case 'escape':
       if (replayActive) {
         closeReplay();
+      } else if (volumePanel.isVisible) {
+        volumePanel.hide();
       } else if (helpPopup.isVisible) {
         helpPopup.hide();
       } else if (rewardSelector.isVisible) {
@@ -518,4 +537,4 @@ conn.connect();
 requestPermission();
 loadSoundConfig();
 log('Agent Racing Dashboard initialized', 'info');
-log('Shortcuts: A=achievements, B=bubbles, C=commentary, D=debug, G=garage, M=mute, N=minimap, R=replay, V=view, W=weather, Shift+F=fullscreen, Click racer=details', 'info');
+log('Shortcuts: A=achievements, B=bubbles, C=commentary, D=debug, G=garage, M=mute, S=sound, N=minimap, R=replay, V=view, W=weather, Shift+F=fullscreen, Click racer=details', 'info');
