@@ -80,6 +80,10 @@ func newTestServer(allowedOrigins []string) *Server {
 	return NewServer(&config.Config{}, nil, nil, "", false, nil, allowedOrigins, "")
 }
 
+func newTestServerWithAuth(token string) *Server {
+	return NewServer(&config.Config{}, nil, nil, "", false, nil, nil, token)
+}
+
 func TestCheckOrigin(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -316,5 +320,93 @@ func TestHandleHealth_ReadySourceDegraded(t *testing.T) {
 	}
 	if resp["status"] != "ok" {
 		t.Errorf("status = %q, want %q", resp["status"], "ok")
+	}
+}
+
+func TestAuthorize(t *testing.T) {
+	tests := []struct {
+		name      string
+		authToken string // server token ("" = auth disabled)
+		header    string // Authorization header value ("" = omit header)
+		want      bool
+	}{
+		{
+			name:      "empty server token always allows",
+			authToken: "",
+			header:    "",
+			want:      true,
+		},
+		{
+			name:      "empty server token allows even with header",
+			authToken: "",
+			header:    "Bearer something",
+			want:      true,
+		},
+		{
+			name:      "correct Bearer token allowed",
+			authToken: "secret123",
+			header:    "Bearer secret123",
+			want:      true,
+		},
+		{
+			name:      "missing header denied",
+			authToken: "secret123",
+			header:    "",
+			want:      false,
+		},
+		{
+			name:      "wrong token denied",
+			authToken: "secret123",
+			header:    "Bearer wrong-token",
+			want:      false,
+		},
+		{
+			name:      "non-Bearer scheme denied",
+			authToken: "secret123",
+			header:    "Basic secret123",
+			want:      false,
+		},
+		{
+			name:      "Bearer prefix without space denied",
+			authToken: "secret123",
+			header:    "Bearersecret123",
+			want:      false,
+		},
+		{
+			name:      "empty Bearer value denied",
+			authToken: "secret123",
+			header:    "Bearer ",
+			want:      false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newTestServerWithAuth(tt.authToken)
+			req := httptest.NewRequest(http.MethodGet, "/api/sessions", nil)
+			if tt.header != "" {
+				req.Header.Set("Authorization", tt.header)
+			}
+			if got := s.authorize(req); got != tt.want {
+				t.Errorf("authorize() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAuthorizeExported(t *testing.T) {
+	s := newTestServerWithAuth("tok")
+
+	// Valid token: exported method should delegate to authorize and allow.
+	allowed := httptest.NewRequest(http.MethodGet, "/", nil)
+	allowed.Header.Set("Authorization", "Bearer tok")
+	if !s.Authorize(allowed) {
+		t.Error("Authorize() should allow correct Bearer token")
+	}
+
+	// Missing header: exported method should delegate to authorize and deny.
+	denied := httptest.NewRequest(http.MethodGet, "/", nil)
+	if s.Authorize(denied) {
+		t.Error("Authorize() should deny missing header")
 	}
 }
