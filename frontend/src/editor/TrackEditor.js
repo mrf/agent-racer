@@ -80,28 +80,17 @@ export class TrackEditor {
   _buildToolbar() {
     this._toolbar = document.createElement('div');
     this._toolbar.id = 'track-editor-toolbar';
-    Object.assign(this._toolbar.style, {
-      position: 'fixed', top: '10px', left: '50%', transform: 'translateX(-50%)',
-      background: 'rgba(20,20,30,0.95)', border: '1px solid #666',
-      borderRadius: '8px', padding: '8px 12px', display: 'flex', gap: '6px',
-      alignItems: 'center', zIndex: '1001', font: '12px Courier New',
-      flexWrap: 'wrap',
-    });
 
     const label = document.createElement('span');
     label.textContent = 'TRACK EDITOR';
-    Object.assign(label.style, { color: '#a0a0ff', fontWeight: 'bold' });
+    label.className = 'te-toolbar-label';
     this._toolbar.appendChild(label);
 
     const addBtn = (text, title, onClick) => {
       const b = document.createElement('button');
       b.textContent = text;
       b.title = title;
-      Object.assign(b.style, {
-        background: '#2a2a3a', border: '1px solid #555', color: '#ccc',
-        padding: '3px 8px', cursor: 'pointer', borderRadius: '3px',
-        font: '11px Courier New',
-      });
+      b.className = 'te-toolbar-btn';
       b.addEventListener('click', onClick);
       this._toolbar.appendChild(b);
       return b;
@@ -117,12 +106,6 @@ export class TrackEditor {
 
     const saveForm = document.createElement('form');
     saveForm.id = 'track-editor-save-form';
-    Object.assign(saveForm.style, {
-      display: 'flex',
-      gap: '6px',
-      alignItems: 'center',
-      marginLeft: '8px',
-    });
     saveForm.addEventListener('submit', (event) => {
       event.preventDefault();
       this._saveTrack();
@@ -130,22 +113,14 @@ export class TrackEditor {
 
     const saveLabel = document.createElement('span');
     saveLabel.textContent = 'Name';
-    saveLabel.style.color = '#9ca3af';
+    saveLabel.className = 'te-save-label';
     saveForm.appendChild(saveLabel);
 
     this._saveNameInputEl = document.createElement('input');
     this._saveNameInputEl.type = 'text';
     this._saveNameInputEl.value = this._currentTrackName || this._currentTrackId || 'My Track';
     this._saveNameInputEl.placeholder = 'Track name';
-    Object.assign(this._saveNameInputEl.style, {
-      background: '#10101a',
-      border: '1px solid #555',
-      color: '#f3f4f6',
-      padding: '3px 6px',
-      borderRadius: '3px',
-      font: '11px Courier New',
-      minWidth: '140px',
-    });
+    this._saveNameInputEl.className = 'te-save-input';
     this._saveNameInputEl.addEventListener('input', () => this._setSaveStatus(''));
     saveForm.appendChild(this._saveNameInputEl);
 
@@ -153,23 +128,11 @@ export class TrackEditor {
     this._saveSubmitBtn.type = 'submit';
     this._saveSubmitBtn.textContent = 'Save';
     this._saveSubmitBtn.title = 'Save track to server';
-    Object.assign(this._saveSubmitBtn.style, {
-      background: '#2a2a3a',
-      border: '1px solid #555',
-      color: '#ccc',
-      padding: '3px 8px',
-      cursor: 'pointer',
-      borderRadius: '3px',
-      font: '11px Courier New',
-    });
+    this._saveSubmitBtn.className = 'te-save-btn';
     saveForm.appendChild(this._saveSubmitBtn);
 
     this._saveStatusEl = document.createElement('span');
     this._saveStatusEl.id = 'track-editor-save-status';
-    Object.assign(this._saveStatusEl.style, {
-      color: '#9ca3af',
-      minWidth: '120px',
-    });
     saveForm.appendChild(this._saveStatusEl);
 
     this._toolbar.appendChild(saveForm);
@@ -179,25 +142,17 @@ export class TrackEditor {
 
   _buildValidationEl() {
     this._validationEl = document.createElement('div');
-    Object.assign(this._validationEl.style, {
-      position: 'fixed', bottom: '10px', left: '50%', transform: 'translateX(-50%)',
-      background: 'rgba(20,20,30,0.9)', border: '1px solid #444',
-      borderRadius: '6px', padding: '5px 12px', zIndex: '1000',
-      font: '12px Courier New', pointerEvents: 'none',
-    });
+    this._validationEl.className = 'te-validation';
     document.body.appendChild(this._validationEl);
   }
 
   _setSaveStatus(message, tone = 'idle') {
     if (!this._saveStatusEl) return;
     this._saveStatusEl.textContent = message;
-    const colorMap = {
-      idle: '#9ca3af',
-      progress: '#93c5fd',
-      success: '#4ade80',
-      error: '#f87171',
-    };
-    this._saveStatusEl.style.color = colorMap[tone] || colorMap.idle;
+    this._saveStatusEl.className = '';
+    if (tone !== 'idle') {
+      this._saveStatusEl.classList.add(tone);
+    }
   }
 
   _setSavePending(pending) {
@@ -207,7 +162,7 @@ export class TrackEditor {
     if (this._saveSubmitBtn) {
       this._saveSubmitBtn.disabled = pending;
       this._saveSubmitBtn.textContent = pending ? 'Saving...' : 'Save';
-      this._saveSubmitBtn.style.cursor = pending ? 'wait' : 'pointer';
+      this._saveSubmitBtn.classList.toggle('pending', pending);
     }
   }
 
@@ -216,9 +171,8 @@ export class TrackEditor {
     this._lastValidation = result;
     if (!this._validationEl) return result;
     this._validationEl.textContent = (result.valid ? '\u2713 ' : '\u2717 ') + result.message;
-    const color = result.valid ? '#4ade80' : '#f87171';
-    this._validationEl.style.color = color;
-    this._validationEl.style.borderColor = color;
+    this._validationEl.classList.toggle('valid', result.valid);
+    this._validationEl.classList.toggle('invalid', !result.valid);
     return result;
   }
 
@@ -362,39 +316,26 @@ export class TrackEditor {
 
       if (this._trackListEl) this._trackListEl.remove();
       this._trackListEl = document.createElement('div');
-      Object.assign(this._trackListEl.style, {
-        position: 'fixed', top: '60px', left: '50%', transform: 'translateX(-50%)',
-        background: 'rgba(20,20,30,0.97)', border: '1px solid #666',
-        borderRadius: '8px', padding: '12px', zIndex: '1002',
-        maxHeight: '60vh', overflowY: 'auto', minWidth: '300px',
-        font: '13px Courier New', color: '#ccc',
-      });
+      this._trackListEl.className = 'te-track-list';
 
       const header = document.createElement('div');
       header.textContent = 'Select Track';
-      Object.assign(header.style, { color: '#a0a0ff', fontWeight: 'bold', marginBottom: '8px' });
+      header.className = 'te-track-list-header';
       this._trackListEl.appendChild(header);
 
       for (let i = 0; i < tracks.length; i++) {
         const t = tracks[i];
         const row = document.createElement('div');
-        Object.assign(row.style, {
-          display: 'flex', gap: '8px', alignItems: 'center',
-          padding: '4px 0', borderBottom: '1px solid #333',
-        });
+        row.className = 'te-track-list-row';
 
         const nameEl = document.createElement('span');
         nameEl.textContent = t.name || t.id;
-        nameEl.style.flex = '1';
+        nameEl.className = 'te-track-list-row-name';
         row.appendChild(nameEl);
 
         const loadBtn = document.createElement('button');
         loadBtn.textContent = 'Load';
-        Object.assign(loadBtn.style, {
-          background: '#3a3a5a', border: '1px solid #666', color: '#ccc',
-          padding: '2px 8px', cursor: 'pointer', borderRadius: '3px',
-          font: '11px Courier New',
-        });
+        loadBtn.className = 'te-track-list-load-btn';
         loadBtn.addEventListener('click', () => {
           this._loadTrack(t);
           this._trackListEl.remove();
@@ -406,11 +347,7 @@ export class TrackEditor {
 
       const closeBtn = document.createElement('button');
       closeBtn.textContent = 'Close';
-      Object.assign(closeBtn.style, {
-        marginTop: '8px', background: '#2a2a3a', border: '1px solid #555',
-        color: '#ccc', padding: '4px 12px', cursor: 'pointer',
-        borderRadius: '4px', font: '11px Courier New', width: '100%',
-      });
+      closeBtn.className = 'te-track-list-close-btn';
       closeBtn.addEventListener('click', () => { this._trackListEl.remove(); this._trackListEl = null; });
       this._trackListEl.appendChild(closeBtn);
 

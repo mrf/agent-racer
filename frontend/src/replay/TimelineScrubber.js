@@ -71,53 +71,30 @@ export class TimelineScrubber {
 
   _buildSelector() {
     this._selectorEl = document.createElement('div');
-    this._selectorEl.style.cssText = [
-      'position:fixed',
-      'inset:0',
-      'background:rgba(0,0,0,0.72)',
-      'display:flex',
-      'align-items:center',
-      'justify-content:center',
-      'padding:16px',
-      'z-index:9100',
-    ].join(';');
+    this._selectorEl.className = 'ts-overlay';
     this._selectorEl.setAttribute('role', 'dialog');
     this._selectorEl.setAttribute('aria-label', 'Replay selector');
     this._selectorEl.setAttribute('aria-modal', 'true');
 
     this._selectorDialogEl = document.createElement('div');
-    this._selectorDialogEl.style.cssText = [
-      'background:rgba(10,10,20,0.95)',
-      'border:1px solid rgba(100,160,255,0.4)',
-      'border-radius:8px',
-      'padding:20px',
-      'width:min(560px, calc(100vw - 32px))',
-      'max-width:560px',
-      'max-height:70vh',
-      'display:flex',
-      'flex-direction:column',
-      'gap:12px',
-      'box-shadow:0 8px 32px rgba(0,0,0,0.6)',
-      'color:#e8eaf0',
-      'font-family:monospace',
-    ].join(';');
+    this._selectorDialogEl.className = 'ts-dialog';
 
     const header = document.createElement('div');
-    header.style.cssText = 'display:flex;align-items:center;gap:8px;';
+    header.className = 'ts-header';
 
     const title = document.createElement('span');
-    title.style.cssText = 'font-size:14px;font-weight:bold;color:#8cf;flex:1;';
+    title.className = 'ts-title';
     title.textContent = '\u23FA Replay Mode — Select Recording';
 
     const closeBtn = this._btn('✕', () => this.close());
     closeBtn.setAttribute('aria-label', 'Close replay selector');
-    closeBtn.style.cssText = 'background:rgba(255,80,80,0.2);border:1px solid rgba(255,80,80,0.5);color:#faa;padding:2px 8px;cursor:pointer;font-size:12px;border-radius:3px;';
+    closeBtn.className = 'ts-close-btn';
 
     header.appendChild(title);
     header.appendChild(closeBtn);
 
     this._listEl = document.createElement('div');
-    this._listEl.style.cssText = 'overflow-y:auto;display:flex;flex-direction:column;gap:6px;';
+    this._listEl.className = 'ts-list';
     this._listEl.textContent = 'Loading replays…';
 
     this._selectorDialogEl.appendChild(header);
@@ -136,7 +113,7 @@ export class TimelineScrubber {
     this._listEl.textContent = '';
     if (!replays || replays.length === 0) {
       const empty = document.createElement('div');
-      empty.style.cssText = 'color:#888;font-size:12px;padding:8px;';
+      empty.className = 'ts-empty';
       empty.textContent = 'No replays found. Recordings are saved every session.';
       this._listEl.appendChild(empty);
       return;
@@ -144,35 +121,18 @@ export class TimelineScrubber {
 
     for (const r of replays) {
       const item = document.createElement('button');
-      item.style.cssText = [
-        'display:flex',
-        'align-items:center',
-        'gap:10px',
-        'background:rgba(255,255,255,0.05)',
-        'border:1px solid rgba(255,255,255,0.1)',
-        'border-radius:4px',
-        'padding:8px 12px',
-        'cursor:pointer',
-        'color:#ccd',
-        'font-family:monospace',
-        'font-size:12px',
-        'text-align:left',
-        'transition:background 0.15s',
-      ].join(';');
-
-      item.onmouseenter = () => { item.style.background = 'rgba(68,170,255,0.15)'; };
-      item.onmouseleave = () => { item.style.background = 'rgba(255,255,255,0.05)'; };
+      item.className = 'ts-replay-item';
 
       const nameSpan = document.createElement('span');
-      nameSpan.style.flex = '1';
+      nameSpan.className = 'ts-replay-item-name';
       nameSpan.textContent = r.name;
 
       const sizeSpan = document.createElement('span');
-      sizeSpan.style.color = '#888';
+      sizeSpan.className = 'ts-replay-item-size';
       sizeSpan.textContent = _formatSize(r.size);
 
       const dateSpan = document.createElement('span');
-      dateSpan.style.color = '#aaa';
+      dateSpan.className = 'ts-replay-item-date';
       dateSpan.textContent = new Date(r.createdAt).toLocaleString();
 
       item.appendChild(nameSpan);
@@ -187,7 +147,7 @@ export class TimelineScrubber {
   _populateSelectorError(msg) {
     this._listEl.textContent = '';
     const err = document.createElement('div');
-    err.style.cssText = 'color:#f88;font-size:12px;padding:8px;';
+    err.className = 'ts-error';
     err.textContent = 'Error loading replays: ' + msg;
     this._listEl.appendChild(err);
   }
@@ -224,40 +184,26 @@ export class TimelineScrubber {
 
   _buildBar() {
     this._barEl = document.createElement('div');
-    this._barEl.style.cssText = [
-      'position:fixed',
-      'bottom:0',
-      'left:0',
-      'right:0',
-      'background:rgba(5,8,18,0.92)',
-      'border-top:1px solid rgba(100,160,255,0.3)',
-      'padding:8px 16px 10px',
-      'z-index:9000',
-      'display:flex',
-      'flex-direction:column',
-      'gap:6px',
-      'backdrop-filter:blur(6px)',
-      'font-family:monospace',
-    ].join(';');
+    this._barEl.className = 'ts-bar';
 
     // Top row: label, name, time, close
     const topRow = document.createElement('div');
-    topRow.style.cssText = 'display:flex;align-items:center;gap:10px;font-size:11px;';
+    topRow.className = 'ts-top-row';
 
     const label = document.createElement('span');
-    label.style.cssText = 'color:#48f;font-size:11px;font-weight:bold;letter-spacing:0.5px;';
+    label.className = 'ts-replay-label';
     label.textContent = '\u23FA REPLAY';
 
     this._nameEl = document.createElement('span');
-    this._nameEl.style.cssText = 'color:#ccd;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+    this._nameEl.className = 'ts-replay-name';
     this._nameEl.textContent = 'Loading…';
 
     this._timeEl = document.createElement('span');
-    this._timeEl.style.color = '#888';
+    this._timeEl.className = 'ts-time';
 
     const exitBtn = this._btn('✕ Exit Replay', () => this.close());
     exitBtn.setAttribute('aria-label', 'Exit replay mode');
-    exitBtn.style.cssText = 'background:rgba(255,60,60,0.2);border:1px solid rgba(255,60,60,0.5);color:#faa;padding:3px 10px;cursor:pointer;font-size:11px;border-radius:3px;font-family:monospace;';
+    exitBtn.className = 'ts-exit-btn';
 
     topRow.appendChild(label);
     topRow.appendChild(this._nameEl);
@@ -267,7 +213,7 @@ export class TimelineScrubber {
     // Activity heatmap
     const heatmapCanvas = document.createElement('canvas');
     heatmapCanvas.height = 10;
-    heatmapCanvas.style.cssText = 'width:100%;height:10px;cursor:pointer;border-radius:3px;';
+    heatmapCanvas.className = 'ts-heatmap';
     heatmapCanvas.onclick = (e) => {
       const pct = e.offsetX / heatmapCanvas.offsetWidth;
       const idx = Math.floor(pct * Math.max(1, this._player.snapshots.length - 1));
@@ -280,13 +226,13 @@ export class TimelineScrubber {
 
     // Control row: step back | play/pause | step fwd | slider | speeds
     const ctrlRow = document.createElement('div');
-    ctrlRow.style.cssText = 'display:flex;align-items:center;gap:6px;';
+    ctrlRow.className = 'ts-ctrl-row';
 
     const stepBack = this._btn('⏮', () => this._player.stepBackward());
     stepBack.setAttribute('aria-label', 'Step backward one replay frame');
     this._playBtn = this._btn('▶', () => this._togglePlay());
     this._playBtn.setAttribute('aria-label', 'Play replay');
-    this._playBtn.style.minWidth = '36px';
+    this._playBtn.classList.add('ts-play-btn');
     const stepFwd = this._btn('⏭', () => this._player.stepForward());
     stepFwd.setAttribute('aria-label', 'Step forward one replay frame');
 
@@ -296,7 +242,7 @@ export class TimelineScrubber {
     this._slider.max = '0';
     this._slider.value = '0';
     this._slider.setAttribute('aria-label', 'Replay timeline position');
-    this._slider.style.cssText = 'flex:1;accent-color:#48f;cursor:pointer;';
+    this._slider.className = 'ts-slider';
     this._slider.oninput = () => {
       const idx = parseInt(this._slider.value, 10);
       this._player.seek(idx);
@@ -305,14 +251,14 @@ export class TimelineScrubber {
     this._speedBtns = [1, 2, 4].map(s => {
       const btn = this._btn(s + 'x', () => {
         this._player.setSpeed(s);
-        this._speedBtns.forEach(b => { b.style.background = 'rgba(255,255,255,0.08)'; });
-        btn.style.background = 'rgba(68,136,255,0.35)';
+        this._speedBtns.forEach(b => { b.classList.remove('active'); });
+        btn.classList.add('active');
       });
       btn.setAttribute('aria-label', `Set replay speed to ${s}x`);
       return btn;
     });
     // Mark 1x active initially.
-    this._speedBtns[0].style.background = 'rgba(68,136,255,0.35)';
+    this._speedBtns[0].classList.add('active');
 
     ctrlRow.appendChild(stepBack);
     ctrlRow.appendChild(this._playBtn);
@@ -325,7 +271,7 @@ export class TimelineScrubber {
     this._barEl.appendChild(ctrlRow);
 
     this._messageEl = document.createElement('div');
-    this._messageEl.style.cssText = 'display:none;font-size:11px;color:#f6c177;';
+    this._messageEl.className = 'ts-message';
     this._barEl.appendChild(this._messageEl);
 
     document.body.appendChild(this._barEl);
@@ -469,7 +415,7 @@ export class TimelineScrubber {
   _btn(label, onClick) {
     const btn = document.createElement('button');
     btn.textContent = label;
-    btn.style.cssText = 'background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.2);color:#dde;padding:3px 8px;cursor:pointer;font-size:13px;border-radius:3px;font-family:monospace;';
+    btn.className = 'ts-btn';
     btn.onclick = onClick;
     return btn;
   }
@@ -479,13 +425,13 @@ export class TimelineScrubber {
 
     if (!message) {
       this._messageEl.textContent = '';
-      this._messageEl.style.display = 'none';
+      this._messageEl.classList.remove('visible', 'error');
       return;
     }
 
     this._messageEl.textContent = message;
-    this._messageEl.style.display = 'block';
-    this._messageEl.style.color = tone === 'error' ? '#f88' : '#f6c177';
+    this._messageEl.classList.add('visible');
+    this._messageEl.classList.toggle('error', tone === 'error');
   }
 }
 

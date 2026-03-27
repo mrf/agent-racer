@@ -26,20 +26,10 @@ export class TilePalette {
   mount(container) {
     this.el = document.createElement('div');
     this.el.id = 'tile-palette';
-    Object.assign(this.el.style, {
-      position: 'fixed', left: '10px', top: '50%',
-      transform: 'translateY(-50%)',
-      background: 'rgba(20,20,30,0.95)', border: '1px solid #444',
-      borderRadius: '8px', padding: '8px', display: 'flex',
-      flexDirection: 'column', gap: '3px', zIndex: '1000', minWidth: '56px',
-    });
 
     const title = document.createElement('div');
     title.textContent = 'TILES';
-    Object.assign(title.style, {
-      color: '#888', font: 'bold 10px Courier New',
-      textAlign: 'center', marginBottom: '4px',
-    });
+    title.className = 'tp-title';
     this.el.appendChild(title);
 
     for (let i = 0; i < TILE_TYPES.length; i++) {
@@ -48,11 +38,7 @@ export class TilePalette {
       btn.dataset.tileId = tile.id;
       btn.title = tile.desc;
       btn.textContent = tile.label;
-      Object.assign(btn.style, {
-        background: '#2a2a3a', border: '1px solid #555', color: '#ccc',
-        font: '13px monospace', padding: '3px 6px', cursor: 'pointer',
-        borderRadius: '3px', textAlign: 'center', width: '44px',
-      });
+      btn.className = 'tp-tile-btn';
       btn.addEventListener('click', () => this.select(tile.id));
       this.el.appendChild(btn);
     }
@@ -71,14 +57,11 @@ export class TilePalette {
     if (!this.el) return;
     const btns = this.el.querySelectorAll('button');
     btns.forEach(btn => {
-      const active = btn.dataset.tileId === this.selectedTile;
-      btn.style.background = active ? '#4a4a6a' : '#2a2a3a';
-      btn.style.borderColor = active ? '#a0a0ff' : '#555';
-      btn.style.color = active ? '#fff' : '#ccc';
+      btn.classList.toggle('active', btn.dataset.tileId === this.selectedTile);
     });
   }
 
-  show() { if (this.el) this.el.style.display = 'flex'; }
+  show() { if (this.el) this.el.style.display = ''; }
   hide() { if (this.el) this.el.style.display = 'none'; }
 
   unmount() {
