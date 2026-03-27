@@ -52,7 +52,7 @@ func NewStore(dataDir string) (*Store, error) {
 		}
 		dataDir = filepath.Join(xdgData, "agent-racer", "tracks")
 	}
-	if err := os.MkdirAll(dataDir, 0755); err != nil {
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		return nil, fmt.Errorf("tracks: mkdir %s: %w", dataDir, err)
 	}
 	return &Store{dir: dataDir}, nil
@@ -115,7 +115,7 @@ func (s *Store) Save(t *Track) error {
 	if !validID.MatchString(t.ID) {
 		return fmt.Errorf("invalid track id")
 	}
-	if err := os.MkdirAll(s.dir, 0o755); err != nil {
+	if err := os.MkdirAll(s.dir, 0o700); err != nil {
 		return fmt.Errorf("tracks: mkdir %s: %w", s.dir, err)
 	}
 	t.UpdatedAt = time.Now()
