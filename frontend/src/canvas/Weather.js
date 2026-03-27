@@ -119,22 +119,30 @@ function generateFogClouds() {
 }
 
 // ── Lightning ───────────────────────────────────────────────────────
+const MAX_BOLT_SEGMENTS = 128;
+
 function generateBolt(x, y, maxDepth) {
   const segments = [];
-  function branch(sx, sy, angle, depth, alpha) {
-    if (depth > maxDepth) return;
+  const initialAngle = Math.PI / 2 + (Math.random() - 0.5) * 0.6;
+  const stack = [{ sx: x, sy: y, angle: initialAngle, depth: 0, alpha: 1.0 }];
+
+  while (stack.length > 0 && segments.length < MAX_BOLT_SEGMENTS) {
+    const { sx, sy, angle, depth, alpha } = stack.pop();
+    if (depth > maxDepth) continue;
+
     const len = 15 + Math.random() * 30;
     const ex = sx + Math.cos(angle) * len;
     const ey = sy + Math.sin(angle) * len;
     segments.push({ x1: sx, y1: sy, x2: ex, y2: ey, alpha, width: Math.max(1, 3 - depth) });
+
     // Main continuation
-    branch(ex, ey, angle + (Math.random() - 0.5) * 0.8, depth + 1, alpha * 0.85);
+    stack.push({ sx: ex, sy: ey, angle: angle + (Math.random() - 0.5) * 0.8, depth: depth + 1, alpha: alpha * 0.85 });
     // Occasional fork
     if (Math.random() < 0.35) {
-      branch(ex, ey, angle + (Math.random() - 0.5) * 1.5, depth + 1, alpha * 0.5);
+      stack.push({ sx: ex, sy: ey, angle: angle + (Math.random() - 0.5) * 1.5, depth: depth + 1, alpha: alpha * 0.5 });
     }
   }
-  branch(x, y, Math.PI / 2 + (Math.random() - 0.5) * 0.6, 0, 1.0);
+
   return segments;
 }
 
