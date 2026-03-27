@@ -2,9 +2,11 @@ package client
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"sync"
 	"time"
 
@@ -22,8 +24,9 @@ const (
 
 // WSClient manages the WebSocket connection to the Agent Racer backend.
 type WSClient struct {
-	url   string
-	token string
+	url    string
+	token  string
+	dialer *websocket.Dialer
 
 	mu      sync.Mutex
 	writeMu sync.Mutex // serialises all conn writes (ping, resync, auth)
@@ -33,8 +36,16 @@ type WSClient struct {
 }
 
 // NewWSClient creates a client that connects to the given WebSocket URL.
-func NewWSClient(url, token string) *WSClient {
-	return &WSClient{url: url, token: token}
+// If tlsCfg is non-nil, it is used for WSS connections.
+func NewWSClient(url, token string, tlsCfg *tls.Config) *WSClient {
+	dialer := &websocket.Dialer{
+		HandshakeTimeout: 10 * time.Second,
+	}
+	if tlsCfg != nil {
+		dialer.TLSClientConfig = tlsCfg
+		dialer.Proxy = http.ProxyFromEnvironment
+	}
+	return &WSClient{url: url, token: token, dialer: dialer}
 }
 
 // --- Bubble Tea messages ---
@@ -81,7 +92,7 @@ func (c *WSClient) Listen(ctx context.Context) tea.Cmd {
 			default:
 			}
 
-			conn, _, err := websocket.DefaultDialer.Dial(c.url, nil)
+			conn, _, err := c.dialer.Dial(c.url, nil)
 			if err != nil {
 				log.Printf("ws dial error: %v (retry in %v)", err, delay)
 				time.Sleep(delay)
