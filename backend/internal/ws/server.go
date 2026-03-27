@@ -523,6 +523,12 @@ func (s *Server) handleTail(w http.ResponseWriter, r *http.Request, sessionID st
 		return
 	}
 
+	if err := session.ValidateLogPath(state.LogPath); err != nil {
+		log.Printf("tail: invalid log path for session %s: %v", sessionID, err)
+		http.Error(w, "invalid log path", http.StatusForbidden)
+		return
+	}
+
 	var offset int64
 	if v := r.URL.Query().Get("offset"); v != "" {
 		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n >= 0 {
