@@ -35,10 +35,10 @@ function buildDOM() {
             <dd>Click on a car running in a tmux window to jump to that session (cursor highlights clickable cars).</dd>
             <dt>Colors</dt>
             <dd>
-              <span class="help-swatch" style="background:#7c3aed"></span> Opus&ensp;
-              <span class="help-swatch" style="background:#06b6d4"></span> Sonnet&ensp;
-              <span class="help-swatch" style="background:#22c55e"></span> Haiku&ensp;
-              <span class="help-swatch" style="background:#6b7280"></span> Other
+              <span class="help-swatch help-swatch-opus"></span> Opus&ensp;
+              <span class="help-swatch help-swatch-sonnet"></span> Sonnet&ensp;
+              <span class="help-swatch help-swatch-haiku"></span> Haiku&ensp;
+              <span class="help-swatch help-swatch-other"></span> Other
             </dd>
             <dt>Source Badges</dt>
             <dd>
