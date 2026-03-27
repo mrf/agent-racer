@@ -1,7 +1,6 @@
 package monitor
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,83 +9,6 @@ import (
 	gnet "github.com/shirou/gopsutil/v3/net"
 	"github.com/shirou/gopsutil/v3/process"
 )
-
-type ProcessInfo struct {
-	PID        int
-	WorkingDir string
-	StartTime  time.Time
-	CmdLine    string
-	TmuxTarget string
-}
-
-func DiscoverSessions() ([]ProcessInfo, error) {
-	procs, err := process.Processes()
-	if err != nil {
-		return nil, fmt.Errorf("listing processes: %w", err)
-	}
-
-	var results []ProcessInfo
-
-	for _, p := range procs {
-		args, err := p.CmdlineSlice()
-		if err != nil || len(args) == 0 {
-			continue
-		}
-
-		if !isClaudeProcess(args) {
-			continue
-		}
-
-		cwd, err := p.Cwd()
-		if err != nil || isInsideClaudeDir(cwd) {
-			continue
-		}
-
-		startTime := processStartTime(p)
-		cmdline, _ := p.Cmdline()
-
-		results = append(results, ProcessInfo{
-			PID:        int(p.Pid),
-			WorkingDir: cwd,
-			StartTime:  startTime,
-			CmdLine:    cmdline,
-		})
-	}
-
-	return results, nil
-}
-
-func isClaudeProcess(args []string) bool {
-	if len(args) == 0 {
-		return false
-	}
-
-	exe := filepath.Base(args[0])
-
-	// Match the main claude process, not subprocesses it spawns
-	if exe == "claude" || exe == "claude-code" {
-		return true
-	}
-
-	// Also match node running claude
-	if exe == "node" {
-		for _, arg := range args[1:] {
-			if strings.Contains(arg, "claude") && !strings.Contains(arg, "node_modules/.bin") {
-				return true
-			}
-		}
-	}
-
-	return false
-}
-
-func processStartTime(p *process.Process) time.Time {
-	ct, err := p.CreateTime()
-	if err != nil {
-		return time.Now()
-	}
-	return time.UnixMilli(ct)
-}
 
 // isInsideClaudeDir reports whether the given path is at or under ~/.claude.
 // Agent internal processes with CWD inside this directory are filtered out.
