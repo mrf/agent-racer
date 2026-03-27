@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -181,5 +182,139 @@ func TestCheckOrigin(t *testing.T) {
 				t.Errorf("checkOrigin() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestHandleHealth_Liveness(t *testing.T) {
+	s := newTestServer(nil)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/health", nil)
+	s.handleHealth(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	var resp map[string]interface{}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp["status"] != "ok" {
+		t.Errorf("status = %q, want %q", resp["status"], "ok")
+	}
+	if _, ok := resp["uptime"]; !ok {
+		t.Error("missing uptime field")
+	}
+}
+
+func TestHandleHealth_MethodNotAllowed(t *testing.T) {
+	s := newTestServer(nil)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/health", nil)
+	s.handleHealth(rec, req)
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusMethodNotAllowed)
+	}
+}
+
+func TestHandleHealth_ReadyNoHealthCheck(t *testing.T) {
+	s := newTestServer(nil)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/health?probe=ready", nil)
+	s.handleHealth(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	var resp map[string]interface{}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp["status"] != "ok" {
+		t.Errorf("status = %q, want %q", resp["status"], "ok")
+	}
+}
+
+func TestHandleHealth_ReadyAllHealthy(t *testing.T) {
+	s := newTestServer(nil)
+	s.SetHealthCheck(func() []SourceHealthPayload {
+		return nil // no unhealthy sources
+	})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/health?probe=ready", nil)
+	s.handleHealth(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	var resp map[string]interface{}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp["status"] != "ok" {
+		t.Errorf("status = %q, want %q", resp["status"], "ok")
+	}
+}
+
+func TestHandleHealth_ReadySourceFailed(t *testing.T) {
+	s := newTestServer(nil)
+	s.SetHealthCheck(func() []SourceHealthPayload {
+		return []SourceHealthPayload{
+			{Source: "claude", Status: StatusFailed, LastError: "discover timeout"},
+		}
+	})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/health?probe=ready", nil)
+	s.handleHealth(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusServiceUnavailable)
+	}
+
+	var resp map[string]interface{}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp["status"] != "degraded" {
+		t.Errorf("status = %q, want %q", resp["status"], "degraded")
+	}
+	sources, ok := resp["sources"].([]interface{})
+	if !ok || len(sources) != 1 {
+		t.Fatalf("expected 1 source, got %v", resp["sources"])
+	}
+	src := sources[0].(map[string]interface{})
+	if src["source"] != "claude" {
+		t.Errorf("source = %q, want %q", src["source"], "claude")
+	}
+	if src["error"] != "discover timeout" {
+		t.Errorf("error = %q, want %q", src["error"], "discover timeout")
+	}
+}
+
+func TestHandleHealth_ReadySourceDegraded(t *testing.T) {
+	s := newTestServer(nil)
+	s.SetHealthCheck(func() []SourceHealthPayload {
+		return []SourceHealthPayload{
+			{Source: "codex", Status: StatusDegraded},
+		}
+	})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/health?probe=ready", nil)
+	s.handleHealth(rec, req)
+
+	// Degraded sources are reported but don't trigger 503 — only Failed does.
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	var resp map[string]interface{}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp["status"] != "ok" {
+		t.Errorf("status = %q, want %q", resp["status"], "ok")
 	}
 }

@@ -1042,6 +1042,12 @@ func (m *Monitor) SourceHealthSnapshot() []ws.SourceHealthPayload {
 	return result
 }
 
+// SourceHealthSnapshot returns the current health status of all non-healthy
+// sources. Safe for concurrent use. Intended for the /api/health endpoint.
+func (m *Monitor) SourceHealthSnapshot() []ws.SourceHealthPayload {
+	return m.sourceHealthSnapshot()
+}
+
 // mergeSubagents converts SubagentParseResults into SubagentState entries
 // on the session. It merges incrementally: existing subagents are updated
 // with new data, new subagents are appended, and subagents absent from the
