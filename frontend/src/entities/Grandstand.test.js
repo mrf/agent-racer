@@ -33,28 +33,26 @@ function makeSpectator(normX, totalWidth) {
 }
 
 describe('Grandstand', () => {
-  it('keeps the Mexican wave visible across about nine percent of the stand width', () => {
+  it('applies idle bounce from sine wave', () => {
     const trackWidth = 1000;
     const totalWidth = trackWidth + 20;
     const stand = new Grandstand();
     stand._time = 0;
-    stand._mexicanPhase = 0.5;
-    stand._reactions = [{ type: 'mexican', t: 0, duration: 5 }];
-    stand._spectators = [
-      makeSpectator(0.5, totalWidth),
-      makeSpectator(0.58, totalWidth),
-      makeSpectator(0.595, totalWidth),
-    ];
+    stand._reactions = [];
+    stand._spectators = [makeSpectator(0.5, totalWidth)];
     stand._drawSpec = vi.fn();
 
     stand._drawAllSpectators(makeMockCtx(), 0, 0, trackWidth, 1, 0);
 
-    const bounceByNormX = new Map(
-      stand._drawSpec.mock.calls.map(([, , , spec, , bounce]) => [spec.x / totalWidth, bounce]),
-    );
+    const bounce = stand._drawSpec.mock.calls[0][5];
+    // At _time=0 with phase=0, sin(0) = 0, so bounce ≈ 0
+    expect(bounce).toBeCloseTo(0, 1);
+  });
 
-    expect(bounceByNormX.get(0.5)).toBeCloseTo(5, 5);
-    expect(bounceByNormX.get(0.58)).toBeGreaterThan(0.5);
-    expect(bounceByNormX.get(0.595)).toBe(0);
+  it('falls back to default duration for unrecognized reaction types', () => {
+    const stand = new Grandstand();
+    stand.trigger('unknown');
+    expect(stand._reactions.length).toBe(1);
+    expect(stand._reactions[0].duration).toBe(1.0);
   });
 });

@@ -14,14 +14,11 @@ const GRANDSTAND_BOTTOM = 14; // px above trackBounds.y where front-row feet sit
 const WAVE_SPEED = 200;
 // Radius in which 'cheer' reaction affects nearby spectators (px)
 const CHEER_RADIUS = 90;
-const MEXICAN_WAVE_RADIUS = 0.09;
-
 const REACTION_DURATIONS = {
   cheer: 1.2,
   wave: 2.0,
   ovation: 3.0,
   gasp: 1.5,
-  mexican: 5.0,
 };
 
 function normalizeHex(color) {
@@ -57,7 +54,6 @@ export class Grandstand {
     this._spectators = [];
     this._reactions = [];
     this._time = 0;
-    this._mexicanPhase = 0;
     this._lastKey = '';
   }
 
@@ -85,7 +81,7 @@ export class Grandstand {
 
   /**
    * Trigger a crowd reaction event.
-   * @param {'cheer'|'wave'|'ovation'|'gasp'|'mexican'} type
+   * @param {'cheer'|'wave'|'ovation'|'gasp'} type
    * @param {number} normalizedX - 0-1 position along track width (used by cheer/wave)
    */
   trigger(type, normalizedX = 0.5) {
@@ -102,9 +98,6 @@ export class Grandstand {
     this._time += dt;
     for (const r of this._reactions) r.t += dt;
     this._reactions = this._reactions.filter(r => r.t < r.duration);
-    if (this._reactions.some(r => r.type === 'mexican')) {
-      this._mexicanPhase = (this._mexicanPhase + dt * 0.5) % 1.0;
-    }
   }
 
   draw(ctx, trackBounds, crowdMode, excitement) {
@@ -197,16 +190,6 @@ export class Grandstand {
             const intensity = progress < 0.5 ? 1 : Math.max(0, (1 - progress) * 2);
             bounce -= 2 * intensity;
             leansForward = intensity > 0.3;
-            break;
-          }
-          case 'mexican': {
-            const dist = Math.abs(normX - this._mexicanPhase);
-            const wrapDist = Math.min(dist, 1 - dist);
-            if (wrapDist < MEXICAN_WAVE_RADIUS) {
-              const intensity = Math.max(0, 1 - wrapDist / MEXICAN_WAVE_RADIUS);
-              bounce += intensity * 5;
-              if (intensity > 0.5) armRaise = true;
-            }
             break;
           }
         }
