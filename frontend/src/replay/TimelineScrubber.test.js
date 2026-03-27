@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { TimelineScrubber } from './TimelineScrubber.js';
+import { installCanvasContextMock } from '../test/canvasMock.js';
 
 class FakeReplayPlayer {
   constructor() {
@@ -50,11 +51,7 @@ describe('TimelineScrubber', () => {
 
   beforeEach(() => {
     document.body.innerHTML = '';
-    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
-      clearRect: vi.fn(),
-      drawImage: vi.fn(),
-      fillRect: vi.fn(),
-    });
+    installCanvasContextMock();
     player = new FakeReplayPlayer();
     onClose = vi.fn();
     scrubber = new TimelineScrubber(player, onClose);

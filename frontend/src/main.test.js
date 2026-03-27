@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
+import { installCanvasContextMock } from './test/canvasMock.js';
+
 const mocks = vi.hoisted(() => ({
   engine: null,
   activeView: null,
@@ -128,7 +130,14 @@ beforeEach(async () => {
   globalThis.fetch = vi.fn(() => Promise.resolve({ ok: false }));
   Object.defineProperty(window, 'innerWidth', { value: 1024, configurable: true, writable: true });
   Object.defineProperty(window, 'innerHeight', { value: 768, configurable: true, writable: true });
+  installCanvasContextMock();
+  globalThis.requestAnimationFrame = vi.fn(() => 0);
+  globalThis.cancelAnimationFrame = vi.fn();
   await import('./main.js');
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 // ── Session count calculation ─────────────────────────────────────────
