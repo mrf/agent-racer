@@ -203,6 +203,47 @@ func TestNewRecorder_CreatesDirAndFile(t *testing.T) {
 	}
 }
 
+func TestNewRecorder_DirHasOwnerOnlyPerms(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "replays")
+	rec, err := NewRecorder(dir, 7)
+	if err != nil {
+		t.Fatalf("NewRecorder: %v", err)
+	}
+	defer rec.Close()
+
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("Stat dir: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o700 {
+		t.Fatalf("dir perm = %o, want 0700", perm)
+	}
+}
+
+func TestNewRecorder_FileHasOwnerOnlyPerms(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "replays")
+	rec, err := NewRecorder(dir, 7)
+	if err != nil {
+		t.Fatalf("NewRecorder: %v", err)
+	}
+	defer rec.Close()
+
+	matches, err := filepath.Glob(filepath.Join(dir, "*.jsonl"))
+	if err != nil {
+		t.Fatalf("Glob: %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("got %d .jsonl files, want 1", len(matches))
+	}
+	info, err := os.Stat(matches[0])
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Fatalf("file perm = %o, want 0600", perm)
+	}
+}
+
 // createOldFile writes a .jsonl file with its modtime set to daysAgo.
 func createOldFile(t *testing.T, dir, name string, daysAgo int) string {
 	t.Helper()

@@ -352,6 +352,37 @@ func TestStoreListIgnoresNonJSONFiles(t *testing.T) {
 	}
 }
 
+func TestNewStoreCreatesDirectoryWithOwnerOnlyPerms(t *testing.T) {
+	parent := t.TempDir()
+	dir := parent + "/sub/tracks"
+	_, err := NewStore(dir)
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o700 {
+		t.Fatalf("dir perm = %o, want 0700", perm)
+	}
+}
+
+func TestStoreSaveCreatesFileWithOwnerOnlyPerms(t *testing.T) {
+	store := newTestStore(t)
+	track := testTrack("perm-test", "Perm Test", testTiles(2, 2, "road"))
+	if err := store.Save(track); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	info, err := os.Stat(store.path("perm-test"))
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Fatalf("file perm = %o, want 0600", perm)
+	}
+}
+
 func testTrack(id string, name string, tiles [][]string) *Track {
 	return &Track{
 		ID:        id,
