@@ -47,7 +47,24 @@ This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get sta
 
 ## Post-Merge Checklist
 
-After merging a frontend branch to main, always verify the app loads correctly in the browser (check for runtime errors, not just build success). Run `curl localhost:<port>` or check dev server output for errors.
+After merging ANY branch to main, run the **full CI gate** — not just `go test`:
+
+```bash
+# Backend: tests + lint (both required)
+cd backend && go test ./... && golangci-lint run --config ../.golangci.yml
+
+# TUI (if TUI files changed):
+cd tui && go test ./...
+
+# Frontend (if frontend files changed):
+cd frontend && npx vitest run
+```
+
+**Why:** `go test` catches compile errors and test failures, but **golangci-lint** catches unchecked errors, unused imports, and style violations that only surface in CI. Running tests alone gives false confidence — always run lint too.
+
+**Shortcut:** `make ci` runs all test suites + lint in one command.
+
+After merging a frontend branch, also verify the app loads correctly in the browser (check for runtime errors, not just build success).
 
 ## Regression Investigation
 
