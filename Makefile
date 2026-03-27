@@ -97,9 +97,10 @@ check: ci
 
 clean:
 	rm -f $(SERVER_BINARY) $(BINARY)
-	rm -rf $(BACKEND)/internal/frontend/static $(FRONTEND)/dist
+	rm -rf $(BACKEND)/internal/frontend/static $(FRONTEND)/dist dist
 
 dist: embed
+	@mkdir -p dist
 	cd $(BACKEND) && GOOS=linux GOARCH=amd64 go build -tags embed -ldflags "$(SERVER_LDFLAGS)" -o ../dist/$(SERVER_BINARY)-linux-amd64 ./cmd/server
 	cd $(BACKEND) && GOOS=linux GOARCH=arm64 go build -tags embed -ldflags "$(SERVER_LDFLAGS)" -o ../dist/$(SERVER_BINARY)-linux-arm64 ./cmd/server
 	cd $(BACKEND) && GOOS=darwin GOARCH=amd64 go build -tags embed -ldflags "$(SERVER_LDFLAGS)" -o ../dist/$(SERVER_BINARY)-darwin-amd64 ./cmd/server

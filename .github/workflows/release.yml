@@ -1,0 +1,135 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  GOLANGCI_LINT_VERSION: v2.10.1
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: Install golangci-lint
+        run: |
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Run backend tests
+        run: make test-race
+
+      - name: Lint backend
+        run: cd backend && golangci-lint run --config ../.golangci.yml
+
+  test-tui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: tui/go.mod
+          cache-dependency-path: tui/go.sum
+
+      - name: Install golangci-lint
+        run: |
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Run TUI tests
+        run: make tui-test
+
+      - name: Lint TUI
+        run: make tui-lint
+
+  test-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: cd frontend && npm ci
+
+      - name: Run Vitest
+        run: cd frontend && npx vitest run
+
+  release:
+    needs: [test, test-tui, test-frontend]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install frontend dependencies
+        run: cd frontend && npm ci
+
+      - name: Build release binaries
+        run: make dist VERSION="${GITHUB_REF_NAME}"
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum * > checksums.txt
+
+      - name: Generate release notes
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          PREV_TAG=$(git tag --sort=-v:refname | grep -v "^${TAG}$" | head -1)
+          if [ -n "$PREV_TAG" ]; then
+            echo "## Changes since ${PREV_TAG}" > release-notes.md
+            echo "" >> release-notes.md
+            git log --pretty=format:"- %s (%h)" "${PREV_TAG}..${TAG}" >> release-notes.md
+          else
+            echo "## Initial Release" > release-notes.md
+            echo "" >> release-notes.md
+            FIRST_COMMIT=$(git rev-list --max-parents=0 HEAD)
+            git log --pretty=format:"- %s (%h)" "${FIRST_COMMIT}..${TAG}" >> release-notes.md
+          fi
+          echo "" >> release-notes.md
+          echo "" >> release-notes.md
+          echo "## Binaries" >> release-notes.md
+          echo "" >> release-notes.md
+          echo "| Binary | Description |" >> release-notes.md
+          echo "|--------|-------------|" >> release-notes.md
+          echo "| \`agent-racer-server-*\` | Web server with embedded frontend |" >> release-notes.md
+          echo "| \`agent-racer-*\` (no server prefix) | Terminal UI client |" >> release-notes.md
+          echo "" >> release-notes.md
+          echo "## Checksums" >> release-notes.md
+          echo "" >> release-notes.md
+          echo '```' >> release-notes.md
+          cat dist/checksums.txt >> release-notes.md
+          echo '```' >> release-notes.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: release-notes.md
+          files: dist/*
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
