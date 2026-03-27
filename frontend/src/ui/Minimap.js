@@ -26,6 +26,8 @@ function fillCircle(ctx, x, y, r) {
 export class Minimap {
   constructor() {
     this.visible = true;
+    this.zoomed = false;
+    this._zoomPinned = false; // keyboard-toggled zoom persists across hover/focus
     this.raceCanvas = null;
     this.onDotClick = null;
 
@@ -37,16 +39,37 @@ export class Minimap {
     el.className = 'minimap-canvas';
     el.width = WIDTH;
     el.height = HEIGHT;
-    el.title = 'Radar — click a dot to focus session (N to toggle)';
+    el.title = 'Radar — click a dot to focus session (N to toggle, Shift+N or Tab to zoom)';
+    el.tabIndex = 0;
+    el.setAttribute('role', 'img');
+    el.setAttribute('aria-label', 'Session radar minimap');
     this._canvas = el;
     this._ctx = el.getContext('2d');
 
     el.addEventListener('click', (e) => this._handleClick(e));
-    el.addEventListener('mouseenter', () => { el.style.transform = 'scale(2)'; });
-    el.addEventListener('mouseleave', () => { el.style.transform = ''; });
+    el.addEventListener('mouseenter', () => this._hoverZoom(true));
+    el.addEventListener('mouseleave', () => this._hoverZoom(false));
+    el.addEventListener('focus', () => this._hoverZoom(true));
+    el.addEventListener('blur', () => this._hoverZoom(false));
 
     document.body.appendChild(el);
     this._startLoop();
+  }
+
+  _applyZoom(on) {
+    this.zoomed = on;
+    this._canvas.style.transform = on ? 'scale(2)' : '';
+  }
+
+  _hoverZoom(on) {
+    if (this._zoomPinned) return;
+    this._applyZoom(on);
+  }
+
+  toggleZoom() {
+    this._zoomPinned = !this._zoomPinned;
+    this._applyZoom(this._zoomPinned);
+    return this._zoomPinned;
   }
 
   setVisible(visible) {

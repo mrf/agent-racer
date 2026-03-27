@@ -459,8 +459,13 @@ document.addEventListener('keydown', (e) => {
       log(`Sound ${muted ? 'muted' : 'unmuted'}`, 'info');
       break;
     case 'n':
-      minimap.toggle();
-      log(`Mini-map ${minimap.visible ? 'shown' : 'hidden'}`, 'info');
+      if (e.shiftKey) {
+        const zoomed = minimap.toggleZoom();
+        log(`Mini-map zoom ${zoomed ? 'on' : 'off'}`, 'info');
+      } else {
+        minimap.toggle();
+        log(`Mini-map ${minimap.visible ? 'shown' : 'hidden'}`, 'info');
+      }
       break;
     case 'f':
       if (!e.shiftKey) break;
