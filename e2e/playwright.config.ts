@@ -19,16 +19,19 @@ export default defineConfig({
     timeout: 60_000,
   },
   projects: [
+    { name: 'chromium', device: 'Desktop Chrome' },
+    { name: 'firefox', device: 'Desktop Firefox' },
+  ].flatMap(({ name, device }) => [
     {
-      name: 'chromium',
+      name,
       testIgnore: /connection-status/,
-      use: { ...devices['Desktop Chrome'] },
+      use: { ...devices[device] },
     },
     {
-      name: 'chromium-connection',
+      name: `${name}-connection`,
       testMatch: /connection-status/,
-      dependencies: ['chromium'],
-      use: { ...devices['Desktop Chrome'] },
+      dependencies: [name],
+      use: { ...devices[device] },
     },
-  ],
+  ]),
 });
