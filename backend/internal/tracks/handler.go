@@ -10,6 +10,71 @@ import (
 	"time"
 )
 
+// Validation limits for track tile data.
+const (
+	maxTrackWidth  = 64
+	maxTrackHeight = 64
+	maxTileCount   = 4096
+	maxNameLength  = 128
+)
+
+// validTileTypes is the set of tile type strings accepted by the server.
+// Empty string represents an empty cell.
+var validTileTypes = map[string]bool{
+	"":            true,
+	"straight-h":  true,
+	"straight-v":  true,
+	"curve-ne":    true,
+	"curve-nw":    true,
+	"curve-se":    true,
+	"curve-sw":    true,
+	"chicane":     true,
+	"pit-entry":   true,
+	"pit-exit":    true,
+	"grandstand":  true,
+	"tree":        true,
+	"barrier":     true,
+	"start-line":  true,
+	"finish-line": true,
+}
+
+// validateTrack checks that the track data is within acceptable bounds.
+// Returns a human-readable error message or "" if valid.
+func validateTrack(t *Track) string {
+	if strings.TrimSpace(t.Name) == "" {
+		return "name is required"
+	}
+	if len(t.Name) > maxNameLength {
+		return fmt.Sprintf("name exceeds maximum length of %d characters", maxNameLength)
+	}
+	if t.Width <= 0 || t.Height <= 0 {
+		return "width and height must be positive"
+	}
+	if t.Width > maxTrackWidth {
+		return fmt.Sprintf("width %d exceeds maximum of %d", t.Width, maxTrackWidth)
+	}
+	if t.Height > maxTrackHeight {
+		return fmt.Sprintf("height %d exceeds maximum of %d", t.Height, maxTrackHeight)
+	}
+	if t.Width*t.Height > maxTileCount {
+		return fmt.Sprintf("tile count %d exceeds maximum of %d", t.Width*t.Height, maxTileCount)
+	}
+	if len(t.Tiles) != t.Height {
+		return fmt.Sprintf("tiles has %d rows but height is %d", len(t.Tiles), t.Height)
+	}
+	for i := 0; i < len(t.Tiles); i++ {
+		if len(t.Tiles[i]) != t.Width {
+			return fmt.Sprintf("row %d has %d columns but width is %d", i, len(t.Tiles[i]), t.Width)
+		}
+		for j := 0; j < len(t.Tiles[i]); j++ {
+			if !validTileTypes[t.Tiles[i][j]] {
+				return fmt.Sprintf("invalid tile type %q at row %d, column %d", t.Tiles[i][j], i, j)
+			}
+		}
+	}
+	return ""
+}
+
 // maxRequestBodySize is the maximum allowed size for JSON request bodies (1 MB).
 const maxRequestBodySize int64 = 1 << 20
 
@@ -130,6 +195,10 @@ func (h *Handler) createTrack(w http.ResponseWriter, r *http.Request) {
 	if !decodeBody(w, r, &t) {
 		return
 	}
+	if msg := validateTrack(&t); msg != "" {
+		http.Error(w, "bad request: "+msg, http.StatusBadRequest)
+		return
+	}
 	if t.ID == "" {
 		t.ID = fmt.Sprintf("track-%d", time.Now().UnixMilli())
 	}
@@ -149,6 +218,10 @@ func (h *Handler) updateTrack(w http.ResponseWriter, r *http.Request, id string)
 	}
 	var t Track
 	if !decodeBody(w, r, &t) {
+		return
+	}
+	if msg := validateTrack(&t); msg != "" {
+		http.Error(w, "bad request: "+msg, http.StatusBadRequest)
 		return
 	}
 	t.ID = id
