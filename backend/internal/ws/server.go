@@ -662,8 +662,12 @@ func writeRateLimitExceeded(w http.ResponseWriter, retryAfter time.Duration) {
 func NewHTTPServer(host string, port int, mux *http.ServeMux) *http.Server {
 	addr := fmt.Sprintf("%s:%d", host, port)
 	return &http.Server{
-		Addr:    addr,
-		Handler: securityHeaders(mux),
+		Addr:              addr,
+		Handler:           securityHeaders(mux),
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 }
 
