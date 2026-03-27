@@ -1,0 +1,16 @@
+{
+  "name": "Agent Racing Dashboard",
+  "short_name": "Agent Racer",
+  "description": "Real-time racing visualization of AI coding agents competing across tasks",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1a1a2e",
+  "theme_color": "#16213e",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
