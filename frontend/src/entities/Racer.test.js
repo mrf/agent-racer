@@ -466,7 +466,7 @@ describe('directory flag rendering', () => {
     expect(racer._getDirectoryFlagLabel()).toBe('feature-fast-flags');
   });
 
-  it('keeps the pennant inside the canvas on narrow viewports', () => {
+  it('allows the pennant to start off-screen left but clamps the right edge', () => {
     const racer = new Racer(makeState({
       name: 'very-long-directory-name-for-session-alpha',
       workingDir: '/tmp/very-long-directory-name-for-session-alpha',
@@ -475,10 +475,11 @@ describe('directory flag rendering', () => {
     const ctx = makeInfoCtx(300, 140);
     const layout = racer._getDirectoryFlagLayout(ctx, 90, 38, racer._getDirectoryFlagLabel());
 
-    expect(layout.flagLeft).toBeGreaterThanOrEqual(6);
+    // Flag may start off-screen left — no left-edge clamp
     expect(layout.flagRight).toBeLessThanOrEqual(294);
     expect(layout.flagTop).toBeGreaterThanOrEqual(6);
-    expect(layout.label).toContain('...');
+    // Full text, no truncation
+    expect(layout.label).not.toContain('...');
   });
 
   it('scales the pennant font up on wider viewports', () => {
