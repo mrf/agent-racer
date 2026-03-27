@@ -991,7 +991,7 @@ func (m *Monitor) maybeEmitHealthEvents(cfg *config.Config, sources []Source, he
 			Status:           status,
 			DiscoverFailures: discoverFailures,
 			ParseFailures:    parseFailures,
-			LastError:        lastErr,
+			LastError:        sanitizeHealthError(lastErr),
 			Timestamp:        now,
 		})
 		if err != nil {
@@ -1027,7 +1027,7 @@ func (m *Monitor) sourceHealthSnapshot() []ws.SourceHealthPayload {
 			Status:           status,
 			DiscoverFailures: discoverFailures,
 			ParseFailures:    parseFailures,
-			LastError:        lastErr,
+			LastError:        sanitizeHealthError(lastErr),
 			Timestamp:        now,
 		})
 	}
