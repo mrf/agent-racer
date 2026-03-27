@@ -257,6 +257,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		}
 		var auth wsAuthMessage
 		if err := json.Unmarshal(msg, &auth); err != nil || auth.Type != "auth" || auth.Token != s.authToken {
+			_ = conn.SetWriteDeadline(time.Now().Add(writeWait))
 			_ = conn.WriteMessage(websocket.CloseMessage,
 				websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "unauthorized"))
 			_ = conn.Close()
