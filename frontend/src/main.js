@@ -37,6 +37,7 @@ const canvas = document.getElementById('race-canvas');
 const trackEditor = new TrackEditor(canvas);
 
 let sessions = new Map();
+const debugEnabled = import.meta.env.DEV || new URLSearchParams(window.location.search).has('debug');
 let debugVisible = false;
 let muted = false;
 let bubblesEnabled = true;
@@ -91,6 +92,10 @@ const battlePassBar = new BattlePassBar(document.getElementById('battlepass-bar'
 const flyout = createFlyout({ detailFlyout, flyoutContent, canvas });
 const tracker = createSessionTracker(engine);
 const shortcutBar = new ShortcutBar(document.getElementById('shortcut-bar'));
+if (!debugEnabled) {
+  debugPanel.remove();
+  shortcutBar.removeShortcut('debug');
+}
 const helpPopup = new HelpPopup();
 let minimap = new Minimap();
 
@@ -166,6 +171,7 @@ async function loadSoundConfig() {
 }
 
 function log(msg, type = '') {
+  if (!debugEnabled) return;
   const entry = document.createElement('div');
   entry.className = `log-entry ${type}`;
   const ts = new Date().toLocaleTimeString();
@@ -391,10 +397,12 @@ detailFlyout.addEventListener('click', (e) => {
   });
 });
 
-debugClose.addEventListener('click', () => {
-  debugPanel.classList.add('hidden');
-  debugVisible = false;
-});
+if (debugEnabled) {
+  debugClose.addEventListener('click', () => {
+    debugPanel.classList.add('hidden');
+    debugVisible = false;
+  });
+}
 
 function updateShortcutHighlights() {
   shortcutBar.setActive('achievements', achievementPanel.isVisible);
@@ -429,6 +437,7 @@ document.addEventListener('keydown', (e) => {
       rewardSelector.toggle();
       break;
     case 'd':
+      if (!debugEnabled) break;
       debugVisible = !debugVisible;
       debugPanel.classList.toggle('hidden', !debugVisible);
       break;

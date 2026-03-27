@@ -67,6 +67,15 @@ export class ShortcutBar {
     if (el) el.classList.toggle('active', active);
   }
 
+  removeShortcut(id) {
+    const el = this.items.get(id);
+    if (el) {
+      this.narrowEls = this.narrowEls.filter(n => !el.contains(n));
+      el.remove();
+      this.items.delete(id);
+    }
+  }
+
   destroy() {
     window.removeEventListener('resize', this._resizeHandler);
   }
