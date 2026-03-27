@@ -7,6 +7,8 @@ import (
 	"io"
 	"log/slog"
 	"os"
+
+	"github.com/agent-racer/backend/internal/jsonl"
 	"path/filepath"
 	"strings"
 	"time"
@@ -105,9 +107,9 @@ func (c *CodexSource) Parse(handle SessionHandle, offset int64) (SourceUpdate, i
 	if err != nil {
 		return SourceUpdate{}, offset, err
 	}
-	if info.Size() > maxFileSize {
-		slog.Warn("skipping oversized file", "source", "codex", "path", handle.LogPath, "size", info.Size(), "limit", maxFileSize)
-		return SourceUpdate{}, offset, fmt.Errorf("file size %d exceeds max %d", info.Size(), maxFileSize)
+	if info.Size() > jsonl.MaxFileSize {
+		slog.Warn("skipping oversized file", "source", "codex", "path", handle.LogPath, "size", info.Size(), "limit", jsonl.MaxFileSize)
+		return SourceUpdate{}, offset, fmt.Errorf("file size %d exceeds max %d", info.Size(), jsonl.MaxFileSize)
 	}
 
 	if offset > 0 {
@@ -145,7 +147,7 @@ func (c *CodexSource) Parse(handle SessionHandle, offset int64) (SourceUpdate, i
 		}
 
 		// Skip oversized lines to prevent excessive memory use during JSON parsing.
-		if len(line) > maxLineLength {
+		if len(line) > jsonl.MaxLineLength {
 			slog.Warn("skipping oversized line", "source", "codex", "bytes", len(line), "path", handle.LogPath, "offset", parsedOffset)
 			parsedOffset += int64(len(line))
 			if err == io.EOF {

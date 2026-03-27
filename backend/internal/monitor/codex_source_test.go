@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/agent-racer/backend/internal/jsonl"
 )
 
 func TestCodexSourceName(t *testing.T) {
@@ -468,7 +470,7 @@ func TestCodexSourceParseRejectsOversizedFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "rollout-huge.jsonl")
 
-	// Create a sparse file exceeding maxFileSize via Truncate rather than
+	// Create a sparse file exceeding jsonl.MaxFileSize via Truncate rather than
 	// allocating 500MB in memory.
 	f, err := os.Create(path)
 	if err != nil {
@@ -479,7 +481,7 @@ func TestCodexSourceParseRejectsOversizedFile(t *testing.T) {
 		_ = f.Close()
 		t.Fatal(err)
 	}
-	if err := f.Truncate(maxFileSize + 1); err != nil {
+	if err := f.Truncate(jsonl.MaxFileSize + 1); err != nil {
 		_ = f.Close()
 		t.Fatal(err)
 	}
@@ -501,9 +503,9 @@ func TestCodexSourceParseSkipsOversizedLine(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "rollout-bigline.jsonl")
 
-	// Build a line whose JSON payload exceeds maxLineLength.
+	// Build a line whose JSON payload exceeds jsonl.MaxLineLength.
 	// We embed a huge string in a valid JSON envelope so the line ends with \n.
-	bigValue := strings.Repeat("x", maxLineLength+10)
+	bigValue := strings.Repeat("x", jsonl.MaxLineLength+10)
 	oversizedLine := fmt.Sprintf(`{"type":"response_item","payload":{"type":"message","text":%q}}`+"\n", bigValue)
 
 	normalLine := `{"type":"session_meta","payload":{"session_id":"bigline-test","model":"o3"}}` + "\n"
