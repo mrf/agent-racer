@@ -27,6 +27,13 @@ import (
 // session name contains only safe characters and window/pane are integers.
 var validTmuxTarget = regexp.MustCompile(`^[a-zA-Z0-9_.-]+:\d+\.\d+$`)
 
+const (
+	// maxRequestBodySize is the maximum allowed size for JSON request bodies (1 MB).
+	maxRequestBodySize int64 = 1 << 20
+	// maxWSAuthMessageSize is the maximum allowed size for the WebSocket auth message (4 KB).
+	maxWSAuthMessageSize int64 = 4 << 10
+)
+
 // tmuxFocusSession switches to the tmux pane identified by target (e.g. "main:2.0").
 func tmuxFocusSession(target string) error {
 	if !validTmuxTarget.MatchString(target) {
@@ -224,6 +231,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.authToken != "" {
+		conn.SetReadLimit(maxWSAuthMessageSize)
 		_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 		_, msg, err := conn.ReadMessage()
 		_ = conn.SetReadDeadline(time.Time{})
@@ -412,8 +420,7 @@ func (s *Server) handleEquip(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req equipRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+	if !decodeBody(w, r, &req) {
 		return
 	}
 	if req.RewardID == "" {
@@ -486,8 +493,7 @@ func (s *Server) handleUnequip(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req unequipRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+	if !decodeBody(w, r, &req) {
 		return
 	}
 	if req.Slot == "" {
@@ -738,6 +744,22 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("Permissions-Policy", permissionsPolicy)
 		next.ServeHTTP(w, r)
 	})
+}
+
+// decodeBody applies a MaxBytesReader limit, decodes JSON into dst, and writes
+// the appropriate HTTP error response on failure. Returns true on success.
+func decodeBody(w http.ResponseWriter, r *http.Request, dst interface{}) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
+	if err := json.NewDecoder(r.Body).Decode(dst); err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+		} else {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+		}
+		return false
+	}
+	return true
 }
 
 func writeRateLimitExceeded(w http.ResponseWriter, retryAfter time.Duration) {

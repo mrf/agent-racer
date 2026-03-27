@@ -3,11 +3,15 @@ package tracks
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
 )
+
+// maxRequestBodySize is the maximum allowed size for JSON request bodies (1 MB).
+const maxRequestBodySize int64 = 1 << 20
 
 // Handler handles /api/tracks and /api/tracks/{id} routes.
 type Handler struct {
@@ -56,6 +60,22 @@ func writeJSON(w http.ResponseWriter, v any) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(buf.Bytes())
+}
+
+// decodeBody applies a MaxBytesReader limit, decodes JSON into dst, and writes
+// the appropriate HTTP error response on failure. Returns true on success.
+func decodeBody(w http.ResponseWriter, r *http.Request, dst interface{}) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
+	if err := json.NewDecoder(r.Body).Decode(dst); err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+		} else {
+			http.Error(w, "bad request: "+err.Error(), http.StatusBadRequest)
+		}
+		return false
+	}
+	return true
 }
 
 var presetIDs = func() map[string]bool {
@@ -107,8 +127,7 @@ func (h *Handler) getTrack(w http.ResponseWriter, r *http.Request, id string) {
 
 func (h *Handler) createTrack(w http.ResponseWriter, r *http.Request) {
 	var t Track
-	if err := json.NewDecoder(r.Body).Decode(&t); err != nil {
-		http.Error(w, "bad request: "+err.Error(), http.StatusBadRequest)
+	if !decodeBody(w, r, &t) {
 		return
 	}
 	if t.ID == "" {
@@ -129,8 +148,7 @@ func (h *Handler) updateTrack(w http.ResponseWriter, r *http.Request, id string)
 		return
 	}
 	var t Track
-	if err := json.NewDecoder(r.Body).Decode(&t); err != nil {
-		http.Error(w, "bad request: "+err.Error(), http.StatusBadRequest)
+	if !decodeBody(w, r, &t) {
 		return
 	}
 	t.ID = id
