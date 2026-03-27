@@ -61,6 +61,12 @@ afterEach(() => {
 });
 
 describe('BattlePassBar', () => {
+  function createBarWithConfettiMock() {
+    const bar = new BattlePassBar(container);
+    vi.spyOn(bar, 'spawnConfetti').mockImplementation(() => {});
+    return bar;
+  }
+
   describe('DOM construction', () => {
     it('builds collapsed row and expanded panel', () => {
       const bar = new BattlePassBar(container);
@@ -161,12 +167,6 @@ describe('BattlePassBar', () => {
   });
 
   describe('onProgress', () => {
-    function createBarWithConfettiMock() {
-      const bar = new BattlePassBar(container);
-      vi.spyOn(bar, 'spawnConfetti').mockImplementation(() => {});
-      return bar;
-    }
-
     it('updates state from progress payload', () => {
       const bar = createBarWithConfettiMock();
 
@@ -364,12 +364,6 @@ describe('BattlePassBar', () => {
   });
 
   describe('playTierUpCelebration', () => {
-    function createBarWithConfettiMock() {
-      const bar = new BattlePassBar(container);
-      vi.spyOn(bar, 'spawnConfetti').mockImplementation(() => {});
-      return bar;
-    }
-
     it('adds tier-up flash class to collapsed row', () => {
       const bar = createBarWithConfettiMock();
       bar.playTierUpCelebration();
@@ -449,6 +443,56 @@ describe('BattlePassBar', () => {
       const amounts = bar.xpLogSection.querySelectorAll('.xp-amount');
       expect(amounts[0].textContent).toBe('+50');
       expect(amounts[1].textContent).toBe('+25');
+    });
+  });
+
+  describe('destroy', () => {
+    it('cancels pending confetti animation frame', () => {
+      const cancelSpy = vi.spyOn(globalThis, 'cancelAnimationFrame');
+      const bar = new BattlePassBar(container);
+      bar._confettiRaf = 42;
+
+      bar.destroy();
+
+      expect(cancelSpy).toHaveBeenCalledWith(42);
+      expect(bar._confettiRaf).toBeNull();
+    });
+
+    it('does not call cancelAnimationFrame when no confetti is active', () => {
+      const cancelSpy = vi.spyOn(globalThis, 'cancelAnimationFrame');
+      const bar = new BattlePassBar(container);
+
+      bar.destroy();
+
+      expect(cancelSpy).not.toHaveBeenCalled();
+    });
+
+    it('clears toast and tier-up timers', () => {
+      const clearSpy = vi.spyOn(globalThis, 'clearTimeout');
+      const bar = new BattlePassBar(container);
+      bar.showXPToast([{ amount: 50, reason: 'test' }]);
+
+      vi.spyOn(bar, 'spawnConfetti').mockImplementation(() => {});
+      bar.playTierUpCelebration();
+
+      const savedToastTimer = bar.toastTimer;
+      const savedTierUpTimer = bar.tierUpTimer;
+
+      clearSpy.mockClear();
+      bar.destroy();
+
+      expect(clearSpy).toHaveBeenCalledWith(savedToastTimer);
+      expect(clearSpy).toHaveBeenCalledWith(savedTierUpTimer);
+      expect(bar.toastTimer).toBeNull();
+      expect(bar.tierUpTimer).toBeNull();
+    });
+
+    it('is safe to call multiple times', () => {
+      const bar = new BattlePassBar(container);
+      bar._confettiRaf = 42;
+
+      bar.destroy();
+      expect(() => bar.destroy()).not.toThrow();
     });
   });
 

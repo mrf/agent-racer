@@ -39,6 +39,8 @@ export class BattlePassBar {
     this.expanded = false;
     this.toastTimer = null;
     this.tierUpTimer = null;
+    this._confettiRaf = null;
+    this._confettiCanvas = null;
 
     this.buildDOM();
     this.loadInitialData();
@@ -232,6 +234,7 @@ export class BattlePassBar {
     canvas.style.left = '0';
     canvas.style.top = `${badgeRect.bottom - containerRect.top}px`;
     this.container.appendChild(canvas);
+    this._confettiCanvas = canvas;
 
     const ctx = canvas.getContext('2d');
     const originX = badgeRect.left - containerRect.left + badgeRect.width / 2;
@@ -277,12 +280,14 @@ export class BattlePassBar {
       }
 
       if (alive) {
-        requestAnimationFrame(animate);
+        this._confettiRaf = requestAnimationFrame(animate);
       } else {
+        this._confettiRaf = null;
+        this._confettiCanvas = null;
         canvas.remove();
       }
     };
-    requestAnimationFrame(animate);
+    this._confettiRaf = requestAnimationFrame(animate);
   }
 
   toggleExpanded() {
@@ -291,6 +296,21 @@ export class BattlePassBar {
     if (this.expanded) {
       this.renderExpanded();
     }
+  }
+
+  destroy() {
+    if (this._confettiRaf != null) {
+      cancelAnimationFrame(this._confettiRaf);
+      this._confettiRaf = null;
+    }
+    if (this._confettiCanvas) {
+      this._confettiCanvas.remove();
+      this._confettiCanvas = null;
+    }
+    clearTimeout(this.toastTimer);
+    clearTimeout(this.tierUpTimer);
+    this.toastTimer = null;
+    this.tierUpTimer = null;
   }
 
   render() {
