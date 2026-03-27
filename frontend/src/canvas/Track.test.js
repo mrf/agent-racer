@@ -686,10 +686,10 @@ describe('Track', () => {
       track.drawParkingLot(ctx, CANVAS_W, CANVAS_H, LANE_COUNT, 2, 2);
 
       expect(ctx.fillText).toHaveBeenCalledWith('PARKED', expect.any(Number), expect.any(Number));
-      expect(ctx._fillRectCalls.map(call => call.fillStyle)).toContain('rgba(45, 72, 118, 0.22)');
-      expect(ctx._fillRectCalls.map(call => call.fillStyle)).toContain('rgba(22, 32, 48, 0.96)');
+      expect(ctx._fillRectCalls.map(call => call.fillStyle)).toContain('rgba(45, 72, 118, 0.12)');
+      expect(ctx._fillRectCalls.map(call => call.fillStyle)).toContain('rgba(22, 32, 48, 0.8)');
       expect(ctx._strokeRectCalls).toContainEqual(
-        expect.objectContaining({ strokeStyle: '#6f9cd4', lineWidth: 1.5, lineDash: [8, 6] }),
+        expect.objectContaining({ strokeStyle: 'rgba(111, 156, 212, 0.5)', lineWidth: 1, lineDash: [8, 6] }),
       );
     });
   });

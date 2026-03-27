@@ -478,14 +478,14 @@ export class FootraceTrack {
     const lotBounds = this.getParkingLotBounds(canvasWidth, canvasHeight, activeLaneCount, pitLaneCount, parkingLotLaneCount);
 
     this._drawAreaSurface(ctx, lotBounds, parkingLotLaneCount, {
-      bg: '#1e3a1b',
-      gradientEdge: '#264a22',
-      gradientMid: '#1e3a1b',
-      border: '#4a6a46',
+      bg: 'rgba(30, 58, 27, 0.4)',
+      gradientEdge: 'rgba(38, 74, 34, 0.4)',
+      gradientMid: 'rgba(30, 58, 27, 0.3)',
+      border: 'rgba(74, 106, 70, 0.5)',
       borderDash: [6, 8],
       label: 'FINISH',
-      labelColor: '#4a6a46',
-      divider: '#2a4a26',
+      labelColor: 'rgba(74, 106, 70, 0.7)',
+      divider: 'rgba(42, 74, 38, 0.4)',
     });
 
     return lotBounds;
