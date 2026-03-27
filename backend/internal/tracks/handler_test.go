@@ -49,7 +49,7 @@ func TestListTracksReturnsPresetsWhenStoreEmpty(t *testing.T) {
 
 func TestListTracksIncludesUserTracks(t *testing.T) {
 	h := newTestHandler(t)
-	body := `{"id":"user-track","name":"My Track","width":4,"height":4,"tiles":[["road","road","road","road"],["road","road","road","road"],["road","road","road","road"],["road","road","road","road"]]}`
+	body := `{"id":"user-track","name":"My Track","width":4,"height":4,"tiles":[["straight-h","straight-h","straight-h","straight-h"],["straight-h","straight-h","straight-h","straight-h"],["straight-h","straight-h","straight-h","straight-h"],["straight-h","straight-h","straight-h","straight-h"]]}`
 	w := doRequest(h, http.MethodPost, "/api/tracks", body)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("POST status = %d, want %d", w.Code, http.StatusCreated)
@@ -78,7 +78,7 @@ func TestListTracksIncludesUserTracks(t *testing.T) {
 
 func TestCreateTrackReturns201(t *testing.T) {
 	h := newTestHandler(t)
-	body := `{"id":"new-track","name":"New","width":2,"height":2,"tiles":[["road","road"],["road","road"]]}`
+	body := `{"id":"new-track","name":"New","width":2,"height":2,"tiles":[["straight-h","straight-h"],["straight-h","straight-h"]]}`
 	w := doRequest(h, http.MethodPost, "/api/tracks", body)
 
 	if w.Code != http.StatusCreated {
@@ -101,7 +101,7 @@ func TestCreateTrackReturns201(t *testing.T) {
 
 func TestCreateTrackAutoGeneratesID(t *testing.T) {
 	h := newTestHandler(t)
-	body := `{"name":"No ID","width":2,"height":2,"tiles":[["road","road"],["road","road"]]}`
+	body := `{"name":"No ID","width":2,"height":2,"tiles":[["straight-h","straight-h"],["straight-h","straight-h"]]}`
 	w := doRequest(h, http.MethodPost, "/api/tracks", body)
 
 	if w.Code != http.StatusCreated {
@@ -131,7 +131,7 @@ func TestCreateTrackBadJSON(t *testing.T) {
 
 func TestGetTrackReturnsUserTrack(t *testing.T) {
 	h := newTestHandler(t)
-	body := `{"id":"get-me","name":"Get Me","width":2,"height":2,"tiles":[["road","road"],["road","road"]]}`
+	body := `{"id":"get-me","name":"Get Me","width":2,"height":2,"tiles":[["straight-h","straight-h"],["straight-h","straight-h"]]}`
 	doRequest(h, http.MethodPost, "/api/tracks", body)
 
 	w := doRequest(h, http.MethodGet, "/api/tracks/get-me", "")
@@ -176,10 +176,10 @@ func TestGetTrackNotFound(t *testing.T) {
 
 func TestUpdateTrack(t *testing.T) {
 	h := newTestHandler(t)
-	body := `{"id":"upd","name":"Original","width":2,"height":2,"tiles":[["road","road"],["road","road"]]}`
+	body := `{"id":"upd","name":"Original","width":2,"height":2,"tiles":[["straight-h","straight-h"],["straight-h","straight-h"]]}`
 	doRequest(h, http.MethodPost, "/api/tracks", body)
 
-	updated := `{"name":"Updated","width":2,"height":2,"tiles":[["sand","sand"],["sand","sand"]]}`
+	updated := `{"name":"Updated","width":2,"height":2,"tiles":[["tree","tree"],["tree","tree"]]}`
 	w := doRequest(h, http.MethodPut, "/api/tracks/upd", updated)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
@@ -210,7 +210,7 @@ func TestUpdatePresetTrackForbidden(t *testing.T) {
 
 func TestUpdateTrackBadJSON(t *testing.T) {
 	h := newTestHandler(t)
-	body := `{"id":"upd2","name":"X","width":2,"height":2,"tiles":[["road","road"],["road","road"]]}`
+	body := `{"id":"upd2","name":"X","width":2,"height":2,"tiles":[["straight-h","straight-h"],["straight-h","straight-h"]]}`
 	doRequest(h, http.MethodPost, "/api/tracks", body)
 
 	w := doRequest(h, http.MethodPut, "/api/tracks/upd2", "not-json")
@@ -221,7 +221,7 @@ func TestUpdateTrackBadJSON(t *testing.T) {
 
 func TestDeleteTrack(t *testing.T) {
 	h := newTestHandler(t)
-	body := `{"id":"del-me","name":"Delete","width":2,"height":2,"tiles":[["road","road"],["road","road"]]}`
+	body := `{"id":"del-me","name":"Delete","width":2,"height":2,"tiles":[["straight-h","straight-h"],["straight-h","straight-h"]]}`
 	doRequest(h, http.MethodPost, "/api/tracks", body)
 
 	w := doRequest(h, http.MethodDelete, "/api/tracks/del-me", "")
@@ -276,6 +276,64 @@ func TestResourceMethodNotAllowed(t *testing.T) {
 		if w.Code != http.StatusMethodNotAllowed {
 			t.Fatalf("%s /api/tracks/some-id: status = %d, want %d", methods[i], w.Code, http.StatusMethodNotAllowed)
 		}
+	}
+}
+
+// --- Track validation ---
+
+func TestCreateTrackValidationRejects(t *testing.T) {
+	longName := strings.Repeat("a", 129)
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"empty name", `{"name":"","width":2,"height":2,"tiles":[["",""],["",""]]}`},
+		{"long name", `{"name":"` + longName + `","width":2,"height":2,"tiles":[["",""],["",""]]}`},
+		{"zero width", `{"name":"Zero","width":0,"height":2,"tiles":[]}`},
+		{"oversized width", `{"name":"Big","width":100,"height":2,"tiles":[[],[]]}`},
+		{"oversized height", `{"name":"Tall","width":2,"height":100,"tiles":[[],[]]}`},
+		{"excessive tile count", `{"name":"Huge","width":65,"height":64,"tiles":[]}`},
+		{"mismatched rows", `{"name":"Bad","width":2,"height":2,"tiles":[["",""],["",""],["",""]]}`},
+		{"mismatched columns", `{"name":"Bad","width":2,"height":2,"tiles":[["","",""],["",""]]}`},
+		{"invalid tile type", `{"name":"Bad","width":2,"height":2,"tiles":[["straight-h","bogus"],["",""]]}`},
+	}
+	for i := 0; i < len(cases); i++ {
+		tc := cases[i]
+		t.Run(tc.name, func(t *testing.T) {
+			h := newTestHandler(t)
+			w := doRequest(h, http.MethodPost, "/api/tracks", tc.body)
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
+			}
+		})
+	}
+}
+
+func TestCreateTrackAcceptsAllValidTileTypes(t *testing.T) {
+	h := newTestHandler(t)
+	// All 14 non-empty tile types + 1 empty = 15 cells in a 5x3 grid.
+	body := `{"name":"All Tiles","width":5,"height":3,"tiles":[` +
+		`["straight-h","straight-v","curve-ne","curve-nw","curve-se"],` +
+		`["curve-sw","chicane","pit-entry","pit-exit","grandstand"],` +
+		`["tree","barrier","start-line","finish-line",""]]}`
+	w := doRequest(h, http.MethodPost, "/api/tracks", body)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d; body = %s", w.Code, http.StatusCreated, w.Body.String())
+	}
+}
+
+func TestUpdateTrackValidation(t *testing.T) {
+	h := newTestHandler(t)
+	create := `{"id":"val-upd","name":"Valid","width":2,"height":2,"tiles":[["",""],["",""]]}`
+	w := doRequest(h, http.MethodPost, "/api/tracks", create)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("POST status = %d, want %d", w.Code, http.StatusCreated)
+	}
+
+	update := `{"name":"Updated","width":2,"height":2,"tiles":[["nope",""],["",""]]}`
+	w = doRequest(h, http.MethodPut, "/api/tracks/val-upd", update)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("PUT status = %d, want %d", w.Code, http.StatusBadRequest)
 	}
 }
 
