@@ -588,7 +588,7 @@ func (s *Server) handleTail(w http.ResponseWriter, r *http.Request, sessionID st
 	}
 
 	if err := session.ValidateLogPath(state.LogPath); err != nil {
-		log.Printf("tail: invalid log path for session %s: %v", sessionID, err)
+		slog.Warn("tail: invalid log path", "session", sessionID, "error", err)
 		http.Error(w, "invalid log path", http.StatusForbidden)
 		return
 	}
