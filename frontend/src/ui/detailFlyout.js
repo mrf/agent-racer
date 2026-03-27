@@ -163,6 +163,7 @@ export function createFlyout({ detailFlyout, flyoutContent, canvas }) {
   let flyoutCurrentY = null;
 
   function positionFlyout(carX, carY) {
+    if (!isVisible()) return;
     const canvasRect = canvas.getBoundingClientRect();
     const margin = 50;
     const padding = 10;
