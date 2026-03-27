@@ -1,6 +1,7 @@
 package session
 
 import (
+	"regexp"
 	"testing"
 )
 
@@ -102,10 +103,6 @@ func TestPrivacyFilter_Apply(t *testing.T) {
 		result := f.Apply(original)
 		if result.WorkingDir != "myproject" {
 			t.Errorf("expected WorkingDir = %q, got %q", "myproject", result.WorkingDir)
-		}
-		// Original unchanged
-		if original.WorkingDir != "/home/user/projects/myproject" {
-			t.Error("original was modified")
 		}
 	})
 
@@ -225,26 +222,29 @@ func TestPrivacyFilter_FilterSlice_AllowAndBlock(t *testing.T) {
 }
 
 func TestPrivacyFilter_IsNoop(t *testing.T) {
-	t.Run("zero value is noop", func(t *testing.T) {
-		f := &PrivacyFilter{}
-		if !f.IsNoop() {
-			t.Error("zero value filter should be noop")
-		}
-	})
+	f := &PrivacyFilter{}
+	if !f.IsNoop() {
+		t.Error("zero value filter should be noop")
+	}
 
-	t.Run("with masking is not noop", func(t *testing.T) {
-		f := &PrivacyFilter{MaskPIDs: true}
-		if f.IsNoop() {
-			t.Error("filter with masking should not be noop")
-		}
-	})
-
-	t.Run("with paths is not noop", func(t *testing.T) {
-		f := &PrivacyFilter{AllowedPaths: []string{"/foo/*"}}
-		if f.IsNoop() {
-			t.Error("filter with allowed paths should not be noop")
-		}
-	})
+	notNoop := []struct {
+		name   string
+		filter PrivacyFilter
+	}{
+		{"MaskWorkingDirs", PrivacyFilter{MaskWorkingDirs: true}},
+		{"MaskSessionIDs", PrivacyFilter{MaskSessionIDs: true}},
+		{"MaskPIDs", PrivacyFilter{MaskPIDs: true}},
+		{"MaskTmuxTargets", PrivacyFilter{MaskTmuxTargets: true}},
+		{"AllowedPaths", PrivacyFilter{AllowedPaths: []string{"/foo"}}},
+		{"BlockedPaths", PrivacyFilter{BlockedPaths: []string{"/bar"}}},
+	}
+	for _, tt := range notNoop {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.filter.IsNoop() {
+				t.Errorf("filter with %s set should not be noop", tt.name)
+			}
+		})
+	}
 }
 
 func TestMatchPathOrParent_WindowsPaths(t *testing.T) {
@@ -320,11 +320,6 @@ func TestPrivacyFilter_Apply_MaskWorkingDirs_SubagentsUnaffected(t *testing.T) {
 	if len(result.Subagents) != len(original.Subagents) {
 		t.Errorf("subagent count changed: got %d, want %d", len(result.Subagents), len(original.Subagents))
 	}
-
-	// Original must not be modified.
-	if original.WorkingDir != "/home/user/secret/project" {
-		t.Error("original WorkingDir was modified")
-	}
 }
 
 func TestPrivacyFilter_Apply_MaskSessionIDs_MasksSubagentSessionID(t *testing.T) {
@@ -356,16 +351,9 @@ func TestPrivacyFilter_Apply_MaskSessionIDs_MasksSubagentSessionID(t *testing.T)
 			t.Errorf("subagent SessionID %q should match masked parent ID %q", sa.SessionID, result.ID)
 		}
 	}
-
-	// Original must not be modified.
-	for _, sa := range original.Subagents {
-		if sa.SessionID != "claude:abc123" {
-			t.Errorf("original subagent SessionID was modified: got %q", sa.SessionID)
-		}
-	}
 }
 
-func TestShortHash_Deterministic(t *testing.T) {
+func TestShortHash(t *testing.T) {
 	a := shortHash("claude:abc123")
 	b := shortHash("claude:abc123")
 	if a != b {
@@ -375,5 +363,202 @@ func TestShortHash_Deterministic(t *testing.T) {
 	c := shortHash("claude:different")
 	if a == c {
 		t.Error("different inputs should produce different hashes")
+	}
+
+	if !regexp.MustCompile(`^[0-9a-f]{12}$`).MatchString(a) {
+		t.Errorf("expected 12-char lowercase hex string, got %q", a)
+	}
+}
+
+func TestPrivacyFilter_Apply_EmptyFields(t *testing.T) {
+	t.Run("empty WorkingDir stays empty when masked", func(t *testing.T) {
+		s := &SessionState{ID: "claude:1", WorkingDir: ""}
+		f := &PrivacyFilter{MaskWorkingDirs: true}
+		result := f.Apply(s)
+		if result.WorkingDir != "" {
+			t.Errorf("expected empty WorkingDir, got %q", result.WorkingDir)
+		}
+	})
+
+	t.Run("empty ID stays empty when masked", func(t *testing.T) {
+		s := &SessionState{ID: "", WorkingDir: "/home/user/project"}
+		f := &PrivacyFilter{MaskSessionIDs: true}
+		result := f.Apply(s)
+		if result.ID != "" {
+			t.Errorf("expected empty ID, got %q", result.ID)
+		}
+	})
+}
+
+func TestPrivacyFilter_Apply_OriginalUnmodified(t *testing.T) {
+	original := &SessionState{
+		ID:         "claude:abc123",
+		WorkingDir: "/home/user/projects/myproject",
+		PID:        42,
+		TmuxTarget: "main:1.0",
+		Subagents: []SubagentState{
+			{ID: "toolu_01", SessionID: "claude:sub1", Slug: "worker"},
+		},
+	}
+
+	f := &PrivacyFilter{
+		MaskWorkingDirs: true,
+		MaskSessionIDs:  true,
+		MaskPIDs:        true,
+		MaskTmuxTargets: true,
+	}
+	_ = f.Apply(original)
+
+	if original.ID != "claude:abc123" {
+		t.Errorf("original ID modified: %q", original.ID)
+	}
+	if original.WorkingDir != "/home/user/projects/myproject" {
+		t.Errorf("original WorkingDir modified: %q", original.WorkingDir)
+	}
+	if original.PID != 42 {
+		t.Errorf("original PID modified: %d", original.PID)
+	}
+	if original.TmuxTarget != "main:1.0" {
+		t.Errorf("original TmuxTarget modified: %q", original.TmuxTarget)
+	}
+	if original.Subagents[0].SessionID != "claude:sub1" {
+		t.Errorf("original subagent SessionID modified: %q", original.Subagents[0].SessionID)
+	}
+}
+
+func TestPrivacyFilter_Apply_SubagentEmptySessionID(t *testing.T) {
+	s := &SessionState{
+		ID: "claude:abc123",
+		Subagents: []SubagentState{
+			{ID: "toolu_01", SessionID: "", Slug: "no-session"},
+			{ID: "toolu_02", SessionID: "claude:abc123", Slug: "has-session"},
+		},
+	}
+
+	f := &PrivacyFilter{MaskSessionIDs: true}
+	result := f.Apply(s)
+
+	if result.Subagents[0].SessionID != "" {
+		t.Errorf("empty subagent SessionID should stay empty, got %q", result.Subagents[0].SessionID)
+	}
+	if result.Subagents[1].SessionID == "claude:abc123" {
+		t.Error("non-empty subagent SessionID should be masked")
+	}
+}
+
+func TestPrivacyFilter_Apply_NoSubagents(t *testing.T) {
+	s := &SessionState{ID: "claude:abc123", Subagents: nil}
+	f := &PrivacyFilter{MaskSessionIDs: true}
+	result := f.Apply(s)
+
+	if result.Subagents != nil {
+		t.Errorf("expected nil subagents, got %v", result.Subagents)
+	}
+	if result.ID == "claude:abc123" {
+		t.Error("ID should still be masked")
+	}
+}
+
+func TestPrivacyFilter_Apply_NonSensitiveFieldsPreserved(t *testing.T) {
+	s := &SessionState{
+		ID:           "claude:abc123",
+		Name:         "my-project",
+		Source:       "claude",
+		Activity:     Thinking,
+		TokensUsed:   5000,
+		Model:        "opus",
+		WorkingDir:   "/home/user/project",
+		MessageCount: 10,
+		PID:          999,
+		TmuxTarget:   "dev:0.1",
+	}
+
+	f := &PrivacyFilter{
+		MaskWorkingDirs: true,
+		MaskSessionIDs:  true,
+		MaskPIDs:        true,
+		MaskTmuxTargets: true,
+	}
+	result := f.Apply(s)
+
+	// Non-sensitive fields must pass through unchanged.
+	if result.Name != "my-project" {
+		t.Errorf("Name changed: %q", result.Name)
+	}
+	if result.Source != "claude" {
+		t.Errorf("Source changed: %q", result.Source)
+	}
+	if result.Activity != Thinking {
+		t.Errorf("Activity changed: %v", result.Activity)
+	}
+	if result.TokensUsed != 5000 {
+		t.Errorf("TokensUsed changed: %d", result.TokensUsed)
+	}
+	if result.Model != "opus" {
+		t.Errorf("Model changed: %q", result.Model)
+	}
+	if result.MessageCount != 10 {
+		t.Errorf("MessageCount changed: %d", result.MessageCount)
+	}
+}
+
+func TestPrivacyFilter_FilterSlice_Empty(t *testing.T) {
+	f := &PrivacyFilter{MaskPIDs: true}
+	result := f.FilterSlice(nil)
+	if len(result) != 0 {
+		t.Errorf("expected empty result, got %d", len(result))
+	}
+
+	result = f.FilterSlice([]*SessionState{})
+	if len(result) != 0 {
+		t.Errorf("expected empty result for empty slice, got %d", len(result))
+	}
+}
+
+func TestPrivacyFilter_FilterSlice_AllBlocked(t *testing.T) {
+	sessions := []*SessionState{
+		{ID: "claude:1", WorkingDir: "/tmp/a"},
+		{ID: "claude:2", WorkingDir: "/tmp/b"},
+	}
+
+	f := &PrivacyFilter{BlockedPaths: []string{"/tmp/*"}}
+	result := f.FilterSlice(sessions)
+	if len(result) != 0 {
+		t.Errorf("expected 0 sessions, got %d", len(result))
+	}
+}
+
+func TestPrivacyFilter_FilterSlice_OriginalUnmodified(t *testing.T) {
+	sessions := []*SessionState{
+		{ID: "claude:1", WorkingDir: "/home/user/project", PID: 100},
+		{ID: "claude:2", WorkingDir: "/tmp/scratch", PID: 200},
+	}
+
+	f := &PrivacyFilter{MaskPIDs: true, BlockedPaths: []string{"/tmp/*"}}
+	_ = f.FilterSlice(sessions)
+
+	if len(sessions) != 2 {
+		t.Fatalf("original slice length changed: %d", len(sessions))
+	}
+	if sessions[0].PID != 100 {
+		t.Errorf("original session PID modified: %d", sessions[0].PID)
+	}
+	if sessions[1].WorkingDir != "/tmp/scratch" {
+		t.Errorf("original blocked session modified: %q", sessions[1].WorkingDir)
+	}
+}
+
+func TestPrivacyFilter_FilterSlice_EmptyWorkingDirAllowed(t *testing.T) {
+	sessions := []*SessionState{
+		{ID: "claude:1", WorkingDir: ""},
+		{ID: "claude:2", WorkingDir: "/allowed/project"},
+	}
+
+	f := &PrivacyFilter{AllowedPaths: []string{"/allowed/*"}}
+	result := f.FilterSlice(sessions)
+
+	// Empty WorkingDir is always allowed per IsAllowed contract.
+	if len(result) != 2 {
+		t.Fatalf("expected 2 sessions (empty dir always allowed), got %d", len(result))
 	}
 }
