@@ -796,11 +796,14 @@ func TestPollRemovedSessionResumesAfterStaleCleanup(t *testing.T) {
 		t.Fatal("session should be in removedKeys after removal")
 	}
 
-	// Wait for stale threshold to pass. Before the fix, this would
-	// cause the tracked entry to be deleted (session not in store +
-	// stale = cleanup). After the fix, tracked is preserved because
-	// the key is in removedKeys and the file is still discovered.
-	time.Sleep(cfg.Monitor.SessionStaleAfter + 100*time.Millisecond)
+	// Simulate stale threshold passing by backdating lastDataTime.
+	// Before the fix, stale detection would delete the tracked entry
+	// (session not in store + stale = cleanup). After the fix,
+	// tracked is preserved because the key is in removedKeys and the
+	// file is still discovered.
+	ts := m.tracked[key]
+	ts.lastDataTime = time.Now().Add(-2 * cfg.Monitor.SessionStaleAfter)
+	m.tracked[key] = ts
 	m.poll()
 
 	// The tracked entry must survive for resume detection.
