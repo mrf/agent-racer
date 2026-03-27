@@ -40,6 +40,8 @@ export class RaceCanvas extends BaseCanvas {
       entityHitType: 'racer',
       backgroundColor: '#1a1a2e',
       emptyStateColor: '#666',
+      emptyStateText: 'No active sessions detected',
+      emptyStateSubtext: 'Start a session to see it race',
       isInsideEntityHitbox: isInsideHitbox,
       isInsideHamsterHitbox,
     });

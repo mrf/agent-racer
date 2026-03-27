@@ -579,8 +579,8 @@ describe('FootraceCanvas', () => {
       fc.setConnected(true);
       fc.draw();
       const calls = fc.ctx.fillText.mock.calls.map(c => c[0]);
-      expect(calls).toContain('No active Claude sessions detected');
-      expect(calls).toContain('Start a Claude Code session to see it race');
+      expect(calls).toContain('No active sessions detected');
+      expect(calls).toContain('Start a session to see them run');
     });
 
     it('does not render empty state message when sessions exist', () => {
@@ -588,14 +588,14 @@ describe('FootraceCanvas', () => {
       fc.setAllRacers([makeState({ id: 'a' })]);
       fc.draw();
       const calls = fc.ctx.fillText.mock.calls.map(c => c[0]);
-      expect(calls).not.toContain('No active Claude sessions detected');
+      expect(calls).not.toContain('No active sessions detected');
     });
 
     it('does not render empty state message when disconnected', () => {
       fc.setConnected(false);
       fc.draw();
       const calls = fc.ctx.fillText.mock.calls.map(c => c[0]);
-      expect(calls).not.toContain('No active Claude sessions detected');
+      expect(calls).not.toContain('No active sessions detected');
     });
 
     it('renders dashboard when space is available below track', () => {

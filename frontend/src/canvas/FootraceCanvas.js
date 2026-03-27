@@ -33,6 +33,8 @@ export class FootraceCanvas extends BaseCanvas {
       entityHitType: 'character',
       backgroundColor: '#1a2e1a',
       emptyStateColor: '#8a8',
+      emptyStateText: 'No active sessions detected',
+      emptyStateSubtext: 'Start a session to see them run',
       isInsideEntityHitbox: isInsideHitbox,
       isInsideHamsterHitbox,
     });
