@@ -1183,4 +1183,10 @@ header {
   cursor: pointer;
   transform-origin: bottom right;
   transition: transform 0.15s ease;
+  outline: none;
+}
+
+.minimap-canvas:focus-visible {
+  outline: 2px solid rgba(100, 180, 255, 0.7);
+  outline-offset: 2px;
 }
