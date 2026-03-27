@@ -2,3 +2,4 @@ node_modules/
 test-results/
 playwright-report/
 tests/screenshots/
+.e2e-config.generated.yaml

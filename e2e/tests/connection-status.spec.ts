@@ -5,7 +5,7 @@ import { gotoApp } from './helpers.js';
 
 const SERVER_PORT = 8077;
 const BACKEND_DIR = resolve(__dirname, '../../backend');
-const E2E_CONFIG = resolve(__dirname, '../e2e-config.yaml');
+const E2E_CONFIG = resolve(__dirname, '../.e2e-config.generated.yaml');
 const TIMEOUT_WS = 10_000;
 const TIMEOUT_RECONNECT = 30_000;
 const TIMEOUT_SERVER_STARTUP = 20_000;
@@ -64,7 +64,7 @@ test.describe('Connection status indicator', () => {
       timeout: TIMEOUT_WS,
     });
 
-    // 4. Restart the backend (using e2e config with the same fixed auth token)
+    // 4. Restart the backend (uses generated config with the same random token)
     const server = spawn(
       'go',
       [

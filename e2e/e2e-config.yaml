@@ -1,7 +1,6 @@
 server:
   port: 8077
   host: "127.0.0.1"
-  auth_token: "e2e-test-token"
 
 sources:
   claude: true
