@@ -30,6 +30,23 @@ func TestSecurityHeaders(t *testing.T) {
 		}
 	}
 
+	// Verify Permissions-Policy disables unused features.
+	pp := rec.Header().Get("Permissions-Policy")
+	if pp == "" {
+		t.Fatal("Permissions-Policy header is missing")
+	}
+	requiredPolicies := []string{
+		"camera=()",
+		"microphone=()",
+		"geolocation=()",
+		"payment=()",
+	}
+	for _, policy := range requiredPolicies {
+		if !strings.Contains(pp, policy) {
+			t.Errorf("Permissions-Policy %q missing directive %q", pp, policy)
+		}
+	}
+
 	// Verify each required CSP directive is present.
 	csp := rec.Header().Get("Content-Security-Policy")
 	if csp == "" {
