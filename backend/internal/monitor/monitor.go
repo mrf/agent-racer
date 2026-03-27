@@ -838,12 +838,12 @@ func (m *Monitor) consumeSessionEndMarkers(cfg *config.Config, now time.Time) {
 		// Check file size before reading to avoid DoS via huge files.
 		info, err := entry.Info()
 		if err != nil {
-			log.Printf("Session end marker stat error: %v", err)
+			slog.Warn("session end marker stat error", "error", err)
 			continue
 		}
 		path := filepath.Join(dir, entry.Name())
 		if info.Size() > maxEndMarkerFileSize {
-			log.Printf("Session end marker too large (%d bytes), removing: %s", info.Size(), entry.Name())
+			slog.Warn("session end marker too large", "size", info.Size(), "file", entry.Name())
 			_ = os.Remove(path)
 			continue
 		}
@@ -861,7 +861,7 @@ func (m *Monitor) consumeSessionEndMarkers(cfg *config.Config, now time.Time) {
 			continue
 		}
 		if err := validateEndMarker(&marker, now); err != nil {
-			log.Printf("Session end marker validation failed (%s): %v", entry.Name(), err)
+			slog.Warn("session end marker validation failed", "file", entry.Name(), "error", err)
 			_ = os.Remove(path)
 			continue
 		}
