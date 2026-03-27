@@ -767,6 +767,110 @@ func TestDiffDetectsTrackChange(t *testing.T) {
 	}
 }
 
+func TestValidateDefaultConfig(t *testing.T) {
+	cfg := defaultConfig()
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("default config should be valid: %v", err)
+	}
+}
+
+func TestValidateRejectsInvalidValues(t *testing.T) {
+	tests := []struct {
+		name    string
+		mutate  func(*Config)
+		wantErr string
+	}{
+		// Server
+		{"port zero", func(c *Config) { c.Server.Port = 0 }, "server.port"},
+		{"port too high", func(c *Config) { c.Server.Port = 70000 }, "server.port"},
+		{"max_connections zero", func(c *Config) { c.Server.MaxConnections = 0 }, "max_connections"},
+
+		// Monitor — durations fed to time.NewTicker must be positive.
+		{"poll_interval zero", func(c *Config) { c.Monitor.PollInterval = 0 }, "poll_interval"},
+		{"snapshot_interval zero", func(c *Config) { c.Monitor.SnapshotInterval = 0 }, "snapshot_interval"},
+		{"broadcast_throttle zero", func(c *Config) { c.Monitor.BroadcastThrottle = 0 }, "broadcast_throttle"},
+		{"session_stale_after negative", func(c *Config) { c.Monitor.SessionStaleAfter = -1 }, "session_stale_after"},
+		{"stats_event_buffer zero", func(c *Config) { c.Monitor.StatsEventBuffer = 0 }, "stats_event_buffer"},
+		{"churning_cpu_threshold negative", func(c *Config) { c.Monitor.ChurningCPUThreshold = -1 }, "churning_cpu_threshold"},
+		{"health_warning_threshold negative", func(c *Config) { c.Monitor.HealthWarningThreshold = -1 }, "health_warning_threshold"},
+
+		// Token normalization
+		{"tokens_per_message zero", func(c *Config) { c.TokenNorm.TokensPerMessage = 0 }, "tokens_per_message"},
+
+		// Sound volumes
+		{"master_volume negative", func(c *Config) { c.Sound.MasterVolume = -0.5 }, "master_volume"},
+		{"ambient_volume negative", func(c *Config) { c.Sound.AmbientVolume = -1 }, "ambient_volume"},
+		{"sfx_volume negative", func(c *Config) { c.Sound.SfxVolume = -0.1 }, "sfx_volume"},
+
+		// Replay
+		{"retention_days negative", func(c *Config) { c.Replay.RetentionDays = -1 }, "retention_days"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := defaultConfig()
+			tt.mutate(cfg)
+			err := cfg.Validate()
+			if err == nil {
+				t.Fatalf("expected validation error for %s", tt.name)
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("error should mention %q, got: %v", tt.wantErr, err)
+			}
+		})
+	}
+}
+
+func TestValidateAllowsZeroSessionStaleAfter(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.Monitor.SessionStaleAfter = 0
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("zero session_stale_after should be valid (disables detection): %v", err)
+	}
+}
+
+func TestValidateCollectsMultipleErrors(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.Monitor.PollInterval = 0
+	cfg.Monitor.BroadcastThrottle = -1
+	cfg.Server.Port = 0
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected error for multiple invalid fields")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "poll_interval") {
+		t.Error("error should mention poll_interval")
+	}
+	if !strings.Contains(msg, "broadcast_throttle") {
+		t.Error("error should mention broadcast_throttle")
+	}
+	if !strings.Contains(msg, "server.port") {
+		t.Error("error should mention server.port")
+	}
+}
+
+func TestLoadRejectsInvalidConfig(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	yaml := `
+monitor:
+  poll_interval: 0s
+  broadcast_throttle: -1s
+`
+	if err := os.WriteFile(cfgPath, []byte(yaml), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := Load(cfgPath)
+	if err == nil {
+		t.Fatal("Load should return error for invalid config values")
+	}
+	if !strings.Contains(err.Error(), "poll_interval") {
+		t.Errorf("error should mention poll_interval: %v", err)
+	}
+}
+
 func TestServerConfigTLSEnabled(t *testing.T) {
 	tests := []struct {
 		name string

@@ -191,6 +191,10 @@ func Load(path string) (*Config, []string, error) {
 		cfg.Monitor.SessionEndDir = filepath.Join(defaultStateDir(), "agent-racer", "session-end")
 	}
 
+	if err := cfg.Validate(); err != nil {
+		return nil, nil, err
+	}
+
 	warnings := checkUnknownFields(data)
 	return cfg, warnings, nil
 }
@@ -201,6 +205,70 @@ func LoadOrDefault(path string) (*Config, []string, error) {
 		return defaultConfig(), nil, nil
 	}
 	return Load(path)
+}
+
+// Validate checks for nonsensical config values that would cause panics or
+// misbehavior at runtime. Returns an error listing all problems found.
+func (c *Config) Validate() error {
+	var errs []string
+
+	// Server
+	if c.Server.Port < 1 || c.Server.Port > 65535 {
+		errs = append(errs, fmt.Sprintf("server.port: must be 1-65535, got %d", c.Server.Port))
+	}
+	if c.Server.MaxConnections <= 0 {
+		errs = append(errs, fmt.Sprintf("server.max_connections: must be positive, got %d", c.Server.MaxConnections))
+	}
+
+	// Monitor — durations fed to time.NewTicker must be positive or it panics.
+	if c.Monitor.PollInterval <= 0 {
+		errs = append(errs, fmt.Sprintf("monitor.poll_interval: must be positive, got %s", c.Monitor.PollInterval))
+	}
+	if c.Monitor.SnapshotInterval <= 0 {
+		errs = append(errs, fmt.Sprintf("monitor.snapshot_interval: must be positive, got %s", c.Monitor.SnapshotInterval))
+	}
+	if c.Monitor.BroadcastThrottle <= 0 {
+		errs = append(errs, fmt.Sprintf("monitor.broadcast_throttle: must be positive, got %s", c.Monitor.BroadcastThrottle))
+	}
+	// 0 means "disable stale detection"; negative is nonsensical.
+	if c.Monitor.SessionStaleAfter < 0 {
+		errs = append(errs, fmt.Sprintf("monitor.session_stale_after: must not be negative, got %s", c.Monitor.SessionStaleAfter))
+	}
+	if c.Monitor.StatsEventBuffer <= 0 {
+		errs = append(errs, fmt.Sprintf("monitor.stats_event_buffer: must be positive, got %d", c.Monitor.StatsEventBuffer))
+	}
+	if c.Monitor.ChurningCPUThreshold < 0 {
+		errs = append(errs, fmt.Sprintf("monitor.churning_cpu_threshold: must not be negative, got %g", c.Monitor.ChurningCPUThreshold))
+	}
+	if c.Monitor.HealthWarningThreshold < 0 {
+		errs = append(errs, fmt.Sprintf("monitor.health_warning_threshold: must not be negative, got %d", c.Monitor.HealthWarningThreshold))
+	}
+
+	// Token normalization — used as a multiplier; zero/negative is meaningless.
+	if c.TokenNorm.TokensPerMessage <= 0 {
+		errs = append(errs, fmt.Sprintf("token_normalization.tokens_per_message: must be positive, got %d", c.TokenNorm.TokensPerMessage))
+	}
+
+	// Sound volumes — negative makes no sense.
+	if c.Sound.MasterVolume < 0 {
+		errs = append(errs, fmt.Sprintf("sound.master_volume: must not be negative, got %g", c.Sound.MasterVolume))
+	}
+	if c.Sound.AmbientVolume < 0 {
+		errs = append(errs, fmt.Sprintf("sound.ambient_volume: must not be negative, got %g", c.Sound.AmbientVolume))
+	}
+	if c.Sound.SfxVolume < 0 {
+		errs = append(errs, fmt.Sprintf("sound.sfx_volume: must not be negative, got %g", c.Sound.SfxVolume))
+	}
+
+	// Replay — 0 means keep forever; negative is nonsensical.
+	if c.Replay.RetentionDays < 0 {
+		errs = append(errs, fmt.Sprintf("replay.retention_days: must not be negative, got %d", c.Replay.RetentionDays))
+	}
+
+	if len(errs) == 0 {
+		return nil
+	}
+	return fmt.Errorf("config validation failed:\n  %s", strings.Join(errs, "\n  "))
 }
 
 // checkUnknownFields uses yaml.Decoder with KnownFields to detect unknown
