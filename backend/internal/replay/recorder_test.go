@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 
 	"github.com/agent-racer/backend/internal/session"
@@ -65,6 +68,41 @@ func TestRecorder_WriteSnapshotKeepsDataOnSyncError(t *testing.T) {
 	}
 	if file.buffer.Len() == 0 {
 		t.Fatal("expected encoded snapshot to be written before sync failure")
+	}
+}
+
+func TestNewRecorder_OwnerOnlyPermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix permissions not applicable on Windows")
+	}
+	dir := filepath.Join(t.TempDir(), "replay")
+	rec, err := NewRecorder(dir, 0)
+	if err != nil {
+		t.Fatalf("NewRecorder: %v", err)
+	}
+	defer rec.Close()
+
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("stat dir: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0700 {
+		t.Errorf("dir perm = %04o, want 0700", perm)
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("readdir: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 replay file, got %d", len(entries))
+	}
+	fInfo, err := entries[0].Info()
+	if err != nil {
+		t.Fatalf("stat file: %v", err)
+	}
+	if perm := fInfo.Mode().Perm(); perm != 0600 {
+		t.Errorf("file perm = %04o, want 0600", perm)
 	}
 }
 
