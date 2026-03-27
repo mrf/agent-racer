@@ -88,7 +88,9 @@ dist: embed
 	cd $(BACKEND) && GOOS=linux GOARCH=arm64 go build -tags embed -ldflags "$(SERVER_LDFLAGS)" -o ../dist/$(SERVER_BINARY)-linux-arm64 ./cmd/server
 	cd $(BACKEND) && GOOS=darwin GOARCH=amd64 go build -tags embed -ldflags "$(SERVER_LDFLAGS)" -o ../dist/$(SERVER_BINARY)-darwin-amd64 ./cmd/server
 	cd $(BACKEND) && GOOS=darwin GOARCH=arm64 go build -tags embed -ldflags "$(SERVER_LDFLAGS)" -o ../dist/$(SERVER_BINARY)-darwin-arm64 ./cmd/server
+	cd $(BACKEND) && GOOS=windows GOARCH=amd64 go build -tags embed -ldflags "$(SERVER_LDFLAGS)" -o ../dist/$(SERVER_BINARY)-windows-amd64.exe ./cmd/server
 	cd $(TUI) && GOOS=linux GOARCH=amd64 go build -ldflags "$(TUI_LDFLAGS)" -o ../dist/$(BINARY)-linux-amd64 ./cmd/racer-tui
 	cd $(TUI) && GOOS=linux GOARCH=arm64 go build -ldflags "$(TUI_LDFLAGS)" -o ../dist/$(BINARY)-linux-arm64 ./cmd/racer-tui
 	cd $(TUI) && GOOS=darwin GOARCH=amd64 go build -ldflags "$(TUI_LDFLAGS)" -o ../dist/$(BINARY)-darwin-amd64 ./cmd/racer-tui
 	cd $(TUI) && GOOS=darwin GOARCH=arm64 go build -ldflags "$(TUI_LDFLAGS)" -o ../dist/$(BINARY)-darwin-arm64 ./cmd/racer-tui
+	cd $(TUI) && GOOS=windows GOARCH=amd64 go build -ldflags "$(TUI_LDFLAGS)" -o ../dist/$(BINARY)-windows-amd64.exe ./cmd/racer-tui
