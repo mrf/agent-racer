@@ -55,7 +55,7 @@ func verifyFS(fsys fs.FS) error {
 		if openErr != nil {
 			return fmt.Errorf("cannot open %q: %w", path, openErr)
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 
 		h := sha256.New()
 		if _, copyErr := io.Copy(h, f); copyErr != nil {

@@ -59,7 +59,7 @@ func writeJSON(w http.ResponseWriter, v any) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(buf.Bytes())
+	_, _ = w.Write(buf.Bytes())
 }
 
 // decodeBody applies a MaxBytesReader limit, decodes JSON into dst, and writes

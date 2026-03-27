@@ -822,7 +822,7 @@ func (m *Monitor) consumeSessionEndMarkers(cfg *config.Config, now time.Time) {
 		slog.Warn("session end dir open error", "error", err)
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	entries, err := f.ReadDir(maxEndMarkersPerPoll)
 	if err != nil && err != io.EOF {

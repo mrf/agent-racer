@@ -22,8 +22,8 @@ func TestValidateLogPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tmpFile.Close()
-	defer os.Remove(tmpFile.Name())
+	_ = tmpFile.Close()
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
 
 	t.Run("valid path in claude projects", func(t *testing.T) {
 		if err := ValidateLogPath(tmpFile.Name()); err != nil {
@@ -43,7 +43,7 @@ func TestValidateLogPath(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		outside.Close()
+		_ = outside.Close()
 
 		if err := ValidateLogPath(outside.Name()); err == nil {
 			t.Error("expected error for path outside allowed dirs")
