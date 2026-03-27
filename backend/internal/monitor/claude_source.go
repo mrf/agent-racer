@@ -3,7 +3,6 @@ package monitor
 import (
 	"bufio"
 	"encoding/json"
-	"log/slog"
 	"os"
 	"time"
 )
@@ -113,8 +112,6 @@ func (c *ClaudeSource) Parse(handle SessionHandle, offset int64) (SourceUpdate, 
 	if handle.WorkingDir == "" && update.WorkingDir == "" {
 		update.WorkingDir = workingDirFromFile(handle.LogPath)
 	}
-
-	slog.Debug("parsed new data", "source", "claude", "bytes", newOffset-offset, "path", handle.LogPath)
 
 	return update, newOffset, nil
 }
