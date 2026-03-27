@@ -438,23 +438,24 @@ describe('FootraceCanvas', () => {
   });
 
   describe('canvas resize', () => {
-    it('resizes when active lane count changes', () => {
-      const resizeSpy = vi.spyOn(fc, 'resize');
+    it('schedules resize when active lane count changes', () => {
+      fc._needsResize = false;
       fc.setAllRacers([
         makeState({ id: 'a', activity: 'thinking', lane: 0 }),
         makeState({ id: 'b', activity: 'thinking', lane: 1 }),
       ]);
       fc.update();
       expect(fc._activeLaneCount).toBe(2);
-      expect(resizeSpy).toHaveBeenCalled();
+      expect(fc._needsResize).toBe(true);
     });
 
-    it('only resizes when lane counts actually change', () => {
+    it('does not schedule resize when lane counts are unchanged', () => {
       fc.setAllRacers([makeState({ id: 'a', activity: 'thinking' })]);
       fc.update();
-      const resizeSpy = vi.spyOn(fc, 'resize');
+      fc._needsResize = false;
+
       fc.update();
-      expect(resizeSpy).not.toHaveBeenCalled();
+      expect(fc._needsResize).toBe(false);
     });
   });
 
