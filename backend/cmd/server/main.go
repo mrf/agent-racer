@@ -88,9 +88,12 @@ func main() {
 		cfgPath = config.DefaultConfigPath()
 	}
 
-	cfg, err := config.LoadOrDefault(cfgPath)
+	cfg, cfgWarnings, err := config.LoadOrDefault(cfgPath)
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
+	}
+	for _, w := range cfgWarnings {
+		log.Printf("Config warning: %s", w)
 	}
 
 	if opts.port > 0 {
@@ -253,10 +256,13 @@ func main() {
 	defer signal.Stop(sighupCh)
 	go func() {
 		for range sighupCh {
-			newCfg, err := config.LoadOrDefault(cfgPath)
+			newCfg, reloadWarnings, err := config.LoadOrDefault(cfgPath)
 			if err != nil {
 				log.Printf("Config reload failed: %v", err)
 				continue
+			}
+			for _, w := range reloadWarnings {
+				log.Printf("Config warning: %s", w)
 			}
 
 			changes := config.Diff(cfg, newCfg)

@@ -1,8 +1,10 @@
 package config
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -158,31 +160,55 @@ var weakAuthTokens = map[string]struct{}{
 	"default":  {},
 }
 
-func Load(path string) (*Config, error) {
+func Load(path string) (*Config, []string, error) {
 	cfg := defaultConfig()
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if err := yaml.Unmarshal(data, cfg); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if cfg.Monitor.SessionEndDir == "" {
 		cfg.Monitor.SessionEndDir = filepath.Join(defaultStateDir(), "agent-racer", "session-end")
 	}
 
-	return cfg, nil
+	warnings := checkUnknownFields(data)
+	return cfg, warnings, nil
 }
 
 // LoadOrDefault loads config from the given path, or returns default config if path doesn't exist
-func LoadOrDefault(path string) (*Config, error) {
+func LoadOrDefault(path string) (*Config, []string, error) {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return defaultConfig(), nil
+		return defaultConfig(), nil, nil
 	}
 	return Load(path)
+}
+
+// checkUnknownFields uses yaml.Decoder with KnownFields to detect unknown
+// keys in the YAML data. Returns a list of human-readable warnings for each
+// unknown field found.
+func checkUnknownFields(data []byte) []string {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+
+	var check Config
+	err := dec.Decode(&check)
+	if err == nil {
+		return nil
+	}
+
+	var te *yaml.TypeError
+	if errors.As(err, &te) {
+		return te.Errors
+	}
+
+	// Non-TypeError (e.g. malformed YAML) is already handled by the
+	// primary Unmarshal in Load, so we silently skip here.
+	return nil
 }
 
 func defaultConfig() *Config {

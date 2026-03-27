@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -85,9 +86,12 @@ privacy:
 		t.Fatal(err)
 	}
 
-	cfg, err := Load(cfgPath)
+	cfg, warnings, err := Load(cfgPath)
 	if err != nil {
 		t.Fatalf("Load() error: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Errorf("Load() unexpected warnings: %v", warnings)
 	}
 
 	if cfg.Server.Port != 9090 {
@@ -122,14 +126,14 @@ privacy:
 }
 
 func TestLoadMissingFile(t *testing.T) {
-	_, err := Load("/nonexistent/path/config.yaml")
+	_, _, err := Load("/nonexistent/path/config.yaml")
 	if err == nil {
 		t.Fatal("Load() on missing file should return error")
 	}
 }
 
 func TestLoadOrDefaultMissingFile(t *testing.T) {
-	cfg, err := LoadOrDefault("/nonexistent/path/config.yaml")
+	cfg, _, err := LoadOrDefault("/nonexistent/path/config.yaml")
 	if err != nil {
 		t.Fatalf("LoadOrDefault() error: %v", err)
 	}
@@ -159,9 +163,97 @@ func TestLoadInvalidYAML(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := Load(cfgPath)
+	_, _, err := Load(cfgPath)
 	if err == nil {
 		t.Fatal("Load() with invalid YAML should return error")
+	}
+}
+
+// loadYAML writes yamlData to a temp file and returns the loaded Config and warnings.
+func loadYAML(t *testing.T, yamlData string) (*Config, []string) {
+	t.Helper()
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte(yamlData), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, warnings, err := Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	return cfg, warnings
+}
+
+// containsWarning reports whether any warning string contains substr.
+func containsWarning(warnings []string, substr string) bool {
+	for _, w := range warnings {
+		if strings.Contains(w, substr) {
+			return true
+		}
+	}
+	return false
+}
+
+func TestLoadUnknownTopLevelKey(t *testing.T) {
+	cfg, warnings := loadYAML(t, `
+server:
+  port: 9090
+servr:
+  port: 8080
+`)
+
+	// Valid key should still be parsed.
+	if cfg.Server.Port != 9090 {
+		t.Errorf("Server.Port = %d, want 9090", cfg.Server.Port)
+	}
+
+	if !containsWarning(warnings, "servr") {
+		t.Errorf("expected warning mentioning 'servr', got: %v", warnings)
+	}
+}
+
+func TestLoadUnknownNestedKey(t *testing.T) {
+	cfg, warnings := loadYAML(t, `
+monitor:
+  poll_interval: 2s
+  poll_intervl: 3s
+`)
+
+	if cfg.Monitor.PollInterval != 2*1000000000 {
+		t.Errorf("Monitor.PollInterval = %v, want 2s", cfg.Monitor.PollInterval)
+	}
+
+	if !containsWarning(warnings, "poll_intervl") {
+		t.Errorf("expected warning mentioning 'poll_intervl', got: %v", warnings)
+	}
+}
+
+func TestLoadMultipleUnknownKeys(t *testing.T) {
+	_, warnings := loadYAML(t, `
+foo: bar
+server:
+  port: 9090
+  baz: true
+`)
+
+	if len(warnings) < 2 {
+		t.Errorf("expected at least 2 warnings, got %d: %v", len(warnings), warnings)
+	}
+}
+
+func TestLoadValidConfigNoWarnings(t *testing.T) {
+	_, warnings := loadYAML(t, `
+server:
+  port: 9090
+  host: "0.0.0.0"
+sources:
+  claude: true
+models:
+  default: 128000
+`)
+
+	if len(warnings) != 0 {
+		t.Errorf("expected no warnings for valid config, got: %v", warnings)
 	}
 }
 
