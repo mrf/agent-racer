@@ -10,32 +10,6 @@ import (
 	"github.com/agent-racer/backend/internal/ws"
 )
 
-func TestIsClaudeProcess(t *testing.T) {
-	tests := []struct {
-		name     string
-		args     []string
-		expected bool
-	}{
-		{"claude binary with flag", []string{"/usr/local/bin/claude", "--help"}, true},
-		{"claude binary no args", []string{"/home/user/.local/bin/claude"}, true},
-		{"bare claude", []string{"claude"}, true},
-		{"node running claude", []string{"node", "/usr/lib/claude/cli.js"}, true},
-		{"bash script", []string{"bash", "-c", "ls"}, false},
-		{"python", []string{"/usr/bin/python3", "script.py"}, false},
-		{"unrelated node", []string{"node", "/usr/lib/something/server.js"}, false},
-		{"empty", nil, false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := isClaudeProcess(tt.args)
-			if got != tt.expected {
-				t.Errorf("isClaudeProcess(%v) = %v, want %v", tt.args, got, tt.expected)
-			}
-		})
-	}
-}
-
 func TestIsAgentProcess(t *testing.T) {
 	tests := []struct {
 		name     string
