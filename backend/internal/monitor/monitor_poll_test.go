@@ -39,6 +39,13 @@ func (s *testSource) Parse(handle SessionHandle, offset int64) (SourceUpdate, in
 			return SourceUpdate{}, offset, err
 		}
 	}
+	return parseJSONLHandle(handle, offset)
+}
+
+// parseJSONLHandle is a shared test helper that parses a JSONL file at the
+// given offset and returns a SourceUpdate. Used by testSource, countingTestSource,
+// and any other test source that delegates to real JSONL parsing.
+func parseJSONLHandle(handle SessionHandle, offset int64) (SourceUpdate, int64, error) {
 	result, newOffset, err := ParseSessionJSONL(handle.LogPath, offset, handle.KnownSlug, handle.KnownSubagentParents)
 	if err != nil {
 		return SourceUpdate{}, offset, err
