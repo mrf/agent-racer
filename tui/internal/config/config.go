@@ -35,16 +35,17 @@ func Load(path string) (*Config, error) {
 }
 
 // LoadOrDefault loads config from path, or returns defaults if the file
-// does not exist.
-func LoadOrDefault(path string) *Config {
+// does not exist. If the file exists but cannot be read or parsed, it
+// returns the default config and a non-nil warning error.
+func LoadOrDefault(path string) (*Config, error) {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return defaultConfig()
+		return defaultConfig(), nil
 	}
 	cfg, err := Load(path)
 	if err != nil {
-		return defaultConfig()
+		return defaultConfig(), fmt.Errorf("could not load %s: %w (using defaults)", path, err)
 	}
-	return cfg
+	return cfg, nil
 }
 
 func defaultConfig() *Config {

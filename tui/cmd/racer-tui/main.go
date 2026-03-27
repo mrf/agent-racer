@@ -62,7 +62,10 @@ func main() {
 	if cfgPath == "" {
 		cfgPath = config.DefaultConfigPath()
 	}
-	cfg := config.LoadOrDefault(cfgPath)
+	cfg, cfgWarn := config.LoadOrDefault(cfgPath)
+	if cfgWarn != nil {
+		fmt.Fprintf(os.Stderr, "Warning: %v\n", cfgWarn)
+	}
 
 	// Resolve WebSocket URL: CLI flag > config file > hardcoded default.
 	effectiveURL := cfg.WebSocketURL()
