@@ -779,8 +779,12 @@ func NewHTTPServer(host string, port int, tls bool, mux *http.ServeMux) *http.Se
 		handler = hstsHeaders(handler)
 	}
 	return &http.Server{
-		Addr:    addr,
-		Handler: handler,
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 }
 
