@@ -56,7 +56,7 @@ func NewRecorder(dir string, retentionDays int) (*Recorder, error) {
 	if dir == "" {
 		return nil, nil
 	}
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, fmt.Errorf("replay: create dir %s: %w", dir, err)
 	}
 
@@ -64,7 +64,7 @@ func NewRecorder(dir string, retentionDays int) (*Recorder, error) {
 
 	name := time.Now().Format("2006-01-02_15-04-05") + ".jsonl"
 	path := filepath.Join(dir, name)
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	if err != nil {
 		return nil, fmt.Errorf("replay: open file %s: %w", path, err)
 	}
