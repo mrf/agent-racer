@@ -691,6 +691,82 @@ func TestDiffDetectsMultipleMonitorChanges(t *testing.T) {
 	}
 }
 
+func TestDiffDetectsGamificationChanges(t *testing.T) {
+	old := defaultConfig()
+	new := defaultConfig()
+	new.Gamification.BattlePass.Enabled = true
+	new.Gamification.BattlePass.Season = "2026-03"
+
+	changes := Diff(old, new)
+	if len(changes) == 0 {
+		t.Fatal("Diff should detect gamification changes, got none")
+	}
+
+	found := map[string]bool{}
+	for _, c := range changes {
+		found[c] = true
+	}
+
+	want := []string{
+		"gamification.battle_pass.enabled: false → true",
+		"gamification.battle_pass.season:  → 2026-03",
+	}
+	for _, w := range want {
+		if !found[w] {
+			t.Errorf("Missing expected change: %q\nGot: %v", w, changes)
+		}
+	}
+}
+
+func TestDiffDetectsReplayChanges(t *testing.T) {
+	old := defaultConfig()
+	new := defaultConfig()
+	new.Replay.Enabled = false
+	new.Replay.RetentionDays = 30
+
+	changes := Diff(old, new)
+	if len(changes) == 0 {
+		t.Fatal("Diff should detect replay changes, got none")
+	}
+
+	found := map[string]bool{}
+	for _, c := range changes {
+		found[c] = true
+	}
+
+	want := []string{
+		"replay.enabled: true → false",
+		"replay.retention_days: 7 → 30",
+	}
+	for _, w := range want {
+		if !found[w] {
+			t.Errorf("Missing expected change: %q\nGot: %v", w, changes)
+		}
+	}
+}
+
+func TestDiffDetectsTrackChange(t *testing.T) {
+	old := defaultConfig()
+	new := defaultConfig()
+	new.Track.Active = "oval"
+
+	changes := Diff(old, new)
+	if len(changes) == 0 {
+		t.Fatal("Diff should detect Track.Active change")
+	}
+
+	found := false
+	for _, c := range changes {
+		if c == "track.active:  → oval" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("Expected 'track.active:  → oval' in changes: %v", changes)
+	}
+}
+
 func TestServerConfigTLSEnabled(t *testing.T) {
 	tests := []struct {
 		name string

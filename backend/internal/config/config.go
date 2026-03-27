@@ -368,7 +368,7 @@ func defaultStateDir() string {
 
 // Diff compares two configs and returns human-readable descriptions of what changed.
 // Only sections that are safe to reload at runtime are compared (models, privacy,
-// sources, token normalization, monitor timings, sound).
+// sources, token normalization, monitor timings, sound, gamification, replay, track).
 func Diff(old, new *Config) []string {
 	var changes []string
 
@@ -466,6 +466,27 @@ func Diff(old, new *Config) []string {
 	// Sound
 	if old.Sound != new.Sound {
 		changes = append(changes, "sound: configuration changed")
+	}
+
+	// Gamification
+	if old.Gamification.BattlePass.Enabled != new.Gamification.BattlePass.Enabled {
+		changes = append(changes, fmt.Sprintf("gamification.battle_pass.enabled: %v → %v", old.Gamification.BattlePass.Enabled, new.Gamification.BattlePass.Enabled))
+	}
+	if old.Gamification.BattlePass.Season != new.Gamification.BattlePass.Season {
+		changes = append(changes, fmt.Sprintf("gamification.battle_pass.season: %s → %s", old.Gamification.BattlePass.Season, new.Gamification.BattlePass.Season))
+	}
+
+	// Replay
+	if old.Replay.Enabled != new.Replay.Enabled {
+		changes = append(changes, fmt.Sprintf("replay.enabled: %v → %v", old.Replay.Enabled, new.Replay.Enabled))
+	}
+	if old.Replay.RetentionDays != new.Replay.RetentionDays {
+		changes = append(changes, fmt.Sprintf("replay.retention_days: %d → %d", old.Replay.RetentionDays, new.Replay.RetentionDays))
+	}
+
+	// Track
+	if old.Track.Active != new.Track.Active {
+		changes = append(changes, fmt.Sprintf("track.active: %s → %s", old.Track.Active, new.Track.Active))
 	}
 
 	return changes
