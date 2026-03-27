@@ -699,7 +699,19 @@ func (s *Server) checkOrigin(r *http.Request) bool {
 //     data: URLs and any canvas.toDataURL() output fall under this directive.
 //   - object-src 'none': disables Flash/plugin embeds entirely.
 //   - base-uri 'self': prevents <base> tag injection from redirecting relative URLs.
+//
+// Permissions-Policy disables browser features the app does not use (camera, microphone,
+// geolocation, etc.) so they cannot be activated by injected scripts or iframes.
 func securityHeaders(next http.Handler) http.Handler {
+	const permissionsPolicy = "camera=(), " +
+		"microphone=(), " +
+		"geolocation=(), " +
+		"payment=(), " +
+		"usb=(), " +
+		"magnetometer=(), " +
+		"gyroscope=(), " +
+		"accelerometer=()"
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host := r.Host
 		wsOrigin := "ws://" + host
@@ -717,6 +729,7 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-XSS-Protection", "1; mode=block")
 		w.Header().Set("Content-Security-Policy", csp)
 		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("Permissions-Policy", permissionsPolicy)
 		next.ServeHTTP(w, r)
 	})
 }
