@@ -38,7 +38,7 @@ const canvas = document.getElementById('race-canvas');
 const trackEditor = new TrackEditor(canvas);
 
 let sessions = new Map();
-const debugEnabled = import.meta.env.DEV || new URLSearchParams(window.location.search).has('debug');
+const debugEnabled = import.meta.env?.DEV || new URLSearchParams(window.location.search).has('debug');
 let debugVisible = false;
 let muted = false;
 let bubblesEnabled = true;
