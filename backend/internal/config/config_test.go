@@ -698,6 +698,9 @@ func TestDiffDetectsGamificationChanges(t *testing.T) {
 	new.Gamification.BattlePass.Season = "2026-03"
 
 	changes := Diff(old, new)
+	if len(changes) == 0 {
+		t.Fatal("Diff should detect gamification changes, got none")
+	}
 
 	found := map[string]bool{}
 	for _, c := range changes {
@@ -722,6 +725,9 @@ func TestDiffDetectsReplayChanges(t *testing.T) {
 	new.Replay.RetentionDays = 30
 
 	changes := Diff(old, new)
+	if len(changes) == 0 {
+		t.Fatal("Diff should detect replay changes, got none")
+	}
 
 	found := map[string]bool{}
 	for _, c := range changes {
