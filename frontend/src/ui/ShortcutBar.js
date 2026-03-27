@@ -6,6 +6,7 @@ const SHORTCUTS = [
   { key: 'd', label: 'debug', id: 'debug' },
   { key: 'e', label: 'track editor', id: 'track-editor' },
   { key: 'm', label: 'mute', id: 'mute' },
+  { key: 's', label: 'sound', id: 'sound' },
   { key: 'n', label: 'minimap', id: 'minimap' },
   { key: 'r', label: 'replay', id: 'replay' },
   { key: 'w', label: 'weather', id: 'weather' },

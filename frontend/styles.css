@@ -1171,6 +1171,7 @@ header {
   color: #aaa;
 }
 
+
 /* ---- Tile Palette ---- */
 #tile-palette {
   position: fixed;
@@ -1567,6 +1568,119 @@ header {
 
 .ts-message.error {
   color: #f88;
+
+/* Volume panel */
+.volume-panel {
+  position: fixed;
+  bottom: 36px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 260px;
+  background: rgba(16, 16, 48, 0.97);
+  border: 1px solid #2d2d6e;
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  z-index: 50;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  color: #e0e0e0;
+  user-select: none;
+}
+.volume-panel.hidden { display: none; }
+
+.vol-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px 8px;
+  border-bottom: 1px solid #2d2d6e;
+}
+
+.vol-title {
+  font-size: 13px;
+  font-weight: bold;
+  color: #e0e0e0;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.vol-mute-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 11px;
+  color: #888;
+}
+.vol-mute-label:hover .vol-mute-text { color: #e94560; }
+
+.vol-mute-cb {
+  accent-color: #e94560;
+  cursor: pointer;
+}
+
+.vol-sliders {
+  padding: 10px 14px 14px;
+}
+
+.vol-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.vol-row:last-child { margin-bottom: 0; }
+
+.vol-label {
+  width: 58px;
+  flex-shrink: 0;
+  color: #888;
+  font-size: 11px;
+}
+
+.vol-slider {
+  flex: 1;
+  height: 4px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: #333;
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+.vol-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #e94560;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.vol-slider::-webkit-slider-thumb:hover {
+  background: #ff6b8a;
+}
+.vol-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #e94560;
+  border: none;
+  cursor: pointer;
+}
+.vol-slider::-moz-range-track {
+  background: #333;
+  height: 4px;
+  border-radius: 2px;
+}
+
+.vol-value {
+  width: 28px;
+  text-align: right;
+  font-size: 11px;
+  color: #666;
+  flex-shrink: 0;
 }
 
 /* Mini-map radar overlay */

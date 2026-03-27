@@ -21,6 +21,10 @@ function lerp(min, max, t) {
   return min + (max - min) * t;
 }
 
+function clamp01(value) {
+  return Math.max(0, Math.min(1, value));
+}
+
 function tieredScore(count, tiers) {
   for (const [threshold, score] of tiers) {
     if (count >= threshold) return score;
@@ -51,6 +55,10 @@ export class SoundEngine {
     this.targetExcitement = 0;
     this.recentEvents = []; // {type: 'completion'|'crash', timestamp}
     this.excitementUpdateInterval = null;
+    // Volume levels (separate from gain node values so mute/unmute restores correctly)
+    this._masterVolumeLevel = 1.0;
+    this._ambientVolumeLevel = 1.0;
+    this._sfxVolumeLevel = 1.0;
   }
 
   _ensureCtx() {
@@ -676,7 +684,7 @@ export class SoundEngine {
   setMuted(muted) {
     this.muted = muted;
     if (this.masterGain) {
-      this.masterGain.gain.value = muted ? 0 : 1;
+      this.masterGain.gain.value = muted ? 0 : this._masterVolumeLevel;
     }
     if (muted) {
       // Stop all engine hums
@@ -750,22 +758,31 @@ export class SoundEngine {
   }
 
   setMasterVolume(volume) {
+    this._masterVolumeLevel = clamp01(volume);
     if (this.masterGain && !this.muted) {
-      this.masterGain.gain.value = Math.max(0, Math.min(1, volume));
+      this.masterGain.gain.value = this._masterVolumeLevel;
     }
   }
+
+  getMasterVolume() { return this._masterVolumeLevel; }
 
   setAmbientVolume(volume) {
+    this._ambientVolumeLevel = clamp01(volume);
     if (this.ambientBus) {
-      this.ambientBus.gain.value = Math.max(0, Math.min(1, volume));
+      this.ambientBus.gain.value = this._ambientVolumeLevel;
     }
   }
 
+  getAmbientVolume() { return this._ambientVolumeLevel; }
+
   setSfxVolume(volume) {
+    this._sfxVolumeLevel = clamp01(volume);
     if (this.sfxBus) {
-      this.sfxBus.gain.value = Math.max(0, Math.min(1, volume));
+      this.sfxBus.gain.value = this._sfxVolumeLevel;
     }
   }
+
+  getSfxVolume() { return this._sfxVolumeLevel; }
 
   applyConfig(config) {
     if (!config) return;
