@@ -7,6 +7,7 @@ export default defineConfig({
       provider: 'v8',
       include: ['src/**/*.js'],
       exclude: ['src/**/*.test.js'],
+      reporter: ['text', 'json-summary', 'html'],
     },
   },
 });
