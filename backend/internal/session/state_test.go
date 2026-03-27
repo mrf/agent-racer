@@ -3,6 +3,7 @@ package session
 import (
 	"encoding/json"
 	"testing"
+	"time"
 )
 
 func TestActivityUnmarshalJSON(t *testing.T) {
@@ -217,5 +218,160 @@ func TestActivityInSessionState(t *testing.T) {
 	err := json.Unmarshal(jsonData, &state)
 	if err == nil {
 		t.Errorf("expected error unmarshaling unknown activity in SessionState, got nil")
+	}
+}
+
+func TestSessionStateClone(t *testing.T) {
+	t.Run("returns a distinct pointer with identical scalar fields", func(t *testing.T) {
+		orig := &SessionState{ID: "s1", Activity: Thinking}
+		c := orig.Clone()
+
+		if c == orig {
+			t.Fatal("Clone returned same pointer")
+		}
+		if c.ID != orig.ID || c.Activity != orig.Activity {
+			t.Errorf("scalar fields differ: clone=%+v, orig=%+v", c, orig)
+		}
+	})
+
+	t.Run("preserves nil CompletedAt", func(t *testing.T) {
+		orig := &SessionState{ID: "s1"}
+		c := orig.Clone()
+
+		if c.CompletedAt != nil {
+			t.Errorf("expected nil CompletedAt, got %v", c.CompletedAt)
+		}
+	})
+
+	t.Run("deep-copies CompletedAt", func(t *testing.T) {
+		ts := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+		orig := &SessionState{ID: "s2", CompletedAt: &ts}
+		c := orig.Clone()
+
+		if c.CompletedAt == orig.CompletedAt {
+			t.Fatal("CompletedAt pointer not deep-copied")
+		}
+		if !c.CompletedAt.Equal(*orig.CompletedAt) {
+			t.Errorf("CompletedAt value differs: clone=%v, orig=%v", *c.CompletedAt, *orig.CompletedAt)
+		}
+
+		*c.CompletedAt = ts.Add(time.Hour)
+		if !orig.CompletedAt.Equal(ts) {
+			t.Error("mutating clone's CompletedAt affected the original")
+		}
+	})
+
+	t.Run("empty subagents slice stays empty", func(t *testing.T) {
+		orig := &SessionState{ID: "s3", Subagents: []SubagentState{}}
+		c := orig.Clone()
+
+		if len(c.Subagents) != 0 {
+			t.Errorf("expected empty subagents, got len %d", len(c.Subagents))
+		}
+	})
+
+	t.Run("deep-copies subagents slice and pointer fields", func(t *testing.T) {
+		completedTime := time.Date(2026, 3, 5, 10, 0, 0, 0, time.UTC)
+		orig := &SessionState{
+			ID: "s4",
+			Subagents: []SubagentState{
+				{ID: "sa1", Activity: ToolUse},
+				{ID: "sa2", Activity: Complete, CompletedAt: &completedTime},
+			},
+		}
+		c := orig.Clone()
+
+		if len(c.Subagents) != 2 {
+			t.Fatalf("expected 2 subagents, got %d", len(c.Subagents))
+		}
+
+		c.Subagents[0].ID = "mutated"
+		if orig.Subagents[0].ID == "mutated" {
+			t.Error("mutating clone's Subagents slice affected the original")
+		}
+
+		if c.Subagents[1].CompletedAt == orig.Subagents[1].CompletedAt {
+			t.Error("subagent CompletedAt pointer not deep-copied")
+		}
+		*c.Subagents[1].CompletedAt = completedTime.Add(time.Hour)
+		if !orig.Subagents[1].CompletedAt.Equal(completedTime) {
+			t.Error("mutating clone's subagent CompletedAt affected the original")
+		}
+	})
+}
+
+func TestSubagentStateClone(t *testing.T) {
+	t.Run("preserves nil CompletedAt and scalar fields", func(t *testing.T) {
+		orig := SubagentState{ID: "sa-nil", Activity: Thinking}
+		c := orig.clone()
+
+		if c.CompletedAt != nil {
+			t.Errorf("expected nil CompletedAt, got %v", c.CompletedAt)
+		}
+		if c.ID != orig.ID {
+			t.Errorf("ID differs: %s vs %s", c.ID, orig.ID)
+		}
+	})
+
+	t.Run("deep-copies CompletedAt", func(t *testing.T) {
+		ts := time.Date(2026, 3, 2, 8, 0, 0, 0, time.UTC)
+		orig := SubagentState{ID: "sa-deep", CompletedAt: &ts}
+		c := orig.clone()
+
+		if c.CompletedAt == orig.CompletedAt {
+			t.Fatal("CompletedAt pointer not deep-copied")
+		}
+		*c.CompletedAt = ts.Add(24 * time.Hour)
+		if !orig.CompletedAt.Equal(ts) {
+			t.Error("mutating clone CompletedAt affected the original")
+		}
+	})
+}
+
+func TestUpdateUtilization(t *testing.T) {
+	tests := []struct {
+		name     string
+		used     int
+		max      int
+		expected float64
+	}{
+		{"zero max tokens", 500, 0, 0},
+		{"normal ratio", 250, 1000, 0.25},
+		{"capped at 1.0", 2000, 1000, 1.0},
+	}
+	for i := 0; i < len(tests); i++ {
+		tt := tests[i]
+		t.Run(tt.name, func(t *testing.T) {
+			s := &SessionState{TokensUsed: tt.used, MaxContextTokens: tt.max}
+			s.UpdateUtilization()
+			if s.ContextUtilization != tt.expected {
+				t.Errorf("got %f, want %f", s.ContextUtilization, tt.expected)
+			}
+		})
+	}
+}
+
+func TestIsTerminal(t *testing.T) {
+	tests := []struct {
+		activity Activity
+		terminal bool
+	}{
+		{Starting, false},
+		{Thinking, false},
+		{ToolUse, false},
+		{Waiting, false},
+		{Idle, false},
+		{Complete, true},
+		{Errored, true},
+		{Lost, true},
+	}
+	for i := 0; i < len(tests); i++ {
+		tt := tests[i]
+		t.Run(tt.activity.String(), func(t *testing.T) {
+			s := &SessionState{Activity: tt.activity}
+			if got := s.IsTerminal(); got != tt.terminal {
+				t.Errorf("IsTerminal() = %v, want %v", got, tt.terminal)
+			}
+		})
 	}
 }
