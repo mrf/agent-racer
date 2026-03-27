@@ -2,6 +2,7 @@ package monitor
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -302,6 +303,43 @@ func TestSessionEndMarkerEmptyDirIsNoOp(t *testing.T) {
 	}
 	if state.IsTerminal() {
 		t.Error("session should not be terminal when end dir is empty")
+	}
+}
+
+// TestSessionEndMarkerLimitPerPoll verifies that at most maxEndMarkersPerPoll
+// files are processed in a single poll cycle, leaving the rest for later.
+func TestSessionEndMarkerLimitPerPoll(t *testing.T) {
+	endDir := t.TempDir()
+	total := maxEndMarkersPerPoll + 50
+
+	for i := 0; i < total; i++ {
+		name := fmt.Sprintf("end-%04d.json", i)
+		marker := sessionEndMarker{
+			SessionID: fmt.Sprintf("sess-%04d", i),
+		}
+		writeEndMarker(t, endDir, name, marker)
+	}
+
+	src := &testSource{handles: []SessionHandle{}}
+	cfg := defaultTestConfig()
+	cfg.Monitor.CompletionRemoveAfter = -1
+	cfg.Monitor.SessionEndDir = endDir
+
+	m, _, _ := newPollTestMonitor(src, cfg)
+	m.poll()
+
+	// Markers reference unknown sessions so they are ignored but still
+	// read and removed. At most maxEndMarkersPerPoll should be gone.
+	after, err := os.ReadDir(endDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	removed := total - len(after)
+	if removed > maxEndMarkersPerPoll {
+		t.Errorf("removed %d files in one poll, want at most %d", removed, maxEndMarkersPerPoll)
+	}
+	if len(after) == 0 {
+		t.Error("all files were consumed in one poll — limit is not enforced")
 	}
 }
 
