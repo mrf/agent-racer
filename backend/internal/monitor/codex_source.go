@@ -450,10 +450,7 @@ func parseCodexTokenCount(payload json.RawMessage, parsed *codexParsed) {
 				InputTokens  int `json:"input_tokens"`
 				OutputTokens int `json:"output_tokens"`
 			} `json:"last_token_usage"`
-			TotalTokenUsage *struct {
-				InputTokens  int `json:"input_tokens"`
-				OutputTokens int `json:"output_tokens"`
-			} `json:"total_token_usage"`
+			// total_token_usage is intentionally not decoded here (see doc comment).
 			ModelContextWindow int `json:"model_context_window"`
 		} `json:"info"`
 	}
@@ -461,9 +458,6 @@ func parseCodexTokenCount(payload json.RawMessage, parsed *codexParsed) {
 		if nested.Info.LastTokenUsage != nil {
 			parsed.tokensIn = nested.Info.LastTokenUsage.InputTokens
 			parsed.tokensOut = nested.Info.LastTokenUsage.OutputTokens
-		} else if nested.Info.TotalTokenUsage != nil {
-			parsed.tokensIn = nested.Info.TotalTokenUsage.InputTokens
-			parsed.tokensOut = nested.Info.TotalTokenUsage.OutputTokens
 		}
 		if nested.Info.ModelContextWindow > 0 {
 			parsed.maxContextTokens = nested.Info.ModelContextWindow

@@ -321,11 +321,14 @@ func TestCodexSourceParseNestedTokenFormat(t *testing.T) {
 	if offset == 0 {
 		t.Error("expected non-zero offset")
 	}
-	if update.TokensIn != 45000 {
-		t.Errorf("TokensIn = %d, want 45000", update.TokensIn)
+	// total_token_usage is a cumulative counter, not current context usage,
+	// so it must NOT be used for TokensIn. When last_token_usage is absent,
+	// tokens should remain zero and fall back to estimation upstream.
+	if update.TokensIn != 0 {
+		t.Errorf("TokensIn = %d, want 0 (total_token_usage should not be used)", update.TokensIn)
 	}
-	if update.TokensOut != 1200 {
-		t.Errorf("TokensOut = %d, want 1200", update.TokensOut)
+	if update.TokensOut != 0 {
+		t.Errorf("TokensOut = %d, want 0 (total_token_usage should not be used)", update.TokensOut)
 	}
 	if update.MaxContextTokens != 258400 {
 		t.Errorf("MaxContextTokens = %d, want 258400", update.MaxContextTokens)
@@ -406,9 +409,11 @@ func TestCodexSourceParseNullInfoTokenCount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if update.TokensIn != 8000 {
-		t.Errorf("TokensIn = %d, want 8000 (should use second token_count)", update.TokensIn)
+	// total_token_usage is cumulative, not current context — tokens stay zero.
+	if update.TokensIn != 0 {
+		t.Errorf("TokensIn = %d, want 0 (total_token_usage should not be used)", update.TokensIn)
 	}
+	// MaxContextTokens should still be picked up from the info block.
 	if update.MaxContextTokens != 258400 {
 		t.Errorf("MaxContextTokens = %d, want 258400", update.MaxContextTokens)
 	}
