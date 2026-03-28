@@ -117,8 +117,103 @@ test.describe('Session lifecycle', () => {
   test.setTimeout(TIMEOUT_TEST);
 
   test.beforeEach(async ({ page }) => {
+    // Debug hooks: capture browser-side errors so CI failures are diagnosable.
+    const consoleLogs: string[] = [];
+    const pageErrors: string[] = [];
+    const failedResponses: string[] = [];
+    const scriptResponses: string[] = [];
+
+    page.on('console', (msg) => {
+      const text = `[${msg.type()}] ${msg.text()}`;
+      consoleLogs.push(text);
+      if (msg.type() === 'error' || msg.type() === 'warning') {
+        console.log(`  browser ${text}`);
+      }
+    });
+
+    page.on('pageerror', (err) => {
+      const text = `${err.name}: ${err.message}`;
+      pageErrors.push(text);
+      console.log(`  browser PAGE ERROR: ${text}`);
+    });
+
+    page.on('response', (resp) => {
+      const url = resp.url();
+      // Track all JS/CSS/WS responses for debugging script loading issues.
+      if (url.endsWith('.js') || url.endsWith('.css') || url.includes('/ws')) {
+        const contentType = resp.headers()['content-type'] || 'no-content-type';
+        scriptResponses.push(`${resp.status()} ${contentType} ${url}`);
+      }
+      if (resp.status() >= 400) {
+        const text = `${resp.status()} ${url}`;
+        failedResponses.push(text);
+        console.log(`  browser FAILED RESPONSE: ${text}`);
+      }
+    });
+
+    page.on('requestfailed', (req) => {
+      console.log(`  browser REQUEST FAILED: ${req.url()} ${req.failure()?.errorText}`);
+    });
+
+    // Inject CSP violation listener before navigation so we catch everything.
+    await page.addInitScript(() => {
+      (window as any).__cspViolations = [];
+      document.addEventListener('securitypolicyviolation', (e) => {
+        const info = `blocked: ${e.blockedURI} directive: ${e.violatedDirective} policy: ${e.originalPolicy?.slice(0, 120)}`;
+        (window as any).__cspViolations.push(info);
+        console.error(`CSP VIOLATION: ${info}`);
+      });
+    });
+
     await gotoApp(page);
-    await waitForConnection(page);
+
+    // If waitForConnection fails, dump everything we captured.
+    try {
+      await waitForConnection(page);
+    } catch (e) {
+      console.log('\n=== DEBUG: waitForConnection timed out ===');
+      console.log('Console logs:', JSON.stringify(consoleLogs, null, 2));
+      console.log('Page errors:', JSON.stringify(pageErrors, null, 2));
+      console.log('Failed responses:', JSON.stringify(failedResponses, null, 2));
+      console.log('Script/CSS/WS responses:', JSON.stringify(scriptResponses, null, 2));
+
+      // Capture the current page state for additional diagnostics.
+      const statusEl = await page.$('#connection-status');
+      const statusClasses = statusEl ? await statusEl.getAttribute('class') : 'NOT FOUND';
+      const statusLabel = await page.$eval('#connection-status-label', (el: Element) => el.textContent).catch(() => 'NOT FOUND');
+      console.log('Connection status classes:', statusClasses);
+      console.log('Connection status label:', statusLabel);
+
+      // Check if main.js even loaded by testing for known globals.
+      const jsState = await page.evaluate(() => {
+        const w = window as any;
+        return {
+          hasRaceCanvas: !!w.raceCanvas,
+          hasRaceConnection: !!w.raceConnection,
+          cspViolations: w.__cspViolations || [],
+          locationHref: location.href,
+          locationHost: location.host,
+        };
+      }).catch(() => ({ error: 'evaluate failed' }));
+      console.log('JS state:', JSON.stringify(jsState));
+
+      // Dump the CSP header from an unauthenticated fetch (HTML pages don't need auth).
+      const cspHeader = await page.evaluate(async () => {
+        try {
+          const resp = await fetch('/', { cache: 'no-store' });
+          return resp.headers.get('content-security-policy');
+        } catch (err) { return 'fetch failed: ' + String(err); }
+      }).catch(() => 'evaluate failed');
+      console.log('CSP header:', cspHeader);
+
+      // Log first 500 chars of HTML to verify the page was served correctly.
+      const html = await page.content();
+      console.log('Page HTML (first 500):', html.slice(0, 500));
+      console.log('=== END DEBUG ===\n');
+
+      throw e;
+    }
+
     await waitForRacers(page, 3);
   });
 
