@@ -274,9 +274,16 @@ func main() {
 	// SIGHUP: reload config.yaml and apply changes at runtime.
 	sighupCh := make(chan os.Signal, 1)
 	signal.Notify(sighupCh, syscall.SIGHUP)
-	defer signal.Stop(sighupCh)
+	sighupDone := make(chan struct{})
 	go func() {
-		for range sighupCh {
+		defer close(sighupDone)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-sighupCh:
+			}
+
 			newCfg, reloadWarnings, err := config.LoadOrDefault(cfgPath)
 			if err != nil {
 				log.Printf("Config reload failed: %v", err)
@@ -326,7 +333,9 @@ func main() {
 	}()
 
 	cleanup := func() {
+		signal.Stop(sighupCh)
 		cancel()
+		<-sighupDone // wait for any in-flight reload to finish
 		broadcaster.Stop()
 		wg.Wait() // allow stats tracker to flush
 		if rec != nil {
