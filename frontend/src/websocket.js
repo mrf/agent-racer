@@ -117,6 +117,9 @@ export class RaceConnection {
   }
 
   scheduleReconnect() {
+    if (this.reconnectTimeoutId) {
+      clearTimeout(this.reconnectTimeoutId);
+    }
     this.reconnectAttempts++;
     const delay = Math.min(
       this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1),
