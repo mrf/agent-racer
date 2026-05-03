@@ -100,6 +100,27 @@ export class Grandstand {
     this._reactions = this._reactions.filter(r => r.t < r.duration);
   }
 
+  /**
+   * Overlay animated spectators on a grandstand tile that was already drawn by
+   * the tile renderer.  Anchors spectators to the bottom edge of the tile rect
+   * so they appear to sit in the pre-rendered tiered rows.
+   *
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {{ x:number, y:number, w:number, h:number }} rect - canvas-space tile rect
+   * @param {number} excitement - 0-1 crowd excitement level
+   */
+  drawAtTile(ctx, rect, excitement) {
+    const syntheticBounds = {
+      x: rect.x,
+      y: rect.y + rect.h,
+      width: rect.w,
+    };
+    ctx.save();
+    ctx.globalAlpha = 0.92;
+    this.draw(ctx, syntheticBounds, 'compact', excitement || 0.3);
+    ctx.restore();
+  }
+
   draw(ctx, trackBounds, crowdMode, excitement) {
     const rowCount = crowdMode === 'compact' ? ROWS_COMPACT : ROWS_FULL;
     const standH = rowCount * ROW_STEP + 6;

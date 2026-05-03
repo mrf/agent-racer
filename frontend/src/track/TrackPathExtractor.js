@@ -232,6 +232,9 @@ function walkFrom(tiles, startRow, startCol, initialDir, S, h, w) {
   let pitEntryWpIdx = -1;
   let pitExitWpIdx  = -1;
 
+  // Chicane arc-length ranges: [{arcStart, arcEnd}] — used for wobble effects.
+  const chicaneRanges = [];
+
   const maxSteps = h * w + 4;
   for (let step = 0; step < maxSteps; step++) {
     const delta = DIR_DELTA[curExit];
@@ -245,6 +248,7 @@ function walkFrom(tiles, startRow, startCol, initialDir, S, h, w) {
         totalLength: waypoints[waypoints.length - 1].arcLength,
         isLoop: true,
         pitPath: buildPitPath(waypoints, pitEntryWpIdx, pitExitWpIdx),
+        chicaneRanges,
       };
     }
 
@@ -269,9 +273,18 @@ function walkFrom(tiles, startRow, startCol, initialDir, S, h, w) {
       pitEntryWpIdx = waypoints.length - 1;
     }
 
+    // For chicane tiles, record the arc-length span before and after appending.
+    const arcStart = nextTile === 'chicane'
+      ? waypoints[waypoints.length - 1].arcLength
+      : -1;
+
     // Generate and append waypoints for next tile (skip first: shared edge mid)
     const pts = tileWaypoints(nextRow, nextCol, S, arriveFrom, nextExit, nextTile);
     appendWaypoints(waypoints, pts, true);
+
+    if (arcStart >= 0) {
+      chicaneRanges.push({ arcStart, arcEnd: waypoints[waypoints.length - 1].arcLength });
+    }
 
     // Record pit-exit: after appending, last waypoint is the pit-exit edge mid.
     if (nextTile === 'pit-exit') {
@@ -290,6 +303,7 @@ function walkFrom(tiles, startRow, startCol, initialDir, S, h, w) {
       totalLength: waypoints[waypoints.length - 1].arcLength,
       isLoop: false,
       pitPath: buildPitPath(waypoints, pitEntryWpIdx, pitExitWpIdx),
+      chicaneRanges,
     };
   }
   return null;

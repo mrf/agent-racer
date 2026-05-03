@@ -5,6 +5,7 @@ import { isParkingLotRacer, isPitRacer } from '../session/zones.js';
 import { ParticleSystem } from './Particles.js';
 import { extractPath } from '../track/TrackPathExtractor.js';
 import { TrackPathSampler } from '../track/TrackPathSampler.js';
+import { getGrandstandTiles } from '../track/TrackTileRenderer.js';
 
 const WHITE_RGB = { r: 255, g: 255, b: 255 };
 
@@ -70,6 +71,9 @@ export class BaseCanvas {
     this._customTrackPixelW = 0;
     this._pitSampler = null;
     this._pitPath = null;
+    this._chicaneRanges = [];
+    this._customTotalLength = 0;
+    this._grandstandRects = [];
 
     this.resize();
     this._resizeHandler = () => this.resize();
@@ -102,12 +106,18 @@ export class BaseCanvas {
       this._customTrackPixelW = 0;
       this._pitSampler = null;
       this._pitPath = null;
+      this._chicaneRanges = [];
+      this._customTotalLength = 0;
+      this._grandstandRects = [];
       this.track.setActiveTrack(null);
       this._needsResize = true;
       return;
     }
     this._customSampler = new TrackPathSampler(path);
     this._customTrackPixelW = track.width * TILE_SIZE;
+    this._chicaneRanges = path.chicaneRanges || [];
+    this._customTotalLength = path.totalLength || 0;
+    this._grandstandRects = getGrandstandTiles(tiles, TILE_SIZE);
     if (path.pitPath) {
       this._pitSampler = new TrackPathSampler(path.pitPath);
       this._pitPath = path.pitPath;
@@ -323,6 +333,7 @@ export class BaseCanvas {
         if (useCustomPath) {
           const laneWidth = laneCount > 1 ? this.track.laneHeight / scale : 0;
           const t = Math.min(1, (entity.state.tokensUsed || 0) / Math.max(1, groupMaxTokens));
+          entity.trackT = t;
           const { x: sx, y: sy, angle } = sampler.sample(t, i, laneCount, laneWidth);
           targetX = layout.x + sx * scale;
           targetY = layout.y + sy * scale;

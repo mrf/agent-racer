@@ -31,7 +31,29 @@ const C_START_W = '#ffffff';
 const C_START_K = '#111111';
 const C_FINISH_R = '#e94560';
 const C_FINISH_K = '#1a1a2e';
-const SPECTATOR_COLORS = ['#ff6688', '#88aaff', '#ffdd44'];
+
+/**
+ * Scan a tile grid and return the pixel bounding rect of every 'grandstand' tile.
+ * Tile-space coordinates; scale by (canvasWidth / tileRenderer.width) to get
+ * canvas-space rects.
+ *
+ * @param {string[][]} tiles
+ * @param {number}     tileSize
+ * @returns {{ x:number, y:number, w:number, h:number }[]}
+ */
+export function getGrandstandTiles(tiles, tileSize = 32) {
+  const rects = [];
+  for (let r = 0; r < tiles.length; r++) {
+    const row = tiles[r];
+    if (!row) continue;
+    for (let c = 0; c < row.length; c++) {
+      if (row[c] === 'grandstand') {
+        rects.push({ x: c * tileSize, y: r * tileSize, w: tileSize, h: tileSize });
+      }
+    }
+  }
+  return rects;
+}
 
 export class TrackTileRenderer {
   /**
@@ -122,6 +144,32 @@ export class TrackTileRenderer {
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
+  // Asphalt grain — subtle micro-variation baked into each tile at render time.
+
+  /**
+   * Scatter low-alpha micro-dots over a rectangular area to simulate asphalt grain.
+   * Called after the base fill so dots appear on top.
+   */
+  _drawAsphaltGrain(ctx, x, y, w, h) {
+    const count = Math.floor(w * h * 0.012);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x, y, w, h);
+    ctx.clip();
+    for (let i = 0; i < count; i++) {
+      const gx = x + Math.random() * w;
+      const gy = y + Math.random() * h;
+      const gs = 0.4 + Math.random() * 0.9;
+      const ga = 0.04 + Math.random() * 0.09;
+      ctx.fillStyle = `rgba(10,10,20,${ga.toFixed(2)})`;
+      ctx.beginPath();
+      ctx.arc(gx, gy, gs, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
   // Straight tiles
 
   _drawStraightH(ctx, x, y, sz) {
@@ -141,6 +189,8 @@ export class TrackTileRenderer {
     g.addColorStop(1,   C_ASPHALT2);
     ctx.fillStyle = g;
     ctx.fillRect(x, y + m, sz, tw);
+
+    this._drawAsphaltGrain(ctx, x, y + m + cw, sz, tw - 2 * cw);
 
     // Curbing bands on top and bottom edges.
     this._curbH(ctx, x, y + m,            sz, cw);
@@ -162,6 +212,8 @@ export class TrackTileRenderer {
     g.addColorStop(1,   C_ASPHALT2);
     ctx.fillStyle = g;
     ctx.fillRect(x + m, y, tw, sz);
+
+    this._drawAsphaltGrain(ctx, x + m + cw, y, tw - 2 * cw, sz);
 
     // Curbing bands on left and right edges.
     this._curbV(ctx, x + m,           y, cw, sz);
@@ -237,9 +289,48 @@ export class TrackTileRenderer {
     ctx.fillStyle = rg;
     ctx.fill();
 
+    // Asphalt grain on the donut surface.
+    ctx.save();
+    this._donutSlicePath(ctx, cx, cy, outer - cw, inner + cw, startAngle, endAngle);
+    ctx.clip();
+    const bboxSz = outer * 2;
+    this._drawAsphaltGrain(ctx, cx - bboxSz / 2, cy - bboxSz / 2, bboxSz, bboxSz);
+    ctx.restore();
+
+    // Tire marks near the entry of the curve — rubber deposits from braking.
+    this._drawCurveTireMarks(ctx, cx, cy, inner + cw, outer - cw, startAngle, endAngle);
+
     // Curbing on outer and inner edges.
     this._arcCurb(ctx, cx, cy, outer - cw, outer, startAngle, endAngle, false);
     this._arcCurb(ctx, cx, cy, inner, inner + cw, startAngle, endAngle, false);
+  }
+
+  /**
+   * Draw subtle dark tire-rubber arcs near the entry of a curve tile.
+   * These simulate the rubber build-up from repeated braking at turn entry.
+   */
+  _drawCurveTireMarks(ctx, cx, cy, innerR, outerR, startAngle, endAngle) {
+    const sweep    = endAngle - startAngle;
+    // Mark the first ~30 % of the arc (turn entry zone).
+    const markSpan = sweep * 0.30;
+    const midR     = innerR + (outerR - innerR) * 0.4;
+    const lineW    = (outerR - innerR) * 0.18;
+
+    ctx.save();
+    ctx.strokeStyle = 'rgba(15,12,20,0.40)';
+    ctx.lineWidth   = lineW;
+    ctx.lineCap     = 'round';
+    ctx.beginPath();
+    ctx.arc(cx, cy, midR, startAngle, startAngle + markSpan, false);
+    ctx.stroke();
+
+    // Second, fainter mark slightly offset toward outer edge.
+    ctx.strokeStyle = 'rgba(15,12,20,0.22)';
+    ctx.lineWidth   = lineW * 0.55;
+    ctx.beginPath();
+    ctx.arc(cx, cy, midR + lineW * 0.6, startAngle, startAngle + markSpan * 0.7, false);
+    ctx.stroke();
+    ctx.restore();
   }
 
   /** Trace a donut-slice (annular sector) path without filling. */
@@ -293,6 +384,14 @@ export class TrackTileRenderer {
     ctx.closePath();
     ctx.fillStyle = C_ASPHALT;
     ctx.fill();
+
+    // Asphalt grain.
+    {
+      const m   = sz * TRACK_MARGIN;
+      const tw  = sz * TRACK_RATIO;
+      const cw  = sz * CURB_RATIO;
+      this._drawAsphaltGrain(ctx, x, y + m + cw, sz, tw - 2 * cw);
+    }
 
     // Curbing — approximate with short rects placed along the bezier.
     const steps = CURB_STRIPES * 2;
@@ -442,25 +541,29 @@ export class TrackTileRenderer {
     ctx.fillStyle = '#3a2a55';
     ctx.fillRect(bx, by, bw, bh);
 
-    // Tiered rows.
+    // Tiered rows with subtle gradient per row.
     for (let r = 0; r < rows; r++) {
       ctx.fillStyle = r % 2 === 0 ? '#553388' : '#442277';
       ctx.fillRect(bx, by + r * rh, bw, rh);
+
+      // Row-top highlight stripe for depth.
+      ctx.fillStyle = 'rgba(255,255,255,0.06)';
+      ctx.fillRect(bx, by + r * rh, bw, Math.max(1, rh * 0.18));
     }
 
-    // Spectator dots.
-    const dotGap = Math.max(6, Math.floor(sz * 0.1));
-    for (let r = 0; r < rows; r++) {
-      const numDots = Math.floor(bw / dotGap);
-      for (let d = 0; d < numDots; d++) {
-        const dotX = bx + d * dotGap + dotGap / 2;
-        const dotY = by + r * rh + rh / 2;
-        ctx.fillStyle = SPECTATOR_COLORS[d % 3];
-        ctx.beginPath();
-        ctx.arc(dotX, dotY, Math.max(1, sz * 0.025), 0, Math.PI * 2);
-        ctx.fill();
-      }
+    // Row divider lines.
+    ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+    ctx.lineWidth   = Math.max(0.5, sz * 0.012);
+    ctx.setLineDash([]);
+    for (let r = 1; r < rows; r++) {
+      ctx.beginPath();
+      ctx.moveTo(bx, by + r * rh);
+      ctx.lineTo(bx + bw, by + r * rh);
+      ctx.stroke();
     }
+
+    // Spectator dots are intentionally omitted here — the live Grandstand
+    // entity renders animated spectators on top of this static structure.
 
     // Label.
     ctx.fillStyle    = '#bb88ff';
@@ -473,40 +576,66 @@ export class TrackTileRenderer {
 
   _drawTree(ctx, x, y, sz) {
     const cx = x + sz / 2;
-    const cy = y + sz * 0.55;
-    const r  = sz * 0.32;
+    const cy = y + sz * 0.52;
+    const r  = sz * 0.30;
 
-    // Shadow.
-    ctx.fillStyle = 'rgba(0,0,0,0.18)';
+    // Drop shadow.
+    ctx.fillStyle = 'rgba(0,0,0,0.22)';
     ctx.beginPath();
-    ctx.arc(cx + sz * 0.06, cy + sz * 0.08, r * 0.85, 0, Math.PI * 2);
+    ctx.ellipse(cx + sz * 0.07, cy + sz * 0.09, r * 0.90, r * 0.45, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Trunk — short brown rectangle below canopy.
+    const trunkW = sz * 0.07;
+    const trunkH = sz * 0.14;
+    const trunkX = cx - trunkW / 2;
+    const trunkY = cy + r * 0.55;
+    ctx.fillStyle = '#5a3a1a';
+    ctx.fillRect(trunkX, trunkY, trunkW, trunkH);
+
+    // Dark inner canopy base.
+    ctx.fillStyle = '#1a5c22';
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
     ctx.fill();
 
     // Main canopy.
     ctx.fillStyle = '#228833';
     ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.arc(cx, cy - sz * 0.03, r * 0.92, 0, Math.PI * 2);
     ctx.fill();
 
-    // Highlight clusters.
-    ctx.fillStyle = '#44aa55';
+    // Mid highlight.
+    ctx.fillStyle = '#33aa44';
     ctx.beginPath();
-    ctx.arc(cx - sz * 0.1, cy - sz * 0.08, r * 0.55, 0, Math.PI * 2);
+    ctx.arc(cx - sz * 0.08, cy - sz * 0.10, r * 0.58, 0, Math.PI * 2);
     ctx.fill();
 
+    // Top bright highlight.
     ctx.fillStyle = '#55cc66';
     ctx.beginPath();
-    ctx.arc(cx + sz * 0.07, cy - sz * 0.14, r * 0.38, 0, Math.PI * 2);
+    ctx.arc(cx + sz * 0.05, cy - sz * 0.16, r * 0.38, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Specular glint.
+    ctx.fillStyle = 'rgba(180,255,160,0.25)';
+    ctx.beginPath();
+    ctx.arc(cx + sz * 0.04, cy - sz * 0.20, r * 0.20, 0, Math.PI * 2);
     ctx.fill();
   }
 
   _drawBarrier(ctx, x, y, sz) {
     const pad = sz * 0.08;
-    const bh  = sz * 0.32;
+    const bh  = sz * 0.28;
     const bx  = x + pad;
     const by  = y + (sz - bh) / 2;
     const bw  = sz - 2 * pad;
     const cap = sz * 0.12;
+    const topH = sz * 0.06; // simulated 3-D top face height
+
+    // Ground shadow.
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    ctx.fillRect(bx + 3, by + bh, bw - 2, sz * 0.07);
 
     // Body.
     ctx.fillStyle = '#cc3333';
@@ -514,15 +643,41 @@ export class TrackTileRenderer {
 
     // White centre stripe.
     ctx.fillStyle = '#f0f0f0';
-    ctx.fillRect(bx, by + bh * 0.35, bw, bh * 0.3);
+    ctx.fillRect(bx, by + bh * 0.36, bw, bh * 0.28);
 
     // Red end caps (brighter).
     ctx.fillStyle = '#ff4444';
-    ctx.fillRect(bx,          by, cap, bh);
-    ctx.fillRect(bx + bw - cap, by, cap, bh);
+    ctx.fillRect(bx,              by, cap, bh);
+    ctx.fillRect(bx + bw - cap,   by, cap, bh);
 
-    // Ground shadow.
-    ctx.fillStyle = 'rgba(0,0,0,0.25)';
-    ctx.fillRect(bx + 3, by + bh, bw - 2, sz * 0.07);
+    // 3-D top face (lighter red trapezoid above main body).
+    ctx.fillStyle = '#e84040';
+    ctx.beginPath();
+    ctx.moveTo(bx,      by);
+    ctx.lineTo(bx + bw, by);
+    ctx.lineTo(bx + bw - topH * 0.4, by - topH);
+    ctx.lineTo(bx + topH * 0.4,      by - topH);
+    ctx.closePath();
+    ctx.fill();
+
+    // Bolt marks — small dark circles evenly spaced along the body.
+    const boltCount = Math.max(2, Math.floor(bw / (sz * 0.22)));
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    const boltR   = sz * 0.022;
+    const boltY   = by + bh * 0.15;
+    for (let i = 0; i < boltCount; i++) {
+      const boltX = bx + (i + 0.5) * (bw / boltCount);
+      ctx.beginPath();
+      ctx.arc(boltX, boltY, boltR, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Reflective sheen on white stripe.
+    const sheenGrad = ctx.createLinearGradient(bx, by + bh * 0.36, bx, by + bh * 0.64);
+    sheenGrad.addColorStop(0, 'rgba(255,255,255,0.5)');
+    sheenGrad.addColorStop(0.5, 'rgba(255,255,255,0.1)');
+    sheenGrad.addColorStop(1, 'rgba(255,255,255,0.4)');
+    ctx.fillStyle = sheenGrad;
+    ctx.fillRect(bx, by + bh * 0.36, bw, bh * 0.28);
   }
 }

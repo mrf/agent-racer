@@ -57,6 +57,10 @@ export class RaceCanvas extends BaseCanvas {
     this._racerMilestones = new Map();
     this._prevLeaderOrder = [];
     this.ambientDustCooldown = 0;
+    // Per-racer state for curve-dust and chicane-wobble effects.
+    this._prevRacerAngles = new Map();
+    this._curveDustCooldowns = new Map();
+    this._chicaneWobbleCooldowns = new Map();
   }
 
   setTeams(teams) {
@@ -182,6 +186,10 @@ export class RaceCanvas extends BaseCanvas {
     });
 
     this._updateAmbientDust(dt, layouts[0], trackZoneBottom, busyRacerCount);
+    if (this._customSampler) {
+      this._updateCurveDust(dt, trackRacers);
+      this._updateChicaneWobble(trackRacers);
+    }
 
     // --- Pit crew management ---
     // Detect racers that have left the pit → trigger crew departure
@@ -272,12 +280,97 @@ export class RaceCanvas extends BaseCanvas {
     this.ambientDustCooldown = 0.18 + Math.random() * 0.24;
   }
 
-  drawBeforeTrack(ctx, groups, excitement) {
-    if (this.track._crowdMode !== 'hidden') {
-      const firstLayout = this.track.getMultiTrackLayout(this.width, groups)[0];
-      if (firstLayout) {
-        this.grandstand.draw(ctx, firstLayout, this.track._crowdMode, excitement);
+  /**
+   * Emit brownish dust particles behind racers that are actively cornering on
+   * a tile-based track.  Angular velocity above a threshold indicates a curve.
+   */
+  _updateCurveDust(dt, trackEntities) {
+    for (const racer of trackEntities) {
+      const curAngle = racer.pathAngle || 0;
+      const prevAngle = this._prevRacerAngles.get(racer.id) || curAngle;
+
+      // Normalise angle delta to [-π, π].
+      let delta = curAngle - prevAngle;
+      while (delta >  Math.PI) { delta -= 2 * Math.PI; }
+      while (delta < -Math.PI) { delta += 2 * Math.PI; }
+
+      const angularSpeed = Math.abs(delta) / Math.max(dt, 0.001);
+
+      const cooldown = (this._curveDustCooldowns.get(racer.id) || 0) - dt;
+      if (angularSpeed > 0.8 && cooldown <= 0) {
+        // Emit a few dust particles near the rear tyres.
+        const S = 2.3;
+        const dustX = racer.displayX - 10 * S * 0.3 + (Math.random() - 0.5) * 12;
+        const dustY = racer.displayY + racer.springY + (Math.random() - 0.5) * 6;
+        this.particles.emit('curveDust', dustX, dustY, 2);
+        this._curveDustCooldowns.set(racer.id, 0.08 + Math.random() * 0.06);
+      } else {
+        this._curveDustCooldowns.set(racer.id, Math.max(0, cooldown));
       }
+
+      this._prevRacerAngles.set(racer.id, curAngle);
+    }
+  }
+
+  /**
+   * Apply a vertical spring impulse to racers traversing chicane tile sections,
+   * simulating the car being jostled through the tight S-curve.
+   */
+  _updateChicaneWobble(trackEntities) {
+    if (!this._chicaneRanges || this._chicaneRanges.length === 0) return;
+    const totalLen = this._customTotalLength;
+    if (totalLen <= 0) return;
+
+    for (const racer of trackEntities) {
+      const t = racer.trackT;
+      if (t === undefined) continue;
+      const arcLen = t * totalLen;
+
+      let inChicane = false;
+      for (let i = 0; i < this._chicaneRanges.length; i++) {
+        const range = this._chicaneRanges[i];
+        if (arcLen >= range.arcStart && arcLen <= range.arcEnd) {
+          inChicane = true;
+          break;
+        }
+      }
+
+      const cooldown = this._chicaneWobbleCooldowns.get(racer.id) || 0;
+      if (inChicane && cooldown <= 0) {
+        // Kick the spring so the car bounces through the chicane.
+        racer.springVel -= 2.2 + Math.random() * 1.2;
+        this._chicaneWobbleCooldowns.set(racer.id, 0.22);
+      } else {
+        this._chicaneWobbleCooldowns.set(racer.id, Math.max(0, cooldown - this.dt));
+      }
+    }
+  }
+
+  drawBeforeTrack(ctx, groups, excitement) {
+    if (this.track._crowdMode === 'hidden') return;
+
+    const layouts = this.track.getMultiTrackLayout(this.width, groups);
+    const firstLayout = layouts[0];
+    if (!firstLayout) return;
+
+    if (this._customSampler && this._grandstandRects && this._grandstandRects.length > 0) {
+      // Tile-based track: draw animated spectators at each grandstand tile position.
+      const scale = this._customTrackPixelW > 0
+        ? firstLayout.width / this._customTrackPixelW
+        : 1;
+      for (let i = 0; i < this._grandstandRects.length; i++) {
+        const r = this._grandstandRects[i];
+        const canvasRect = {
+          x: firstLayout.x + r.x * scale,
+          y: firstLayout.y + r.y * scale,
+          w: r.w * scale,
+          h: r.h * scale,
+        };
+        this.grandstand.drawAtTile(ctx, canvasRect, excitement);
+      }
+    } else {
+      // Linear track: draw the crowd strip above the track as usual.
+      this.grandstand.draw(ctx, firstLayout, this.track._crowdMode, excitement);
     }
   }
 
@@ -416,6 +509,9 @@ export class RaceCanvas extends BaseCanvas {
       crew.leave();
     }
     this.pitEntryTimers.delete(id);
+    this._prevRacerAngles.delete(id);
+    this._curveDustCooldowns.delete(id);
+    this._chicaneWobbleCooldowns.delete(id);
   }
 
   afterDestroy() {
@@ -423,5 +519,8 @@ export class RaceCanvas extends BaseCanvas {
     this.pitCrews.clear();
     this.pitEntryTimers.clear();
     this.prevPitIds.clear();
+    this._prevRacerAngles.clear();
+    this._curveDustCooldowns.clear();
+    this._chicaneWobbleCooldowns.clear();
   }
 }

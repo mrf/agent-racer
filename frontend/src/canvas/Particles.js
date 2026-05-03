@@ -307,6 +307,23 @@ export class ParticleSystem {
           sizeMultiplier: 'bloom',
         };
 
+      case 'curveDust':
+        // Brownish-grey dust kicked up at the tire contact patch while cornering.
+        return {
+          ...base,
+          vx: (Math.random() - 0.5) * 1.8,
+          vy: -0.4 - Math.random() * 0.8,
+          size: 2 + Math.random() * 3,
+          color: { r: 160, g: 145, b: 115 },
+          colorEnd: { r: 120, g: 110, b: 90 },
+          decay: 0.018 + Math.random() * 0.012,
+          flutter: 0.6 + Math.random() * 0.6,
+          flutterSpeed: 1.0 + Math.random() * 1.0,
+          layer: 'behind',
+          baseAlpha: 0.35 + Math.random() * 0.15,
+          sizeMultiplier: 'bloom',
+        };
+
       // ── Footrace presets ──────────────────
       case 'dustCloud':
         return {
