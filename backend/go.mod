@@ -1,6 +1,6 @@
 module github.com/agent-racer/backend
 
-go 1.24.7
+go 1.25
 
 require (
 	github.com/gorilla/websocket v1.5.3
@@ -18,3 +18,7 @@ require (
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	golang.org/x/sys v0.20.0 // indirect
 )
+
+require github.com/mrf/agentwatch v0.1.0
+
+replace github.com/mrf/agentwatch => /home/mrf/Projects/agentwatch

@@ -207,11 +207,11 @@ func (g *MockGenerator) advanceMock(ms *mockSession, tick int) {
 	now := time.Now()
 	ms.state.LastActivityAt = now
 
-	prevTokens := ms.state.TokensUsed
+	prevTokens := ms.state.ContextTokens
 
 	if tick <= 2 {
 		ms.state.Activity = session.Starting
-		ms.state.TokensUsed += 500
+		ms.state.ContextTokens += 500
 		ms.state.UpdateUtilization()
 		ms.prevTokens = prevTokens
 		return
@@ -232,7 +232,7 @@ func (g *MockGenerator) advanceMock(ms *mockSession, tick int) {
 
 	// Calculate burn rate: tokens gained this tick, scaled to realistic per-minute rates
 	// Target range: 500-7000 tokens/min for demo
-	tokenDelta := ms.state.TokensUsed - prevTokens
+	tokenDelta := ms.state.ContextTokens - prevTokens
 	if tokenDelta > 0 {
 		ms.state.BurnRatePerMinute = float64(tokenDelta) * 2.5
 	} else {
@@ -307,7 +307,7 @@ func (g *MockGenerator) advanceSubagents(ms *mockSession, tick int) {
 			sub.CurrentTool = ""
 		}
 
-		sub.TokensUsed += 200 + rand.Intn(300)
+		sub.ContextTokens += 200 + rand.Intn(300)
 	}
 
 	// When parent completes, complete all remaining active subagents
@@ -325,7 +325,7 @@ func (g *MockGenerator) advanceSubagents(ms *mockSession, tick int) {
 
 func (g *MockGenerator) advanceSteady(ms *mockSession, tick int) {
 	jitter := rand.Intn(400) - 200
-	ms.state.TokensUsed += ms.tokensPerTick + jitter
+	ms.state.ContextTokens += ms.tokensPerTick + jitter
 	ms.state.MessageCount++
 
 	if tick%3 == 0 {
@@ -340,9 +340,9 @@ func (g *MockGenerator) advanceSteady(ms *mockSession, tick int) {
 
 	ms.state.UpdateUtilization()
 
-	if ms.state.TokensUsed >= ms.maxTokens {
+	if ms.state.ContextTokens >= ms.maxTokens {
 		ms.state.Activity = session.Complete
-		ms.state.TokensUsed = ms.maxTokens
+		ms.state.ContextTokens = ms.maxTokens
 		ms.state.UpdateUtilization()
 		now := time.Now()
 		ms.state.CompletedAt = &now
@@ -358,7 +358,7 @@ func (g *MockGenerator) advanceBurst(ms *mockSession, tick int) {
 	}
 	growth := int(float64(ms.tokensPerTick) * burstMultiplier)
 	jitter := rand.Intn(500)
-	ms.state.TokensUsed += growth + jitter
+	ms.state.ContextTokens += growth + jitter
 	ms.state.MessageCount++
 
 	if burstMultiplier > 1 {
@@ -373,9 +373,9 @@ func (g *MockGenerator) advanceBurst(ms *mockSession, tick int) {
 
 	ms.state.UpdateUtilization()
 
-	if ms.state.TokensUsed >= ms.maxTokens {
+	if ms.state.ContextTokens >= ms.maxTokens {
 		ms.state.Activity = session.Complete
-		ms.state.TokensUsed = ms.maxTokens
+		ms.state.ContextTokens = ms.maxTokens
 		ms.state.UpdateUtilization()
 		now := time.Now()
 		ms.state.CompletedAt = &now
@@ -397,7 +397,7 @@ func (g *MockGenerator) advanceStall(ms *mockSession, tick int) {
 	}
 
 	jitter := rand.Intn(200)
-	ms.state.TokensUsed += ms.tokensPerTick + jitter
+	ms.state.ContextTokens += ms.tokensPerTick + jitter
 	ms.state.MessageCount++
 
 	if tick%4 == 0 {
@@ -412,9 +412,9 @@ func (g *MockGenerator) advanceStall(ms *mockSession, tick int) {
 
 	ms.state.UpdateUtilization()
 
-	if ms.state.TokensUsed >= ms.maxTokens {
+	if ms.state.ContextTokens >= ms.maxTokens {
 		ms.state.Activity = session.Complete
-		ms.state.TokensUsed = ms.maxTokens
+		ms.state.ContextTokens = ms.maxTokens
 		ms.state.UpdateUtilization()
 		now := time.Now()
 		ms.state.CompletedAt = &now
@@ -425,7 +425,7 @@ func (g *MockGenerator) advanceStall(ms *mockSession, tick int) {
 
 func (g *MockGenerator) advanceError(ms *mockSession, tick int) {
 	jitter := rand.Intn(400)
-	ms.state.TokensUsed += ms.tokensPerTick + jitter
+	ms.state.ContextTokens += ms.tokensPerTick + jitter
 	ms.state.MessageCount++
 
 	if tick%3 == 0 {
@@ -454,7 +454,7 @@ func (g *MockGenerator) advanceMethodical(ms *mockSession, tick int) {
 	// Slow, steady with lots of reading/LSP — sinusoidal pace variation
 	pace := 0.7 + 0.3*math.Sin(float64(tick)/10.0)
 	growth := int(float64(ms.tokensPerTick) * pace)
-	ms.state.TokensUsed += growth
+	ms.state.ContextTokens += growth
 	ms.state.MessageCount++
 
 	// Mostly tool use (reading/analyzing)
@@ -470,9 +470,9 @@ func (g *MockGenerator) advanceMethodical(ms *mockSession, tick int) {
 
 	ms.state.UpdateUtilization()
 
-	if ms.state.TokensUsed >= ms.maxTokens {
+	if ms.state.ContextTokens >= ms.maxTokens {
 		ms.state.Activity = session.Complete
-		ms.state.TokensUsed = ms.maxTokens
+		ms.state.ContextTokens = ms.maxTokens
 		ms.state.UpdateUtilization()
 		now := time.Now()
 		ms.state.CompletedAt = &now

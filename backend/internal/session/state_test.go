@@ -342,7 +342,7 @@ func TestUpdateUtilization(t *testing.T) {
 	for i := 0; i < len(tests); i++ {
 		tt := tests[i]
 		t.Run(tt.name, func(t *testing.T) {
-			s := &SessionState{TokensUsed: tt.used, MaxContextTokens: tt.max}
+			s := &SessionState{ContextTokens: tt.used, MaxContextTokens: tt.max}
 			s.UpdateUtilization()
 			if s.ContextUtilization != tt.expected {
 				t.Errorf("got %f, want %f", s.ContextUtilization, tt.expected)

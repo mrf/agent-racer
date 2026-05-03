@@ -88,7 +88,7 @@ func ComputeTeams(sessions []*SessionState) []TeamInfo {
 
 		for _, m := range e.members {
 			memberIDs = append(memberIDs, m.ID)
-			totalTokens += m.TokensUsed
+			totalTokens += m.ContextTokens
 			if !m.IsTerminal() {
 				activeCount++
 				if m.BurnRatePerMinute > 0 {

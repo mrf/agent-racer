@@ -514,7 +514,7 @@ func TestPrivacyFilter_Apply_NonSensitiveFieldsPreserved(t *testing.T) {
 		Name:         "my-project",
 		Source:       "claude",
 		Activity:     Thinking,
-		TokensUsed:   5000,
+		ContextTokens:   5000,
 		Model:        "opus",
 		WorkingDir:   "/home/user/project",
 		MessageCount: 10,
@@ -540,8 +540,8 @@ func TestPrivacyFilter_Apply_NonSensitiveFieldsPreserved(t *testing.T) {
 	if result.Activity != Thinking {
 		t.Errorf("Activity changed: %v", result.Activity)
 	}
-	if result.TokensUsed != 5000 {
-		t.Errorf("TokensUsed changed: %d", result.TokensUsed)
+	if result.ContextTokens != 5000 {
+		t.Errorf("ContextTokens changed: %d", result.ContextTokens)
 	}
 	if result.Model != "opus" {
 		t.Errorf("Model changed: %q", result.Model)

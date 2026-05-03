@@ -14,7 +14,7 @@ func makeSessionState(id string, activity Activity) *SessionState {
 		Slug:               "bench-slug-" + id,
 		Source:             "claude",
 		Activity:           activity,
-		TokensUsed:         5000,
+		ContextTokens:         5000,
 		MaxContextTokens:   200000,
 		ContextUtilization: 0.025,
 		CurrentTool:        "Write",
@@ -34,7 +34,7 @@ func makeSessionState(id string, activity Activity) *SessionState {
 				Slug:           "sub-slug",
 				Model:          "claude-sonnet-4-6-20250514",
 				Activity:       Thinking,
-				TokensUsed:     1000,
+				ContextTokens:     1000,
 				MessageCount:   5,
 				ToolCallCount:  3,
 				StartedAt:      now.Add(-5 * time.Minute),
@@ -141,8 +141,8 @@ func BenchmarkStoreRemove(b *testing.B) {
 func BenchmarkSessionClone(b *testing.B) {
 	state := makeSessionState("clone-bench", Thinking)
 	state.Subagents = append(state.Subagents,
-		SubagentState{ID: "sub-2", Slug: "sub-2", Activity: ToolUse, TokensUsed: 2000},
-		SubagentState{ID: "sub-3", Slug: "sub-3", Activity: Waiting, TokensUsed: 500},
+		SubagentState{ID: "sub-2", Slug: "sub-2", Activity: ToolUse, ContextTokens: 2000},
+		SubagentState{ID: "sub-3", Slug: "sub-3", Activity: Waiting, ContextTokens: 500},
 	)
 	completedAt := time.Now()
 	state.CompletedAt = &completedAt

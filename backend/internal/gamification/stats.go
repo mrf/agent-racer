@@ -40,7 +40,7 @@ type StatsTracker struct {
 	dirty             bool
 	counted           map[string]bool  // session IDs already counted for TotalSessions
 	contextMilestones map[string]uint8 // session ID -> bitmask: bit0=50%, bit1=90%
-	lastTokens        map[string]int   // session ID -> last seen TokensUsed (for delta tracking)
+	lastTokens        map[string]int   // session ID -> last seen ContextTokens (for delta tracking)
 	highUtilSessions  map[string]bool  // session IDs currently at or above 50% context utilization
 	lastCompletionAt  time.Time        // tracks last completion time for photo_finish
 
@@ -271,13 +271,13 @@ func (t *StatsTracker) processEvent(ev session.Event) {
 			t.contextMilestones[s.ID] = mask | 0x01
 		}
 
-		// Weekly challenge: accumulate token delta (TokensUsed is cumulative).
-		if s.TokensUsed > 0 {
+		// Weekly challenge: accumulate token delta (ContextTokens is cumulative).
+		if s.ContextTokens > 0 {
 			prev := t.lastTokens[s.ID]
-			if delta := s.TokensUsed - prev; delta > 0 {
+			if delta := s.ContextTokens - prev; delta > 0 {
 				wc.Snapshot.TokensBurned += delta
 			}
-			t.lastTokens[s.ID] = s.TokensUsed
+			t.lastTokens[s.ID] = s.ContextTokens
 		}
 
 	case session.EventTerminal:

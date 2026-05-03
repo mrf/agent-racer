@@ -641,8 +641,8 @@ func TestPollTokenResolutionEndToEnd(t *testing.T) {
 	m.poll()
 
 	state, _ := store.Get("claude:session-tokens")
-	if state.TokensUsed != 2600 {
-		t.Errorf("TokensUsed = %d, want 2600", state.TokensUsed)
+	if state.ContextTokens != 2600 {
+		t.Errorf("ContextTokens = %d, want 2600", state.ContextTokens)
 	}
 	if state.TokenEstimated {
 		t.Error("TokenEstimated should be false (usage strategy with real data)")
