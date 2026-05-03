@@ -14,6 +14,7 @@ import (
 	awsource "github.com/mrf/agentwatch/source"
 
 	"github.com/agent-racer/backend/internal/config"
+	"github.com/agent-racer/backend/internal/racer"
 	"github.com/agent-racer/backend/internal/session"
 	"github.com/agent-racer/backend/internal/ws"
 )
@@ -49,6 +50,7 @@ type Monitor struct {
 
 	store       *session.Store
 	broadcaster *ws.Broadcaster
+	bridge      *racer.Bridge
 	sources     []awsource.Source
 	awMon       *awmonitor.Monitor
 
@@ -81,6 +83,7 @@ func NewMonitor(cfg *config.Config, store *session.Store, broadcaster *ws.Broadc
 		cfg:                     cfg,
 		store:                   store,
 		broadcaster:             broadcaster,
+		bridge:                  racer.NewBridge(store, broadcaster),
 		sources:                 sources,
 		prevCPU:                 make(map[int]cpuSample),
 		processActivity:         make(map[string]ProcessActivity),
@@ -309,27 +312,23 @@ func (m *Monitor) handleDeltaEvent(ev awmonitor.Event) {
 		existing, existed := m.store.Get(updates[i].ID)
 		if existed && !existing.IsTerminal() {
 			slog.Info("session terminal", "session", updates[i].ID, "name", updates[i].Name, "activity", updates[i].Activity)
-			m.broadcaster.QueueCompletion(updates[i].ID, updates[i].Activity, updates[i].Name)
+			m.bridge.QueueCompletion(updates[i].ID, updates[i].Activity, updates[i].Name)
 		} else if !existed {
 			// New session discovered already terminal — still broadcast.
-			m.broadcaster.QueueCompletion(updates[i].ID, updates[i].Activity, updates[i].Name)
+			m.bridge.QueueCompletion(updates[i].ID, updates[i].Activity, updates[i].Name)
 		}
 	}
 
-	// Commit all session updates to the local store + broadcast.
+	// Enrich with positions, write to store, and queue broadcast via Bridge.
 	if len(updates) > 0 {
-		m.store.BatchUpdateAndNotify(updates, func() {
-			m.broadcaster.QueueUpdate(updates)
-		})
+		m.bridge.PushUpdate(updates)
 	}
 
 	// Handle removals collected from lifecycle events.
 	if len(m.pendingRemovals) > 0 {
 		removals := m.pendingRemovals
 		m.pendingRemovals = nil
-		m.store.BatchRemoveAndNotify(removals, func() {
-			m.broadcaster.QueueRemoval(removals)
-		})
+		m.bridge.PushRemoval(removals)
 		// Clean up token snapshots for removed sessions.
 		for _, id := range removals {
 			delete(m.tokenSnapshots, id)
