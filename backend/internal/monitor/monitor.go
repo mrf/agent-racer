@@ -448,6 +448,13 @@ func (m *Monitor) convertSession(
 // For terminal sessions, it uses lifecycle event reasons to distinguish
 // Complete, Errored, and Lost.
 func (m *Monitor) mapActivity(awState *awsession.SessionState, localID string) session.Activity {
+	// Check lifecycle first: a terminal lifecycle overrides the activity field,
+	// which may still reflect the pre-terminal state if the source didn't
+	// explicitly set Activity to ActivityTerminal.
+	if awState.Lifecycle == awsession.LifecycleTerminal {
+		return m.mapTerminalActivity(localID)
+	}
+
 	switch awState.Activity {
 	case awsession.ActivityWorking:
 		if awState.CurrentTool != "" {

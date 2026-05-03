@@ -53,6 +53,9 @@ func TestPipelineIntegration(t *testing.T) {
 	}
 
 	// Verify broadcaster can serve a snapshot via HTTP.
+	// The handler must stay alive until the client has read the snapshot;
+	// otherwise the deferred conn.Close() races with the writePump.
+	handlerDone := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
 		conn, err := upgrader.Upgrade(w, r, nil)
@@ -60,13 +63,15 @@ func TestPipelineIntegration(t *testing.T) {
 			t.Errorf("upgrade failed: %v", err)
 			return
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 
-		client, err := broadcaster.AddClient(conn)
+		_, err = broadcaster.AddClient(conn)
 		if err != nil {
 			return
 		}
-		broadcaster.SendSnapshot(client)
+		// AddClient already sends the snapshot. Wait for the test to
+		// signal it has read the message before closing the conn.
+		<-handlerDone
 	}))
 	defer server.Close()
 
@@ -75,10 +80,11 @@ func TestPipelineIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ws dial failed: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 	_, msgBytes, err := conn.ReadMessage()
+	close(handlerDone) // unblock server handler so it can close cleanly
 	if err != nil {
 		t.Fatalf("ws read failed: %v", err)
 	}
