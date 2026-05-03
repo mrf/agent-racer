@@ -4,7 +4,7 @@ go 1.25
 
 require (
 	github.com/gorilla/websocket v1.5.3
-	github.com/mrf/agentwatch v0.0.0-00010101000000-000000000000
+	github.com/mrf/agentwatch v0.1.0
 	github.com/shirou/gopsutil/v3 v3.24.5
 	gopkg.in/yaml.v3 v3.0.1
 )
