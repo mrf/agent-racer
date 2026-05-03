@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/agent-racer/backend/internal/jsonl"
+	"github.com/mrf/agentwatch/jsonl"
 )
 
 // buildJSONLLine marshals a JSONL entry to a newline-terminated byte slice.
