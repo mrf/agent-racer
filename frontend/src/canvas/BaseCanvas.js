@@ -68,6 +68,8 @@ export class BaseCanvas {
 
     this._customSampler = null;
     this._customTrackPixelW = 0;
+    this._pitSampler = null;
+    this._pitPath = null;
 
     this.resize();
     this._resizeHandler = () => this.resize();
@@ -98,10 +100,19 @@ export class BaseCanvas {
     if (!path) {
       this._customSampler = null;
       this._customTrackPixelW = 0;
+      this._pitSampler = null;
+      this._pitPath = null;
       return;
     }
     this._customSampler = new TrackPathSampler(path);
     this._customTrackPixelW = track.width * TILE_SIZE;
+    if (path.pitPath) {
+      this._pitSampler = new TrackPathSampler(path.pitPath);
+      this._pitPath = path.pitPath;
+    } else {
+      this._pitSampler = null;
+      this._pitPath = null;
+    }
   }
 
   resize() {
@@ -320,12 +331,24 @@ export class BaseCanvas {
 
         if ((entity.inPit || entity.inParkingLot) && entity.initialized) {
           if (useCustomPath) {
-            const { x: sx0, y: sy0 } = sampler.sample(0, 0, 1, 0);
-            entity.startZoneTransition([
-              { x: entity.displayX, y: entity.displayY },
-              { x: layout.x + sx0 * scale, y: layout.y + sy0 * scale },
-              { x: targetX, y: targetY },
-            ]);
+            // When leaving a custom pit path, transition through the pit-exit point.
+            // For parking lot or no pit path, fall through to the path start.
+            if (entity.inPit && this._pitPath) {
+              const pitWps = this._pitPath.waypoints;
+              const lastPitWp = pitWps[pitWps.length - 1];
+              entity.startZoneTransition([
+                { x: entity.displayX, y: entity.displayY },
+                { x: layout.x + lastPitWp.x * scale, y: layout.y + lastPitWp.y * scale },
+                { x: targetX, y: targetY },
+              ]);
+            } else {
+              const { x: sx0, y: sy0 } = sampler.sample(0, 0, 1, 0);
+              entity.startZoneTransition([
+                { x: entity.displayX, y: entity.displayY },
+                { x: layout.x + sx0 * scale, y: layout.y + sy0 * scale },
+                { x: targetX, y: targetY },
+              ]);
+            }
           } else {
             entity.startZoneTransition([
               { x: entryX, y: entity.displayY },
@@ -349,13 +372,53 @@ export class BaseCanvas {
   }
 
   _positionPitEntities(zoneLayout, afterPosition) {
-    const { pitEntities, trackGroups, pitLaneCount, entryX, trackZoneBottom, globalMaxTokens } = zoneLayout;
+    const { pitEntities, trackGroups, pitLaneCount, entryX, trackZoneBottom, globalMaxTokens, layouts } = zoneLayout;
     if (pitLaneCount === 0) {
       return;
     }
 
-    const pitBounds = this.track.getPitBounds(this.width, this.height, trackGroups, pitLaneCount);
     const sortedPit = pitEntities.sort((a, b) => a.state.lane - b.state.lane);
+    const pitSampler = this._pitSampler;
+    const usePitPath = pitSampler && this._customTrackPixelW > 0 && layouts && layouts.length > 0;
+
+    if (usePitPath) {
+      const layout = layouts[0];
+      const scale = layout.width / this._customTrackPixelW;
+      const firstPitWp = this._pitPath.waypoints[0];
+      const pitEntryX = layout.x + firstPitWp.x * scale;
+      const pitEntryY = layout.y + firstPitWp.y * scale;
+      const laneCount = sortedPit.length;
+      const laneWidth = laneCount > 1 ? this.track.laneHeight / scale : 0;
+
+      for (let i = 0; i < laneCount; i++) {
+        const entity = sortedPit[i];
+        const t = Math.min(1, (entity.state.tokensUsed || 0) / Math.max(1, globalMaxTokens));
+        const { x: px, y: py } = pitSampler.sample(t, i, laneCount, laneWidth);
+        const targetX = layout.x + px * scale;
+        const targetY = layout.y + py * scale;
+
+        if (!entity.inPit && entity.initialized) {
+          entity.startZoneTransition([
+            { x: entity.displayX, y: entity.displayY },
+            { x: pitEntryX, y: pitEntryY },
+            { x: targetX, y: targetY },
+          ]);
+        }
+
+        entity.setTarget(targetX, targetY);
+        entity.inPit = true;
+        entity.inParkingLot = false;
+        entity.animate(this.particles, this.dt);
+
+        if (afterPosition) {
+          afterPosition(entity, layout, i);
+        }
+      }
+      return;
+    }
+
+    // Fallback: standard below-track pit positioning.
+    const pitBounds = this.track.getPitBounds(this.width, this.height, trackGroups, pitLaneCount);
 
     for (let i = 0; i < sortedPit.length; i++) {
       const entity = sortedPit[i];
@@ -473,7 +536,11 @@ export class BaseCanvas {
 
     this.drawBeforeTrack(ctx, groups, excitement);
     this.track.drawMultiTrack(ctx, this.width, this.height, groups, excitement);
-    this.track.drawPit(ctx, this.width, this.height, groups, pitLaneCount);
+    // When a custom pit path is active, pit-lane cars follow track tiles — skip
+    // the below-track pit zone rendering and fall back to it only when absent.
+    if (!this._pitSampler) {
+      this.track.drawPit(ctx, this.width, this.height, groups, pitLaneCount);
+    }
 
     if (parkingLotLaneCount > 0) {
       this.track.drawParkingLot(ctx, this.width, this.height, groups, pitLaneCount, parkingLotLaneCount);

@@ -31,10 +31,6 @@ function center(row, col) {
   return { x: col * S + S / 2, y: row * S + S / 2 };
 }
 
-function ptDist(a, b) {
-  return Math.sqrt((b.x - a.x) ** 2 + (b.y - a.y) ** 2);
-}
-
 function totalArcLen(waypoints) {
   return waypoints[waypoints.length - 1].arcLength;
 }
@@ -342,6 +338,128 @@ describe('extractPath — pit-entry and pit-exit tiles', () => {
     const c = center(0, 1);
     const found = res.waypoints.some(p => Math.abs(p.x - c.x) < 0.5 && Math.abs(p.y - c.y) < 0.5);
     expect(found).toBe(true);
+  });
+});
+
+// ── Secondary pit path extraction ─────────────────────────────────────────────
+
+describe('extractPath — pitPath sub-path', () => {
+  // Layout: start-line(0,0) → pit-entry(0,1) → straight-h(0,2) → pit-exit(0,3) → finish-line(0,4)
+  function buildPitTrack() {
+    const g = makeGrid(1, 5);
+    g[0][0] = 'start-line';
+    g[0][1] = 'pit-entry';
+    g[0][2] = 'straight-h';
+    g[0][3] = 'pit-exit';
+    g[0][4] = 'finish-line';
+    return g;
+  }
+
+  it('returns a non-null pitPath when both pit-entry and pit-exit are present', () => {
+    const res = extractPath(buildPitTrack(), S);
+    expect(res).not.toBeNull();
+    expect(res.pitPath).not.toBeNull();
+  });
+
+  it('pitPath has at least 2 waypoints', () => {
+    const res = extractPath(buildPitTrack(), S);
+    expect(res.pitPath.waypoints.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('pitPath starts at arcLength 0', () => {
+    const res = extractPath(buildPitTrack(), S);
+    expect(res.pitPath.waypoints[0].arcLength).toBe(0);
+  });
+
+  it('pitPath has strictly increasing arcLength', () => {
+    const res = extractPath(buildPitTrack(), S);
+    const wps = res.pitPath.waypoints;
+    for (let i = 1; i < wps.length; i++) {
+      expect(wps[i].arcLength).toBeGreaterThan(wps[i - 1].arcLength);
+    }
+  });
+
+  it('pitPath totalLength matches last waypoint arcLength', () => {
+    const res = extractPath(buildPitTrack(), S);
+    const wps = res.pitPath.waypoints;
+    expect(res.pitPath.totalLength).toBeCloseTo(wps[wps.length - 1].arcLength);
+  });
+
+  it('pitPath starts at the entry edge of pit-entry tile', () => {
+    const res = extractPath(buildPitTrack(), S);
+    const first = res.pitPath.waypoints[0];
+    // pit-entry is at (0,1); its W edge mid = entry shared with start-line exit
+    const wEdge = edgeMid(0, 1, 'W');
+    expect(first.x).toBeCloseTo(wEdge.x);
+    expect(first.y).toBeCloseTo(wEdge.y);
+  });
+
+  it('pitPath ends at the exit edge of pit-exit tile', () => {
+    const res = extractPath(buildPitTrack(), S);
+    const last = res.pitPath.waypoints[res.pitPath.waypoints.length - 1];
+    // pit-exit is at (0,3); its E edge mid
+    const eEdge = edgeMid(0, 3, 'E');
+    expect(last.x).toBeCloseTo(eEdge.x);
+    expect(last.y).toBeCloseTo(eEdge.y);
+  });
+
+  it('pitPath spans 3 tiles (pit-entry + straight-h + pit-exit) in length', () => {
+    const res = extractPath(buildPitTrack(), S);
+    // 3 tiles wide = 3 * S arc length
+    expect(res.pitPath.totalLength).toBeCloseTo(3 * S, 0);
+  });
+
+  it('returns null pitPath when only pit-entry is present (no pit-exit)', () => {
+    const g = makeGrid(1, 3);
+    g[0][0] = 'start-line';
+    g[0][1] = 'pit-entry';
+    g[0][2] = 'finish-line';
+    const res = extractPath(g, S);
+    expect(res).not.toBeNull();
+    expect(res.pitPath).toBeNull();
+  });
+
+  it('returns null pitPath when only pit-exit is present (no pit-entry)', () => {
+    const g = makeGrid(1, 3);
+    g[0][0] = 'start-line';
+    g[0][1] = 'pit-exit';
+    g[0][2] = 'finish-line';
+    const res = extractPath(g, S);
+    expect(res).not.toBeNull();
+    expect(res.pitPath).toBeNull();
+  });
+
+  it('returns null pitPath when no pit tiles at all', () => {
+    const g = makeGrid(1, 3);
+    g[0][0] = 'start-line';
+    g[0][1] = 'straight-h';
+    g[0][2] = 'finish-line';
+    const res = extractPath(g, S);
+    expect(res).not.toBeNull();
+    expect(res.pitPath).toBeNull();
+  });
+
+  it('works in a closed loop with pit tiles', () => {
+    // Minimal oval with pit-entry/exit:
+    //   row 0: start-line  pit-entry  pit-exit   curve-sw
+    //   row 1: straight-v  (empty)    (empty)    straight-v
+    //   row 2: curve-ne    straight-h straight-h curve-nw
+    const g = makeGrid(3, 4);
+    g[0][0] = 'start-line';
+    g[0][1] = 'pit-entry';
+    g[0][2] = 'pit-exit';
+    g[0][3] = 'curve-sw';
+    g[1][0] = 'straight-v';
+    g[1][3] = 'straight-v';
+    g[2][0] = 'curve-ne';
+    g[2][1] = 'straight-h';
+    g[2][2] = 'straight-h';
+    g[2][3] = 'curve-nw';
+    const res = extractPath(g, S);
+    expect(res).not.toBeNull();
+    expect(res.isLoop).toBe(true);
+    expect(res.pitPath).not.toBeNull();
+    expect(res.pitPath.waypoints.length).toBeGreaterThanOrEqual(2);
   });
 });
 

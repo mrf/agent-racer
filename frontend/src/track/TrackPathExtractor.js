@@ -173,11 +173,16 @@ function appendWaypoints(waypoints, pts, skipFirst) {
 /**
  * Extract the centerline path from a tile grid.
  *
+ * Returns the main path plus an optional pitPath sub-path spanning from the
+ * first pit-entry tile to the last pit-exit tile encountered during the walk.
+ *
  * @param {string[][]} tiles   - 2D array of tile IDs (rows × cols)
  * @param {number}     tileSize - pixel size of one tile (default 32)
  * @returns {{ waypoints: {x:number, y:number, arcLength:number}[],
  *             totalLength: number,
- *             isLoop: boolean } | null}
+ *             isLoop: boolean,
+ *             pitPath: { waypoints: {x:number, y:number, arcLength:number}[],
+ *                        totalLength: number } | null } | null}
  */
 export function extractPath(tiles, tileSize) {
   const S = tileSize ?? 32;
@@ -221,6 +226,12 @@ function walkFrom(tiles, startRow, startCol, initialDir, S, h, w) {
   let curCol    = startCol;
   let curExit   = exitDir; // direction we leave the current tile
 
+  // Pit sub-path tracking: record waypoint indices for pit-entry/exit tiles.
+  // pitEntryWpIdx = index of last waypoint BEFORE processing pit-entry (its entry edge mid).
+  // pitExitWpIdx  = index of last waypoint AFTER  processing pit-exit  (its exit  edge mid).
+  let pitEntryWpIdx = -1;
+  let pitExitWpIdx  = -1;
+
   const maxSteps = h * w + 4;
   for (let step = 0; step < maxSteps; step++) {
     const delta = DIR_DELTA[curExit];
@@ -233,6 +244,7 @@ function walkFrom(tiles, startRow, startCol, initialDir, S, h, w) {
         waypoints,
         totalLength: waypoints[waypoints.length - 1].arcLength,
         isLoop: true,
+        pitPath: buildPitPath(waypoints, pitEntryWpIdx, pitExitWpIdx),
       };
     }
 
@@ -252,9 +264,19 @@ function walkFrom(tiles, startRow, startCol, initialDir, S, h, w) {
     // The exit of the next tile is the other opening
     const nextExit = nextOpenings[0] === arriveFrom ? nextOpenings[1] : nextOpenings[0];
 
+    // Record pit-entry: the shared edge mid (current last waypoint) is the pit start.
+    if (nextTile === 'pit-entry' && pitEntryWpIdx === -1) {
+      pitEntryWpIdx = waypoints.length - 1;
+    }
+
     // Generate and append waypoints for next tile (skip first: shared edge mid)
     const pts = tileWaypoints(nextRow, nextCol, S, arriveFrom, nextExit, nextTile);
     appendWaypoints(waypoints, pts, true);
+
+    // Record pit-exit: after appending, last waypoint is the pit-exit edge mid.
+    if (nextTile === 'pit-exit') {
+      pitExitWpIdx = waypoints.length - 1;
+    }
 
     curRow  = nextRow;
     curCol  = nextCol;
@@ -267,7 +289,32 @@ function walkFrom(tiles, startRow, startCol, initialDir, S, h, w) {
       waypoints,
       totalLength: waypoints[waypoints.length - 1].arcLength,
       isLoop: false,
+      pitPath: buildPitPath(waypoints, pitEntryWpIdx, pitExitWpIdx),
     };
   }
   return null;
+}
+
+/**
+ * Slice the pit sub-path from the main waypoints array and re-base arc lengths
+ * to start at 0.  Returns null when entry/exit indices are invalid.
+ *
+ * @param {{x:number, y:number, arcLength:number}[]} waypoints
+ * @param {number} entryIdx - index of the pit-entry edge-mid in waypoints
+ * @param {number} exitIdx  - index of the pit-exit  edge-mid in waypoints
+ * @returns {{ waypoints: {x:number, y:number, arcLength:number}[],
+ *             totalLength: number } | null}
+ */
+function buildPitPath(waypoints, entryIdx, exitIdx) {
+  if (entryIdx < 0 || exitIdx < 0 || exitIdx <= entryIdx) return null;
+  const sub = waypoints.slice(entryIdx, exitIdx + 1);
+  const base = sub[0].arcLength;
+  const rebased = [];
+  for (let i = 0; i < sub.length; i++) {
+    rebased.push({ x: sub[i].x, y: sub[i].y, arcLength: sub[i].arcLength - base });
+  }
+  return {
+    waypoints: rebased,
+    totalLength: rebased[rebased.length - 1].arcLength,
+  };
 }
