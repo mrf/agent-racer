@@ -198,6 +198,7 @@ async function loadActiveTrack() {
     const track = await response.json();
     activeTrack = track; // null = no custom track (linear layout)
     activeTrackId = track ? track.id : null;
+    activeView.setCustomTrack(activeTrack);
     log(track ? `Active track loaded: ${track.name}` : 'No active track configured (linear layout)', 'info');
   } catch (err) {
     log(`Failed to load active track: ${err.message}`, 'error');
@@ -417,6 +418,7 @@ function switchView(type) {
   currentViewType = type;
   activeView = createView(type, canvas, engine);
   wireViewCallbacks(activeView, flyout, unlockToast);
+  activeView.setCustomTrack(activeTrack);
   activeView.setAllRacers([...sessions.values()]);
   activeView.setConnected(statusDot.className.includes('connected'));
   window.activeView = activeView;

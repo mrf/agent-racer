@@ -3,6 +3,8 @@ import { getModelColor, hexToRgb } from '../session/colors.js';
 import { DEFAULT_CONTEXT_WINDOW, TERMINAL_ACTIVITIES } from '../session/constants.js';
 import { isParkingLotRacer, isPitRacer } from '../session/zones.js';
 import { ParticleSystem } from './Particles.js';
+import { extractPath } from '../track/TrackPathExtractor.js';
+import { TrackPathSampler } from '../track/TrackPathSampler.js';
 
 const WHITE_RGB = { r: 255, g: 255, b: 255 };
 
@@ -64,6 +66,9 @@ export class BaseCanvas {
     this._zoneCounts = { racing: 0, pit: 0, parked: 0 };
     this._needsResize = false;
 
+    this._customSampler = null;
+    this._customTrackPixelW = 0;
+
     this.resize();
     this._resizeHandler = () => this.resize();
     this._clickHandler = (e) => this.handleClick(e);
@@ -84,6 +89,19 @@ export class BaseCanvas {
 
   setConnected(connected) {
     this.connected = connected;
+  }
+
+  setCustomTrack(track) {
+    const TILE_SIZE = 32;
+    const tiles = track && track.tiles;
+    const path = tiles && tiles.length ? extractPath(tiles, TILE_SIZE) : null;
+    if (!path) {
+      this._customSampler = null;
+      this._customTrackPixelW = 0;
+      return;
+    }
+    this._customSampler = new TrackPathSampler(path);
+    this._customTrackPixelW = track.width * TILE_SIZE;
   }
 
   resize() {
@@ -273,25 +291,51 @@ export class BaseCanvas {
 
   _positionTrackEntities(zoneLayout, afterPosition) {
     const { sortedGroups, layouts, entryX, trackZoneBottom } = zoneLayout;
+    const sampler = this._customSampler;
+    const useCustomPath = sampler && this._customTrackPixelW > 0;
 
     for (let groupIndex = 0; groupIndex < sortedGroups.length; groupIndex++) {
       const { maxTokens: groupMaxTokens, entities: groupEntities } = sortedGroups[groupIndex];
       const layout = layouts[groupIndex];
       const sorted = groupEntities.sort((a, b) => a.state.lane - b.state.lane);
+      const laneCount = sorted.length;
+      const scale = useCustomPath ? layout.width / this._customTrackPixelW : 0;
 
-      for (let i = 0; i < sorted.length; i++) {
+      for (let i = 0; i < laneCount; i++) {
         const entity = sorted[i];
-        const targetX = this.track.getTokenX(layout, entity.state.tokensUsed || 0, groupMaxTokens);
-        const targetY = this.track.getLaneY(layout, i);
+        let targetX, targetY, pathAngle;
 
-        if ((entity.inPit || entity.inParkingLot) && entity.initialized) {
-          entity.startZoneTransition([
-            { x: entryX, y: entity.displayY },
-            { x: entryX, y: trackZoneBottom },
-            { x: targetX, y: targetY },
-          ]);
+        if (useCustomPath) {
+          const laneWidth = laneCount > 1 ? this.track.laneHeight / scale : 0;
+          const t = Math.min(1, (entity.state.tokensUsed || 0) / Math.max(1, groupMaxTokens));
+          const { x: sx, y: sy, angle } = sampler.sample(t, i, laneCount, laneWidth);
+          targetX = layout.x + sx * scale;
+          targetY = layout.y + sy * scale;
+          pathAngle = angle;
+        } else {
+          targetX = this.track.getTokenX(layout, entity.state.tokensUsed || 0, groupMaxTokens);
+          targetY = this.track.getLaneY(layout, i);
+          pathAngle = 0;
         }
 
+        if ((entity.inPit || entity.inParkingLot) && entity.initialized) {
+          if (useCustomPath) {
+            const { x: sx0, y: sy0 } = sampler.sample(0, 0, 1, 0);
+            entity.startZoneTransition([
+              { x: entity.displayX, y: entity.displayY },
+              { x: layout.x + sx0 * scale, y: layout.y + sy0 * scale },
+              { x: targetX, y: targetY },
+            ]);
+          } else {
+            entity.startZoneTransition([
+              { x: entryX, y: entity.displayY },
+              { x: entryX, y: trackZoneBottom },
+              { x: targetX, y: targetY },
+            ]);
+          }
+        }
+
+        entity.pathAngle = pathAngle;
         entity.setTarget(targetX, targetY);
         entity.inPit = false;
         entity.inParkingLot = false;

@@ -111,6 +111,7 @@ export class Racer {
     this.opacity = 1.0;
     this.hazardPhase = 0;
     this.spinAngle = 0;
+    this.pathAngle = 0;
     this.confettiEmitted = false;
     this.smokeEmitted = false;
     this.thoughtBubblePhase = 0;

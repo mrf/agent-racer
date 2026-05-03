@@ -25,6 +25,7 @@ function createMockView() {
     onComplete: vi.fn(),
     onError: vi.fn(),
     setConnected: vi.fn(),
+    setCustomTrack: vi.fn(),
     destroy: vi.fn(),
     entities,
     racers: entities,
