@@ -1,6 +1,6 @@
 module github.com/agent-racer/backend
 
-go 1.24.7
+go 1.25
 
 require (
 	github.com/gorilla/websocket v1.5.3
