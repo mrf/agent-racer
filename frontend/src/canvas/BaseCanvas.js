@@ -102,6 +102,8 @@ export class BaseCanvas {
       this._customTrackPixelW = 0;
       this._pitSampler = null;
       this._pitPath = null;
+      this.track.setActiveTrack(null);
+      this._needsResize = true;
       return;
     }
     this._customSampler = new TrackPathSampler(path);
@@ -113,6 +115,8 @@ export class BaseCanvas {
       this._pitSampler = null;
       this._pitPath = null;
     }
+    this.track.setActiveTrack(track);
+    this._needsResize = true;
   }
 
   resize() {
@@ -121,7 +125,7 @@ export class BaseCanvas {
     const viewportWidth = rect.width;
     const viewportHeight = rect.height;
 
-    this.track.updateViewport(viewportHeight);
+    this.track.updateViewport(viewportHeight, viewportWidth);
 
     const zonesHeight = this.track.getRequiredHeight(this._trackGroups, this._pitLaneCount, this._parkingLotLaneCount);
     const dashMinHeight = this.dashboard.getRequiredHeight(this.entities.size);

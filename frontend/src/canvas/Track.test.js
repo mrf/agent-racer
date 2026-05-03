@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+// @vitest-environment jsdom
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Track } from './Track.js';
 
 function makeDrawingCtx() {
@@ -726,6 +727,299 @@ describe('Track', () => {
 
       expect(pitBounds.y).toBeGreaterThan(trackBottom);
       expect(lotBounds.y).toBeGreaterThan(pitBottom);
+    });
+  });
+
+  describe('setActiveTrack', () => {
+    let mockCtx;
+
+    beforeEach(() => {
+      // Mock canvas context so TrackTileRenderer.render() does not crash.
+      mockCtx = {
+        fillRect: vi.fn(),
+        fillStyle: '',
+        fillText: vi.fn(),
+        strokeStyle: '',
+        lineWidth: 1,
+        font: '',
+        textAlign: '',
+        textBaseline: '',
+        beginPath: vi.fn(),
+        moveTo: vi.fn(),
+        lineTo: vi.fn(),
+        stroke: vi.fn(),
+        arc: vi.fn(),
+        fill: vi.fn(),
+        closePath: vi.fn(),
+        bezierCurveTo: vi.fn(),
+        save: vi.fn(),
+        restore: vi.fn(),
+        createLinearGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
+        createRadialGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
+        setLineDash: vi.fn(),
+        rect: vi.fn(),
+        clip: vi.fn(),
+        scale: vi.fn(),
+        translate: vi.fn(),
+        drawImage: vi.fn(),
+        measureText: vi.fn(() => ({ width: 0 })),
+      };
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(mockCtx);
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('clears tile renderer when called with null', () => {
+      track.setActiveTrack(null);
+      expect(track._tileRenderer).toBeNull();
+      expect(track._tileSampler).toBeNull();
+      expect(track._activeTrack).toBeNull();
+    });
+
+    it('clears tile renderer when called with empty tiles array', () => {
+      track.setActiveTrack({ tiles: [] });
+      expect(track._tileRenderer).toBeNull();
+    });
+
+    it('creates tile renderer from track data', () => {
+      const tiles = [
+        ['start-line', 'straight-h', 'finish-line'],
+      ];
+      track.setActiveTrack({ tiles, width: 3 });
+      expect(track._tileRenderer).not.toBeNull();
+      expect(track._tileRenderer.width).toBe(3 * 32);
+      expect(track._tileRenderer.height).toBe(1 * 32);
+    });
+
+    it('resets to linear mode when called with null after a tile track', () => {
+      const tiles = [['straight-h', 'straight-h']];
+      track.setActiveTrack({ tiles, width: 2 });
+      expect(track._tileRenderer).not.toBeNull();
+
+      track.setActiveTrack(null);
+      expect(track._tileRenderer).toBeNull();
+      expect(track._activeTrack).toBeNull();
+    });
+  });
+
+  describe('drawMultiTrack with tile track', () => {
+    let mockCtx;
+
+    beforeEach(() => {
+      mockCtx = {
+        fillRect: vi.fn(),
+        fillStyle: '',
+        strokeStyle: '',
+        lineWidth: 1,
+        font: '',
+        textAlign: '',
+        beginPath: vi.fn(),
+        moveTo: vi.fn(),
+        lineTo: vi.fn(),
+        stroke: vi.fn(),
+        arc: vi.fn(),
+        fill: vi.fn(),
+        closePath: vi.fn(),
+        bezierCurveTo: vi.fn(),
+        save: vi.fn(),
+        restore: vi.fn(),
+        createLinearGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
+        createRadialGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
+        setLineDash: vi.fn(),
+        rect: vi.fn(),
+        clip: vi.fn(),
+        scale: vi.fn(),
+        translate: vi.fn(),
+        drawImage: vi.fn(),
+        fillText: vi.fn(),
+        measureText: vi.fn(() => ({ width: 0 })),
+        textBaseline: '',
+      };
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(mockCtx);
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('delegates to tile renderer when active track is set', () => {
+      const tiles = [['start-line', 'straight-h', 'straight-h', 'finish-line']];
+      track.setActiveTrack({ tiles, width: 4 });
+      const drawSpy = vi.spyOn(track._tileRenderer, 'draw');
+
+      const groups = [{ maxTokens: 200000, laneCount: 1 }];
+      track.drawMultiTrack(mockCtx, CANVAS_W, CANVAS_H, groups);
+
+      expect(drawSpy).toHaveBeenCalled();
+    });
+
+    it('stores canvasWidth when drawMultiTrack is called', () => {
+      const tiles = [['straight-h']];
+      track.setActiveTrack({ tiles, width: 1 });
+
+      const groups = [{ maxTokens: 200000, laneCount: 1 }];
+      track.drawMultiTrack(mockCtx, 1200, CANVAS_H, groups);
+
+      expect(track._canvasWidth).toBe(1200);
+    });
+
+    it('returns layouts from drawMultiTrack with tile track', () => {
+      const tiles = [['straight-h', 'straight-h']];
+      track.setActiveTrack({ tiles, width: 2 });
+
+      const groups = [{ maxTokens: 200000, laneCount: 2 }];
+      const layouts = track.drawMultiTrack(mockCtx, CANVAS_W, CANVAS_H, groups);
+
+      expect(layouts).toHaveLength(1);
+      expect(layouts[0].x).toBe(track.trackPadding.left);
+      expect(layouts[0].y).toBe(track.trackPadding.top);
+    });
+
+    it('uses scale+translate to fit tile renderer into layout', () => {
+      const tiles = [['straight-h', 'straight-h']];
+      track.setActiveTrack({ tiles, width: 2 });
+
+      const groups = [{ maxTokens: 200000, laneCount: 1 }];
+      track.drawMultiTrack(mockCtx, CANVAS_W, CANVAS_H, groups);
+
+      expect(mockCtx.translate).toHaveBeenCalled();
+      expect(mockCtx.scale).toHaveBeenCalled();
+    });
+  });
+
+  describe('_getTrackBottomY with tile track', () => {
+    let mockCtx;
+
+    beforeEach(() => {
+      const ctx = {
+        fillRect: vi.fn(), fillStyle: '', strokeStyle: '', lineWidth: 1,
+        font: '', textAlign: '', beginPath: vi.fn(), moveTo: vi.fn(),
+        lineTo: vi.fn(), stroke: vi.fn(), arc: vi.fn(), fill: vi.fn(),
+        closePath: vi.fn(), bezierCurveTo: vi.fn(), save: vi.fn(), restore: vi.fn(),
+        createLinearGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
+        createRadialGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
+        setLineDash: vi.fn(), rect: vi.fn(), clip: vi.fn(), scale: vi.fn(),
+        translate: vi.fn(), drawImage: vi.fn(), fillText: vi.fn(),
+        measureText: vi.fn(() => ({ width: 0 })), textBaseline: '',
+      };
+      mockCtx = ctx;
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx);
+    });
+
+    afterEach(() => { vi.restoreAllMocks(); });
+
+    it('returns tile track bottom instead of lane-height bottom', () => {
+      // 4 cols × 2 rows at tileSize=32 → rendW=128, rendH=64
+      const tiles = [
+        ['straight-h', 'straight-h', 'straight-h', 'straight-h'],
+        ['straight-h', 'straight-h', 'straight-h', 'straight-h'],
+      ];
+      track.setActiveTrack({ tiles, width: 4 });
+
+      const canvasWidth = 1000;
+      const drawW = canvasWidth - track.trackPadding.left - track.trackPadding.right;
+      const scale = drawW / (4 * 32); // layout.width / rendW
+      const expectedBottom = track.trackPadding.top + Math.round(2 * 32 * scale);
+
+      const groups = [{ maxTokens: 200000, laneCount: 1 }];
+      const bottom = track._getTrackBottomY(canvasWidth, CANVAS_H, groups);
+
+      expect(bottom).toBe(expectedBottom);
+    });
+
+    it('pit zone is positioned below tile track bottom', () => {
+      const tiles = [
+        ['straight-h', 'straight-h', 'straight-h', 'straight-h'],
+        ['straight-h', 'straight-h', 'straight-h', 'straight-h'],
+      ];
+      track.setActiveTrack({ tiles, width: 4 });
+
+      const canvasWidth = 1000;
+      const groups = [{ maxTokens: 200000, laneCount: 1 }];
+      const tileBottom = track._getTrackBottomY(canvasWidth, CANVAS_H, groups);
+      const pitBounds = track.getPitBounds(canvasWidth, CANVAS_H, groups, 1);
+
+      expect(pitBounds.y).toBe(tileBottom + 30); // PIT_GAP = 30
+    });
+
+    it('falls back to lane-layout bottom when no tile track', () => {
+      const groups = [{ maxTokens: 200000, laneCount: 2 }];
+      const layouts = track.getMultiTrackLayout(CANVAS_W, groups);
+      const expectedBottom = layouts[0].y + layouts[0].height;
+      const bottom = track._getTrackBottomY(CANVAS_W, CANVAS_H, groups);
+      expect(bottom).toBe(expectedBottom);
+    });
+  });
+
+  describe('getRequiredHeight with tile track', () => {
+    beforeEach(() => {
+      const ctx = {
+        fillRect: vi.fn(), fillStyle: '', strokeStyle: '', lineWidth: 1,
+        font: '', textAlign: '', beginPath: vi.fn(), moveTo: vi.fn(),
+        lineTo: vi.fn(), stroke: vi.fn(), arc: vi.fn(), fill: vi.fn(),
+        closePath: vi.fn(), bezierCurveTo: vi.fn(), save: vi.fn(), restore: vi.fn(),
+        createLinearGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
+        createRadialGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
+        setLineDash: vi.fn(), rect: vi.fn(), clip: vi.fn(), scale: vi.fn(),
+        translate: vi.fn(), drawImage: vi.fn(), fillText: vi.fn(),
+        measureText: vi.fn(() => ({ width: 0 })), textBaseline: '',
+      };
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx);
+    });
+
+    afterEach(() => { vi.restoreAllMocks(); });
+
+    it('returns tile-based height when canvasWidth is known', () => {
+      // 4 cols × 2 rows at tileSize=32 → rendW=128, rendH=64
+      const tiles = [
+        ['straight-h', 'straight-h', 'straight-h', 'straight-h'],
+        ['straight-h', 'straight-h', 'straight-h', 'straight-h'],
+      ];
+      track.setActiveTrack({ tiles, width: 4 });
+      track._canvasWidth = 1000;
+
+      const drawW = 1000 - track.trackPadding.left - track.trackPadding.right;
+      const scale = drawW / (4 * 32);
+      const tileH = Math.round(2 * 32 * scale);
+      const expected = tileH + track.trackPadding.top + track.trackPadding.bottom
+        + track.getRequiredPitHeight(0)
+        + track.getRequiredParkingLotHeight(0);
+
+      expect(track.getRequiredHeight(1)).toBe(expected);
+    });
+
+    it('falls back to lane-height when canvasWidth is unknown', () => {
+      const tiles = [['straight-h']];
+      track.setActiveTrack({ tiles, width: 1 });
+      // _canvasWidth is 0 (default), so falls back to normal calculation
+
+      const normal = track.getRequiredHeight(1);
+      const fallback1Lane = 1 * track.laneHeight + track.trackPadding.top + track.trackPadding.bottom
+        + track.getRequiredPitHeight(0)
+        + track.getRequiredParkingLotHeight(0);
+      expect(normal).toBe(fallback1Lane);
+    });
+  });
+
+  describe('updateViewport with viewportWidth', () => {
+    it('stores viewportWidth in _canvasWidth', () => {
+      track.updateViewport(600, 1200);
+      expect(track._canvasWidth).toBe(1200);
+    });
+
+    it('ignores zero viewportWidth', () => {
+      track._canvasWidth = 800;
+      track.updateViewport(600, 0);
+      expect(track._canvasWidth).toBe(800);
+    });
+
+    it('still sets crowd mode correctly when width is provided', () => {
+      track.updateViewport(600, 1200);
+      expect(track._crowdMode).toBe('full');
+      track.updateViewport(400, 1200);
+      expect(track._crowdMode).toBe('compact');
     });
   });
 });

@@ -1,3 +1,7 @@
+import { TrackTileRenderer } from '../track/TrackTileRenderer.js';
+import { extractPath } from '../track/TrackPathExtractor.js';
+import { TrackPathSampler } from '../track/TrackPathSampler.js';
+
 const PENNANT_COLORS = ['#a855f7', '#3b82f6', '#22c55e'];
 
 const PIT_LANE_HEIGHT = 50;
@@ -78,9 +82,45 @@ export class Track {
     this._lastLaneCount = 0;
     // Crowd visibility: 'full', 'compact', 'hidden'
     this._crowdMode = 'full';
+    // Custom tile track rendering
+    this._activeTrack = null;
+    this._tileRenderer = null;
+    this._tileSampler = null;
+    this._canvasWidth = 0;
   }
 
-  updateViewport(viewportHeight) {
+  /**
+   * Return the pixel height of the tile track scaled to fit the given draw width,
+   * or 0 if no tile renderer is active.
+   */
+  _getTileTrackHeight(drawWidth) {
+    if (!this._tileRenderer || this._tileRenderer.width <= 0) return 0;
+    return Math.round(this._tileRenderer.height * drawWidth / this._tileRenderer.width);
+  }
+
+  /**
+   * Activate a custom tile track. Pass null to revert to the linear layout.
+   * @param {object|null} data - Track object with a `tiles` 2-D array and `width` column count.
+   */
+  setActiveTrack(data) {
+    if (!data || !data.tiles || !data.tiles.length) {
+      this._activeTrack = null;
+      this._tileRenderer = null;
+      this._tileSampler = null;
+      return;
+    }
+    const TILE_SIZE = 32;
+    this._activeTrack = data;
+    this._tileRenderer = new TrackTileRenderer(TILE_SIZE);
+    this._tileRenderer.render(data.tiles);
+    const path = extractPath(data.tiles, TILE_SIZE);
+    this._tileSampler = path ? new TrackPathSampler(path) : null;
+  }
+
+  updateViewport(viewportHeight, viewportWidth = 0) {
+    if (viewportWidth > 0) {
+      this._canvasWidth = viewportWidth;
+    }
     let mode;
     if (viewportHeight >= CROWD_FULL_MIN_HEIGHT) {
       mode = 'full';
@@ -99,6 +139,14 @@ export class Track {
   }
 
   getRequiredHeight(laneCountOrGroups, pitLaneCount = 0, parkingLotLaneCount = 0) {
+    if (this._canvasWidth > 0) {
+      const drawW = this._canvasWidth - this.trackPadding.left - this.trackPadding.right;
+      const tileH = this._getTileTrackHeight(drawW);
+      if (tileH > 0) {
+        const trackZoneHeight = tileH + this.trackPadding.top + this.trackPadding.bottom;
+        return trackZoneHeight + this.getRequiredPitHeight(pitLaneCount) + this.getRequiredParkingLotHeight(parkingLotLaneCount);
+      }
+    }
     let trackZoneHeight;
     if (Array.isArray(laneCountOrGroups)) {
       const groups = laneCountOrGroups;
@@ -177,6 +225,11 @@ export class Track {
   }
 
   _getTrackBottomY(canvasWidth, canvasHeight, activeLaneCountOrGroups) {
+    const drawW = canvasWidth - this.trackPadding.left - this.trackPadding.right;
+    const tileH = this._getTileTrackHeight(drawW);
+    if (tileH > 0) {
+      return this.trackPadding.top + tileH;
+    }
     if (Array.isArray(activeLaneCountOrGroups)) {
       const layouts = this.getMultiTrackLayout(canvasWidth, activeLaneCountOrGroups);
       if (layouts.length === 0) return this.trackPadding.top;
@@ -276,6 +329,12 @@ export class Track {
   }
 
   drawMultiTrack(ctx, canvasWidth, canvasHeight, groups, excitement = 0) {
+    this._canvasWidth = canvasWidth;
+
+    if (this._tileRenderer) {
+      return this._drawTileMultiTrack(ctx, canvasWidth, groups);
+    }
+
     const layouts = this.getMultiTrackLayout(canvasWidth, groups);
     if (layouts.length === 0) return layouts;
 
@@ -315,6 +374,53 @@ export class Track {
     }
 
     return layouts;
+  }
+
+  _drawTileMultiTrack(ctx, canvasWidth, groups) {
+    const layouts = this.getMultiTrackLayout(canvasWidth, groups);
+    if (layouts.length === 0) return layouts;
+
+    this.time += 0.016;
+
+    const layout = layouts[0];
+    const rendW = this._tileRenderer.width;
+    if (rendW <= 0) return layouts;
+
+    const scale = layout.width / rendW;
+    ctx.save();
+    ctx.translate(layout.x, layout.y);
+    ctx.scale(scale, scale);
+    this._tileRenderer.draw(ctx, 0, 0);
+    ctx.restore();
+
+    if (this._tileSampler) {
+      this._drawTileTokenMarkers(ctx, layout, scale, groups[0].maxTokens);
+    }
+
+    return layouts;
+  }
+
+  _drawTileTokenMarkers(ctx, layout, scale, maxTokens) {
+    const markers = this._computeTokenMarkers(maxTokens);
+    for (const marker of markers) {
+      if (marker.tokens >= maxTokens) continue;
+      const t = marker.tokens / maxTokens;
+      const { x: sx, y: sy } = this._tileSampler.sample(t, 0, 1, 0);
+      const mx = layout.x + sx * scale;
+      const my = layout.y + sy * scale;
+
+      ctx.strokeStyle = '#444460';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.arc(mx, my, 5, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.fillStyle = '#888';
+      ctx.font = 'bold 11px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillText(marker.label, mx, my - 8);
+    }
   }
 
   _drawTrackSurface(ctx, bounds) {
