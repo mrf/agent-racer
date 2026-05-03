@@ -206,6 +206,10 @@ export class Racer {
     this.overtakeFlash = 0;    // 0-1: overtake flash intensity (decays over time)
     this.position = 0;         // current race position (1-based)
     this.teamColor = null;     // hex color string if session belongs to a team
+
+    // Heading rotation in radians (0 = facing right). Set externally by
+    // BaseCanvas._positionTrackEntities on custom tracks; stays 0 on straight tracks.
+    this.angle = 0;
   }
 
   _triggerBubble(state) {
@@ -366,6 +370,17 @@ export class Racer {
     const prevX = this.displayX;
     this.displayX += (this.targetX - this.displayX) * lerpSpeed * dtScale;
     this.displayY += (this.targetY - this.displayY) * lerpSpeed * dtScale;
+
+    // Smooth heading angle toward direction of travel (no-op on straight tracks)
+    const headDx = this.targetX - this.displayX;
+    const headDy = this.targetY - this.displayY;
+    const distToTarget = Math.sqrt(headDx * headDx + headDy * headDy);
+    if (distToTarget > 2.0) {
+      const targetAngle = Math.atan2(headDy, headDx);
+      this.angle += (targetAngle - this.angle) * 0.08 * dtScale;
+    } else {
+      this.angle += -this.angle * 0.05 * dtScale;
+    }
 
     // Speed for wheel rotation and effects
     const speed = Math.abs(this.displayX - prevX);
@@ -725,6 +740,18 @@ export class Racer {
       ctx.fill();
     }
 
+    // Rotate car sprite to face direction of travel on curved tracks
+    const hasHeadingRotation = Math.abs(this.angle) > 0.005;
+    if (hasHeadingRotation) {
+      const cy = y + yOff;
+      ctx.save();
+      ctx.translate(x, cy);
+      const bankScale = 1 - Math.abs(Math.sin(this.angle)) * 0.06;
+      ctx.scale(1, bankScale);
+      ctx.rotate(this.angle);
+      ctx.translate(-x, -cy);
+    }
+
     this.drawCar(ctx, x, y + yOff, color, activity);
     if (isTrackComplete) {
       this._drawCompletionBadge(ctx, x, y + yOff);
@@ -733,6 +760,10 @@ export class Racer {
     // Damage overlay (scratches, dents, cracks)
     if (this.damage > 0.01) {
       this._drawDamageOverlay(ctx, x, y + yOff);
+    }
+
+    if (hasHeadingRotation) {
+      ctx.restore();
     }
 
     // Repair flash (bright white glow on completion)

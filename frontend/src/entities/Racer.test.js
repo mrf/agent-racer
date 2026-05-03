@@ -693,6 +693,88 @@ describe('Racer._buildMetricsLabel', () => {
   });
 });
 
+describe('heading rotation', () => {
+  it('initializes angle to 0', () => {
+    const racer = new Racer(makeState());
+    expect(racer.angle).toBe(0);
+  });
+
+  it('angle stays near 0 when moving horizontally (standard track)', () => {
+    const racer = new Racer(makeState());
+    racer.initialized = true;
+    racer.displayX = 0;
+    racer.displayY = 100;
+    racer.targetX = 500;
+    racer.targetY = 100;  // same Y — pure horizontal
+
+    for (let i = 0; i < 60; i++) racer.animate(null, 1 / 60);
+
+    expect(Math.abs(racer.angle)).toBeLessThan(0.05);
+  });
+
+  it('angle tracks diagonal motion (custom track curve)', () => {
+    const racer = new Racer(makeState());
+    racer.initialized = true;
+    racer.displayX = 0;
+    racer.displayY = 0;
+    racer.targetX = 100;
+    racer.targetY = 100;  // 45-degree downward motion
+
+    for (let i = 0; i < 60; i++) racer.animate(null, 1 / 60);
+
+    // Angle should converge toward Math.PI/4 (45 degrees downward-right)
+    expect(racer.angle).toBeGreaterThan(0.1);
+  });
+
+  it('angle decays toward 0 when stationary', () => {
+    const racer = new Racer(makeState());
+    racer.initialized = true;
+    racer.displayX = 100;
+    racer.displayY = 100;
+    racer.targetX = 100;
+    racer.targetY = 100;  // no movement
+    racer.angle = 0.5;    // pre-set a non-zero angle
+
+    for (let i = 0; i < 120; i++) racer.animate(null, 1 / 60);
+
+    expect(Math.abs(racer.angle)).toBeLessThan(0.05);
+  });
+
+  it('draw calls ctx.rotate when angle is significant', () => {
+    const racer = new Racer(makeState());
+    racer.initialized = true;
+    racer.displayX = 100;
+    racer.displayY = 100;
+    racer.angle = 0.3;  // ~17 degrees — clearly non-trivial
+
+    const ctx = makeDrawCtx();
+    vi.spyOn(racer, 'drawCar').mockImplementation(() => {});
+    vi.spyOn(racer, 'drawInfo').mockImplementation(() => {});
+
+    racer.draw(ctx);
+
+    expect(ctx.rotate).toHaveBeenCalledWith(0.3);
+  });
+
+  it('draw skips ctx.rotate when angle is near 0 (no-op)', () => {
+    const racer = new Racer(makeState());
+    racer.initialized = true;
+    racer.displayX = 100;
+    racer.displayY = 100;
+    racer.angle = 0.001;  // below 0.005 threshold — no-op
+
+    const ctx = makeDrawCtx();
+    vi.spyOn(racer, 'drawCar').mockImplementation(() => {});
+    vi.spyOn(racer, 'drawInfo').mockImplementation(() => {});
+
+    racer.draw(ctx);
+
+    // rotate should not have been called with our angle (errored spin may call it)
+    const rotateCalls = ctx.rotate.mock.calls.filter(c => Math.abs(c[0] - 0.001) < 0.0001);
+    expect(rotateCalls.length).toBe(0);
+  });
+});
+
 describe('completed track rendering', () => {
   it('treats completed track racers as a distinct visual state', () => {
     const racer = new Racer(makeState({ activity: 'complete', contextUtilization: 1, tokensUsed: 5000 }));
