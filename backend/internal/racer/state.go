@@ -1,26 +1,45 @@
-// Package racer provides racer-specific session state that wraps the generic
-// agentwatch session model with racing display fields.
+// Package racer contains the racing-specific logic layered on top of
+// the agentwatch session monitoring library.
 package racer
 
 import (
-	agwsession "github.com/mrf/agentwatch/session"
+	"time"
+
+	"github.com/mrf/agentwatch/session"
 )
 
-// RacerState wraps an agentwatch SessionState with racer-specific display fields.
-// The embedded SessionState holds the generic monitoring data; the additional
-// fields are agent-racer–specific concepts (lane assignment, race position, etc.).
+// RacerState wraps an agentwatch SessionState with racing-specific fields
+// that the library deliberately excludes (lane, position, overtake tracking).
 type RacerState struct {
-	agwsession.SessionState
+	session.SessionState
 
-	// Lane is a stable integer assigned at session discovery time.
-	// Used to place the racer on a consistent track row.
+	// Name is a display-friendly label derived from the session's working directory.
+	Name string `json:"name"`
+
+	// Lane is a stable visual lane index assigned on first discovery.
+	// Lanes are never reassigned for a given session.
 	Lane int `json:"lane"`
 
-	// Position is the 1-based rank among non-terminal sessions, sorted by
-	// context utilization. 0 means unranked (terminal or not yet ranked).
+	// Position is the 1-based rank among non-terminal sessions, ordered by
+	// context utilization descending. Zero means the session is terminal.
 	Position int `json:"position,omitempty"`
 
-	// PositionDelta is positive when the racer moved up (gained rank) since
-	// the last update, negative when it dropped. 0 means no change.
+	// PositionDelta is the change from the previous position.
+	// Positive = moved up, negative = dropped back.
 	PositionDelta int `json:"positionDelta,omitempty"`
+}
+
+// IsTerminal returns true if the session's activity is terminal.
+func (rs *RacerState) IsTerminal() bool {
+	return rs.Activity == session.ActivityTerminal
+}
+
+// OvertakeEvent records one session passing another in the rankings.
+type OvertakeEvent struct {
+	OvertakerID   string `json:"overtakerId"`
+	OvertakerName string `json:"overtakerName"`
+	OvertakenID   string `json:"overtakenId"`
+	OvertakenName string `json:"overtakenName"`
+	NewPosition   int    `json:"newPosition"`
+	At            time.Time
 }
