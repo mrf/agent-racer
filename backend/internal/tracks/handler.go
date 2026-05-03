@@ -155,6 +155,24 @@ func isPreset(id string) bool {
 	return presetIDs[id]
 }
 
+// GetByID resolves a track by ID, checking presets first then the user store.
+// Returns nil, nil when id is empty (no active track configured).
+// Returns nil, err when the track is not found or cannot be read.
+func (h *Handler) GetByID(id string) (*Track, error) {
+	if id == "" {
+		return nil, nil
+	}
+	if isPreset(id) {
+		presets := Presets()
+		for i := 0; i < len(presets); i++ {
+			if presets[i].ID == id {
+				return presets[i], nil
+			}
+		}
+	}
+	return h.store.Get(id)
+}
+
 func (h *Handler) listTracks(w http.ResponseWriter, r *http.Request) {
 	userTracks, err := h.store.List()
 	if err != nil {

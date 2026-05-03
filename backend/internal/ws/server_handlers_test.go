@@ -13,6 +13,7 @@ import (
 	"github.com/agent-racer/backend/internal/config"
 	"github.com/agent-racer/backend/internal/gamification"
 	"github.com/agent-racer/backend/internal/session"
+	"github.com/agent-racer/backend/internal/tracks"
 )
 
 // newHandlerTestServer creates a Server with a real store and broadcaster,
@@ -796,6 +797,129 @@ func TestWriteRateLimitExceeded_SubSecondCeils(t *testing.T) {
 	writeRateLimitExceeded(rec, 500*time.Millisecond)
 	if ra := rec.Header().Get("Retry-After"); ra != "1" {
 		t.Errorf("Retry-After = %q, want %q", ra, "1")
+	}
+}
+
+// ─── track helpers ───────────────────────────────────────────────────────────
+
+func newTrackStoreForTest(t *testing.T, dir string) (*tracks.Store, error) {
+	t.Helper()
+	return tracks.NewStore(dir)
+}
+
+func newTrackHandlerForTest(store *tracks.Store) *tracks.Handler {
+	return tracks.NewHandler(store)
+}
+
+// ─── handleActiveTrack ───────────────────────────────────────────────────────
+
+func TestHandleActiveTrack_NoTrackHandler(t *testing.T) {
+	// With no track handler configured, endpoint should return null.
+	s := newHandlerTestServer(t, "")
+	rec := httptest.NewRecorder()
+	s.handleActiveTrack(rec, authReq(http.MethodGet, "/api/tracks/active", "", ""))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+	body := strings.TrimSpace(rec.Body.String())
+	if body != "null" {
+		t.Errorf("body = %q, want null", body)
+	}
+}
+
+func TestHandleActiveTrack_MethodNotAllowed(t *testing.T) {
+	s := newHandlerTestServer(t, "")
+	rec := httptest.NewRecorder()
+	s.handleActiveTrack(rec, authReq(http.MethodPost, "/api/tracks/active", "", ""))
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusMethodNotAllowed)
+	}
+}
+
+func TestHandleActiveTrack_NoAuth(t *testing.T) {
+	s := newHandlerTestServer(t, "secret")
+	rec := httptest.NewRecorder()
+	s.handleActiveTrack(rec, authReq(http.MethodGet, "/api/tracks/active", "", ""))
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestHandleActiveTrack_NoActiveTrack(t *testing.T) {
+	// Track handler configured but no active track in config → null.
+	s := newHandlerTestServer(t, "")
+	dir := t.TempDir()
+	trackStore, err := newTrackStoreForTest(t, dir)
+	if err != nil {
+		t.Fatalf("track store: %v", err)
+	}
+	s.SetTrackHandler(newTrackHandlerForTest(trackStore))
+	// Config has empty Track.Active by default.
+
+	rec := httptest.NewRecorder()
+	s.handleActiveTrack(rec, authReq(http.MethodGet, "/api/tracks/active", "", ""))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	body := strings.TrimSpace(rec.Body.String())
+	if body != "null" {
+		t.Errorf("body = %q, want null", body)
+	}
+}
+
+func TestHandleActiveTrack_PresetTrack(t *testing.T) {
+	s := newHandlerTestServer(t, "")
+	dir := t.TempDir()
+	trackStore, err := newTrackStoreForTest(t, dir)
+	if err != nil {
+		t.Fatalf("track store: %v", err)
+	}
+	s.SetTrackHandler(newTrackHandlerForTest(trackStore))
+
+	// Set active track to a built-in preset.
+	cfg := s.Config()
+	cfgCopy := *cfg
+	cfgCopy.Track.Active = "oval"
+	s.SetConfig(&cfgCopy)
+
+	rec := httptest.NewRecorder()
+	s.handleActiveTrack(rec, authReq(http.MethodGet, "/api/tracks/active", "", ""))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	var track struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&track); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if track.ID != "oval" {
+		t.Errorf("track.ID = %q, want oval", track.ID)
+	}
+}
+
+func TestHandleActiveTrack_UnknownTrackReturns404(t *testing.T) {
+	s := newHandlerTestServer(t, "")
+	dir := t.TempDir()
+	trackStore, err := newTrackStoreForTest(t, dir)
+	if err != nil {
+		t.Fatalf("track store: %v", err)
+	}
+	s.SetTrackHandler(newTrackHandlerForTest(trackStore))
+
+	cfg := s.Config()
+	cfgCopy := *cfg
+	cfgCopy.Track.Active = "nonexistent-track"
+	s.SetConfig(&cfgCopy)
+
+	rec := httptest.NewRecorder()
+	s.handleActiveTrack(rec, authReq(http.MethodGet, "/api/tracks/active", "", ""))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
 	}
 }
 

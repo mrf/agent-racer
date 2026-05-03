@@ -83,22 +83,23 @@ func (c *client) trySend(data []byte) bool {
 }
 
 type Broadcaster struct {
-	mu             sync.RWMutex
-	clients        map[*client]bool
-	maxConns       int
-	store          *session.Store
-	privacy        *session.PrivacyFilter
-	throttle       time.Duration
-	snapshotTicker *time.Ticker
-	stop           chan struct{}
-	snapshotReset  chan time.Duration // signals snapshotLoop to recreate its ticker
-	pendingUpdates []*session.SessionState
-	pendingRemoved []string
-	flushTimer     *time.Timer
-	flushMu        sync.Mutex
-	healthHook     func() []SourceHealthPayload
-	seq            atomic.Uint64
-	stopOnce       sync.Once
+	mu                  sync.RWMutex
+	clients             map[*client]bool
+	maxConns            int
+	store               *session.Store
+	privacy             *session.PrivacyFilter
+	throttle            time.Duration
+	snapshotTicker      *time.Ticker
+	stop                chan struct{}
+	snapshotReset       chan time.Duration // signals snapshotLoop to recreate its ticker
+	pendingUpdates      []*session.SessionState
+	pendingRemoved      []string
+	flushTimer          *time.Timer
+	flushMu             sync.Mutex
+	healthHook          func() []SourceHealthPayload
+	activeTrackProvider func() *string
+	seq                 atomic.Uint64
+	stopOnce            sync.Once
 }
 
 func NewBroadcaster(store *session.Store, throttle, snapshotInterval time.Duration, maxConns int) *Broadcaster {
@@ -129,6 +130,14 @@ func (b *Broadcaster) SetPrivacyFilter(f *session.PrivacyFilter) {
 func (b *Broadcaster) SetHealthHook(hook func() []SourceHealthPayload) {
 	b.mu.Lock()
 	b.healthHook = hook
+	b.mu.Unlock()
+}
+
+// SetActiveTrackProvider registers a function that returns the currently configured
+// active track ID (or nil when no custom track is set). Included in snapshots.
+func (b *Broadcaster) SetActiveTrackProvider(fn func() *string) {
+	b.mu.Lock()
+	b.activeTrackProvider = fn
 	b.mu.Unlock()
 }
 
@@ -291,7 +300,7 @@ func (b *Broadcaster) snapshotLoop() {
 }
 
 // snapshotMessage builds a full snapshot WSMessage including sessions, teams,
-// and source health status (when a health hook is registered).
+// source health status, and the active track ID (when hooks are registered).
 func (b *Broadcaster) snapshotMessage() WSMessage {
 	allSessions := b.privacyFilter().FilterSlice(b.store.GetAll())
 	payload := SnapshotPayload{
@@ -300,9 +309,13 @@ func (b *Broadcaster) snapshotMessage() WSMessage {
 	}
 	b.mu.RLock()
 	hook := b.healthHook
+	trackProvider := b.activeTrackProvider
 	b.mu.RUnlock()
 	if hook != nil {
 		payload.SourceHealth = hook()
+	}
+	if trackProvider != nil {
+		payload.ActiveTrackID = trackProvider()
 	}
 	msg, err := NewSnapshotMessage(payload)
 	if err != nil {

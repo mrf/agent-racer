@@ -207,6 +207,9 @@ func (s *Server) SetupRoutes(mux *http.ServeMux) {
 			}
 			s.trackHandler.ServeHTTP(w, r)
 		}
+		// /api/tracks/active must be registered before /api/tracks/ so the
+		// more-specific pattern takes priority in the mux.
+		apiMux.HandleFunc("/api/tracks/active", s.handleActiveTrack)
 		apiMux.HandleFunc("/api/tracks", tracksAuth)
 		apiMux.HandleFunc("/api/tracks/", tracksAuth)
 	}
@@ -392,6 +395,39 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(s.Config().Sound)
+}
+
+// handleActiveTrack serves GET /api/tracks/active.
+// It returns the full track data for the track configured in track.active,
+// or null when no custom track is set.
+func (s *Server) handleActiveTrack(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !s.authorize(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if s.trackHandler == nil {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("null\n"))
+		return
+	}
+
+	activeID := s.Config().Track.Active
+	t, err := s.trackHandler.GetByID(activeID)
+	if err != nil {
+		http.Error(w, "track not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if t == nil {
+		_, _ = w.Write([]byte("null\n"))
+		return
+	}
+	_ = json.NewEncoder(w).Encode(t)
 }
 
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {

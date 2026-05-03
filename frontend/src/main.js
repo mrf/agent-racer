@@ -43,6 +43,10 @@ let debugVisible = false;
 let muted = false;
 let bubblesEnabled = true;
 
+// Active track: null = linear layout (default), object = custom tile track.
+let activeTrack = null;
+let activeTrackId = null;
+
 // Replay mode: when active, live WebSocket updates do not render to the canvas.
 let replayActive = false;
 let _replayScrubber = null;
@@ -182,6 +186,24 @@ async function loadSoundConfig() {
   muted = engine.muted;
 }
 
+// Fetch the active track from the backend. Returns the track object or null
+// when no custom track is configured (fall back to linear layout).
+async function loadActiveTrack() {
+  try {
+    const response = await authFetch('/api/tracks/active');
+    if (!response.ok) {
+      log(`Failed to load active track: ${response.status}`, 'error');
+      return;
+    }
+    const track = await response.json();
+    activeTrack = track; // null = no custom track (linear layout)
+    activeTrackId = track ? track.id : null;
+    log(track ? `Active track loaded: ${track.name}` : 'No active track configured (linear layout)', 'info');
+  } catch (err) {
+    log(`Failed to load active track: ${err.message}`, 'error');
+  }
+}
+
 function log(msg, type = '') {
   if (!debugEnabled) return;
   const entry = document.createElement('div');
@@ -223,6 +245,12 @@ function handleSnapshot(payload) {
     for (const sh of payload.sourceHealth) {
       handleSourceHealth(sh);
     }
+  }
+
+  // Reload active track when the snapshot reports a different active track.
+  const snapshotTrackId = payload.activeTrackId || null;
+  if (snapshotTrackId !== activeTrackId) {
+    loadActiveTrack();
   }
 
   updateSessionCount();
@@ -550,5 +578,6 @@ const conn = new RaceConnection({
 conn.connect();
 requestPermission();
 loadSoundConfig();
+loadActiveTrack();
 log('Agent Racing Dashboard initialized', 'info');
 log('Shortcuts: A=achievements, B=bubbles, C=commentary, D=debug, G=garage, M=mute, S=sound, N=minimap, R=replay, V=view, W=weather, Shift+F=fullscreen, Click racer=details', 'info');
