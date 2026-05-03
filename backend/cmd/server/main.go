@@ -226,14 +226,21 @@ func main() {
 	if trackErr != nil {
 		log.Printf("Warning: track store unavailable: %v", trackErr)
 	} else {
-		server.SetTrackHandler(tracks.NewHandler(trackStore))
-		// Provide active track ID to snapshot broadcasts.
-		broadcaster.SetActiveTrackProvider(func() *string {
-			id := server.Config().Track.Active
-			if id == "" {
+		th := tracks.NewHandler(trackStore)
+		th.SetActiveTrackProvider(
+			func() string { return server.Config().Track.Active },
+			func(id string) error {
+				old := server.Config()
+				newCfg := *old
+				newCfg.Track.Active = id
+				server.SetConfig(&newCfg)
+				broadcaster.BroadcastSnapshot()
 				return nil
-			}
-			return &id
+			},
+		)
+		server.SetTrackHandler(th)
+		broadcaster.SetActiveTrackProvider(func() string {
+			return server.Config().Track.Active
 		})
 	}
 

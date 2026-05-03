@@ -97,7 +97,7 @@ type Broadcaster struct {
 	flushTimer          *time.Timer
 	flushMu             sync.Mutex
 	healthHook          func() []SourceHealthPayload
-	activeTrackProvider func() *string
+	activeTrackProvider func() string
 	seq                 atomic.Uint64
 	stopOnce            sync.Once
 }
@@ -133,13 +133,19 @@ func (b *Broadcaster) SetHealthHook(hook func() []SourceHealthPayload) {
 	b.mu.Unlock()
 }
 
-// SetActiveTrackProvider registers a function that returns the currently configured
-// active track ID (or nil when no custom track is set). Included in snapshots.
-func (b *Broadcaster) SetActiveTrackProvider(fn func() *string) {
+// SetActiveTrackProvider registers a function that returns the current active
+// track ID for inclusion in snapshot broadcasts. Safe for concurrent use.
+func (b *Broadcaster) SetActiveTrackProvider(fn func() string) {
 	b.mu.Lock()
 	b.activeTrackProvider = fn
 	b.mu.Unlock()
 }
+
+// BroadcastSnapshot sends an immediate snapshot to all connected clients.
+func (b *Broadcaster) BroadcastSnapshot() {
+	b.broadcast(b.snapshotMessage())
+}
+
 
 // privacyFilter returns the current privacy filter under lock.
 func (b *Broadcaster) privacyFilter() *session.PrivacyFilter {
@@ -300,7 +306,7 @@ func (b *Broadcaster) snapshotLoop() {
 }
 
 // snapshotMessage builds a full snapshot WSMessage including sessions, teams,
-// source health status, and the active track ID (when hooks are registered).
+// source health status, and active track ID (when hooks are registered).
 func (b *Broadcaster) snapshotMessage() WSMessage {
 	allSessions := b.privacyFilter().FilterSlice(b.store.GetAll())
 	payload := SnapshotPayload{
@@ -308,11 +314,11 @@ func (b *Broadcaster) snapshotMessage() WSMessage {
 		Teams:    session.ComputeTeams(allSessions),
 	}
 	b.mu.RLock()
-	hook := b.healthHook
+	healthHook := b.healthHook
 	trackProvider := b.activeTrackProvider
 	b.mu.RUnlock()
-	if hook != nil {
-		payload.SourceHealth = hook()
+	if healthHook != nil {
+		payload.SourceHealth = healthHook()
 	}
 	if trackProvider != nil {
 		payload.ActiveTrackID = trackProvider()

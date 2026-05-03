@@ -90,7 +90,7 @@ type SnapshotPayload struct {
 	Sessions      []*session.SessionState `json:"sessions"`
 	Teams         []session.TeamInfo      `json:"teams,omitempty"`
 	SourceHealth  []SourceHealthPayload   `json:"sourceHealth,omitempty"`
-	ActiveTrackID *string                 `json:"activeTrackId,omitempty"`
+	ActiveTrackID string                  `json:"activeTrackId,omitempty"`
 }
 
 type DeltaPayload struct {

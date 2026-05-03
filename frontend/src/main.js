@@ -253,6 +253,9 @@ function handleSnapshot(payload) {
   if (snapshotTrackId !== activeTrackId) {
     loadActiveTrack();
   }
+  if (payload.activeTrackId !== undefined) {
+    trackEditor.setActiveTrackId(payload.activeTrackId || null);
+  }
 
   updateSessionCount();
   log(`Snapshot: ${payload.sessions.length} sessions`, 'info');

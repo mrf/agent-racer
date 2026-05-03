@@ -347,3 +347,104 @@ func TestResponseContentTypeJSON(t *testing.T) {
 		t.Fatalf("Content-Type = %q, want application/json", ct)
 	}
 }
+
+// --- Active track routes: GET /api/tracks/active, PUT /api/tracks/active ---
+
+func newTestHandlerWithActive(t *testing.T) (*Handler, *string) {
+	t.Helper()
+	h := newTestHandler(t)
+	active := ""
+	h.SetActiveTrackProvider(
+		func() string { return active },
+		func(id string) error { active = id; return nil },
+	)
+	return h, &active
+}
+
+func TestGetActiveTrackNoProvider(t *testing.T) {
+	h := newTestHandler(t)
+	w := doRequest(h, http.MethodGet, "/api/tracks/active", "")
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusServiceUnavailable)
+	}
+}
+
+func TestGetActiveTrackEmpty(t *testing.T) {
+	h, _ := newTestHandlerWithActive(t)
+	w := doRequest(h, http.MethodGet, "/api/tracks/active", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+	var resp activeTrackResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.ID != "" {
+		t.Fatalf("id = %q, want empty", resp.ID)
+	}
+}
+
+func TestSetActiveTrackPreset(t *testing.T) {
+	h, active := newTestHandlerWithActive(t)
+	// Use the first preset ID.
+	presets := Presets()
+	if len(presets) == 0 {
+		t.Skip("no presets defined")
+	}
+	id := presets[0].ID
+	w := doRequest(h, http.MethodPut, "/api/tracks/active", `{"id":"`+id+`"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body = %s", w.Code, http.StatusOK, w.Body.String())
+	}
+	if *active != id {
+		t.Fatalf("active = %q, want %q", *active, id)
+	}
+}
+
+func TestSetActiveTrackUserDefined(t *testing.T) {
+	h, active := newTestHandlerWithActive(t)
+	create := `{"id":"my-oval","name":"My Oval","width":2,"height":2,"tiles":[["",""],["",""]]}`
+	w := doRequest(h, http.MethodPost, "/api/tracks", create)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("POST status = %d", w.Code)
+	}
+	w = doRequest(h, http.MethodPut, "/api/tracks/active", `{"id":"my-oval"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("PUT status = %d, want %d; body = %s", w.Code, http.StatusOK, w.Body.String())
+	}
+	if *active != "my-oval" {
+		t.Fatalf("active = %q, want my-oval", *active)
+	}
+}
+
+func TestSetActiveTrackNotFound(t *testing.T) {
+	h, _ := newTestHandlerWithActive(t)
+	w := doRequest(h, http.MethodPut, "/api/tracks/active", `{"id":"ghost-track"}`)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusNotFound)
+	}
+}
+
+func TestSetActiveTrackEmptyID(t *testing.T) {
+	h, _ := newTestHandlerWithActive(t)
+	w := doRequest(h, http.MethodPut, "/api/tracks/active", `{"id":""}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestSetActiveTrackInvalidID(t *testing.T) {
+	h, _ := newTestHandlerWithActive(t)
+	w := doRequest(h, http.MethodPut, "/api/tracks/active", `{"id":"bad id!"}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestActiveTrackMethodNotAllowed(t *testing.T) {
+	h, _ := newTestHandlerWithActive(t)
+	w := doRequest(h, http.MethodDelete, "/api/tracks/active", "")
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusMethodNotAllowed)
+	}
+}

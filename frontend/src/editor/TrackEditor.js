@@ -31,6 +31,8 @@ export class TrackEditor {
     this._saveNameInputEl = null;
     this._saveStatusEl = null;
     this._saveSubmitBtn = null;
+    this._setActiveBtn = null;
+    this._activeTrackId = null;
 
     this._mouseDownHandler = (e) => this._onMouseDown(e);
     this._mouseMoveHandler = (e) => this._onMouseMove(e);
@@ -62,6 +64,7 @@ export class TrackEditor {
     window.addEventListener('keydown', this._keyHandler);
     this.canvas.addEventListener('contextmenu', this._contextMenuHandler);
     this._validate();
+    this._fetchActiveTrackId();
   }
 
   deactivate() {
@@ -70,11 +73,18 @@ export class TrackEditor {
     if (this._toolbar) { this._toolbar.remove(); this._toolbar = null; }
     if (this._validationEl) { this._validationEl.remove(); this._validationEl = null; }
     if (this._trackListEl) { this._trackListEl.remove(); this._trackListEl = null; }
+    this._setActiveBtn = null;
     this.canvas.removeEventListener('mousedown', this._mouseDownHandler);
     this.canvas.removeEventListener('mousemove', this._mouseMoveHandler);
     window.removeEventListener('mouseup', this._mouseUpHandler);
     window.removeEventListener('keydown', this._keyHandler);
     this.canvas.removeEventListener('contextmenu', this._contextMenuHandler);
+  }
+
+  // setActiveTrackId updates the known active track ID (e.g. from a WebSocket snapshot).
+  setActiveTrackId(id) {
+    this._activeTrackId = id || null;
+    this._updateActiveBtn();
   }
 
   _buildToolbar() {
@@ -102,6 +112,13 @@ export class TrackEditor {
     addBtn('Tracks', 'Load a track', () => this._showTrackList());
     addBtn('Export', 'Download as JSON', () => this._exportJSON());
     addBtn('Import', 'Upload JSON file', () => this._importJSON());
+
+    this._setActiveBtn = document.createElement('button');
+    this._setActiveBtn.className = 'te-toolbar-btn';
+    this._setActiveBtn.addEventListener('click', () => this._setActiveTrack());
+    this._toolbar.appendChild(this._setActiveBtn);
+    this._updateActiveBtn();
+
     addBtn('Close [E]', 'Exit editor', () => this.deactivate());
 
     const saveForm = document.createElement('form');
@@ -166,6 +183,57 @@ export class TrackEditor {
     }
   }
 
+  _updateActiveBtn() {
+    if (!this._setActiveBtn) return;
+    const isActive = this._currentTrackId !== null &&
+                     this._currentTrackId === this._activeTrackId;
+    const validationOk = this._lastValidation && this._lastValidation.valid;
+    const hasSavedId = this._currentTrackId !== null;
+
+    this._setActiveBtn.textContent = isActive ? 'Active \u2713' : 'Set Active';
+    this._setActiveBtn.title = isActive
+      ? 'This track is already the active race track'
+      : 'Set this track as the active race track';
+    this._setActiveBtn.disabled = isActive || !hasSavedId || !validationOk;
+    this._setActiveBtn.classList.toggle('active-track', isActive);
+  }
+
+  async _fetchActiveTrackId() {
+    try {
+      const resp = await authFetch('/api/tracks/active');
+      if (resp.ok) {
+        const data = await resp.json();
+        this._activeTrackId = data.id || null;
+        this._updateActiveBtn();
+      }
+    } catch (_) {
+      // Non-fatal — active state will be updated via WebSocket snapshot
+    }
+  }
+
+  async _setActiveTrack() {
+    if (!this._currentTrackId) return;
+    const id = this._currentTrackId;
+    if (this._setActiveBtn) this._setActiveBtn.disabled = true;
+    try {
+      const resp = await authFetch('/api/tracks/active', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      if (resp.ok) {
+        this._activeTrackId = id;
+      } else {
+        const msg = await resp.text().catch(() => 'unknown error');
+        this._setSaveStatus('Set active failed: ' + resp.status + ' ' + msg.trim(), 'error');
+      }
+    } catch (err) {
+      this._setSaveStatus('Set active failed: ' + err.message, 'error');
+    } finally {
+      this._updateActiveBtn();
+    }
+  }
+
   _validate() {
     const result = validateTrack(this.tiles);
     this._lastValidation = result;
@@ -173,6 +241,7 @@ export class TrackEditor {
     this._validationEl.textContent = (result.valid ? '\u2713 ' : '\u2717 ') + result.message;
     this._validationEl.classList.toggle('valid', result.valid);
     this._validationEl.classList.toggle('invalid', !result.valid);
+    this._updateActiveBtn();
     return result;
   }
 
@@ -298,6 +367,7 @@ export class TrackEditor {
         this._currentTrackId = id;
         this._currentTrackName = name;
         this._setSaveStatus('Saved: ' + name, 'success');
+        this._updateActiveBtn();
       } else {
         this._setSaveStatus('Save failed: ' + resp.status, 'error');
       }
@@ -370,6 +440,7 @@ export class TrackEditor {
     }
     this._setSaveStatus('');
     this._validate();
+    this._updateActiveBtn();
   }
 
   _exportJSON() {

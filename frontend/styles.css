@@ -1282,6 +1282,22 @@ header {
 #track-editor-save-status.success  { color: #4ade80; }
 #track-editor-save-status.error    { color: #f87171; }
 
+.te-toolbar-btn.active-track {
+  background: #1a3a1a;
+  border-color: #4ade80;
+  color: #4ade80;
+}
+
+.te-toolbar-btn.active-track:hover:not(:disabled) {
+  background: #1f4a1f;
+}
+
+.te-toolbar-btn:disabled,
+.te-save-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .te-validation {
   position: fixed;
   bottom: 10px;

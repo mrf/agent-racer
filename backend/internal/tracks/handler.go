@@ -80,12 +80,21 @@ const maxRequestBodySize int64 = 1 << 20
 
 // Handler handles /api/tracks and /api/tracks/{id} routes.
 type Handler struct {
-	store *Store
+	store          *Store
+	getActiveFn    func() string
+	setActiveFn    func(id string) error
 }
 
 // NewHandler creates a new Handler backed by the given store.
 func NewHandler(store *Store) *Handler {
 	return &Handler{store: store}
+}
+
+// SetActiveTrackProvider registers callbacks for getting and setting the active track ID.
+// get returns the current active track ID; set persists a new active track ID.
+func (h *Handler) SetActiveTrackProvider(get func() string, set func(id string) error) {
+	h.getActiveFn = get
+	h.setActiveFn = set
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -98,6 +107,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.listTracks(w, r)
 		case http.MethodPost:
 			h.createTrack(w, r)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+		return
+	}
+
+	if path == "active" {
+		switch r.Method {
+		case http.MethodGet:
+			h.getActiveTrack(w, r)
+		case http.MethodPut:
+			h.setActiveTrack(w, r)
 		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
@@ -155,6 +176,53 @@ func isPreset(id string) bool {
 	return presetIDs[id]
 }
 
+// activeTrackResponse is the JSON shape returned by GET /api/tracks/active.
+type activeTrackResponse struct {
+	ID string `json:"id"`
+}
+
+// activeTrackRequest is the JSON body expected by PUT /api/tracks/active.
+type activeTrackRequest struct {
+	ID string `json:"id"`
+}
+
+func (h *Handler) getActiveTrack(w http.ResponseWriter, r *http.Request) {
+	if h.getActiveFn == nil {
+		http.Error(w, "active track not available", http.StatusServiceUnavailable)
+		return
+	}
+	writeJSON(w, activeTrackResponse{ID: h.getActiveFn()})
+}
+
+func (h *Handler) setActiveTrack(w http.ResponseWriter, r *http.Request) {
+	if h.setActiveFn == nil {
+		http.Error(w, "active track not available", http.StatusServiceUnavailable)
+		return
+	}
+	var req activeTrackRequest
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	if req.ID == "" {
+		http.Error(w, "bad request: id is required", http.StatusBadRequest)
+		return
+	}
+	if !validID.MatchString(req.ID) {
+		http.Error(w, "bad request: invalid track id", http.StatusBadRequest)
+		return
+	}
+	// Verify the track exists (preset or user-defined).
+	if _, err := h.GetByID(req.ID); err != nil {
+		http.Error(w, "track not found", http.StatusNotFound)
+		return
+	}
+	if err := h.setActiveFn(req.ID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, activeTrackResponse{ID: req.ID})
+}
+
 // GetByID resolves a track by ID, checking presets first then the user store.
 // Returns nil, nil when id is empty (no active track configured).
 // Returns nil, err when the track is not found or cannot be read.
@@ -191,16 +259,7 @@ func (h *Handler) listTracks(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) getTrack(w http.ResponseWriter, r *http.Request, id string) {
-	if isPreset(id) {
-		presets := Presets()
-		for i := 0; i < len(presets); i++ {
-			if presets[i].ID == id {
-				writeJSON(w, presets[i])
-				return
-			}
-		}
-	}
-	t, err := h.store.Get(id)
+	t, err := h.GetByID(id)
 	if err != nil {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
