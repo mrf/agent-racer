@@ -1,6 +1,7 @@
 package monitor
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -8,32 +9,36 @@ import (
 	"testing"
 	"time"
 
+	awsource "github.com/mrf/agentwatch/source"
+	awsession "github.com/mrf/agentwatch/session"
+
 	"github.com/agent-racer/backend/internal/config"
 	"github.com/agent-racer/backend/internal/session"
 	"github.com/agent-racer/backend/internal/ws"
 	"github.com/gorilla/websocket"
 )
 
-// stubSource is a minimal Source for integration testing. It returns
+// stubSource is a minimal source for integration testing. It returns
 // pre-configured handles and updates without reading files on disk.
 type stubSource struct {
 	name    string
-	handles []SessionHandle
-	updates map[string]SourceUpdate // sessionID -> update (consumed on first Parse)
+	handles []awsource.SessionHandle
+	updates map[string]awsource.SourceUpdate // sessionID -> update (consumed on first Parse)
 }
 
 func (s *stubSource) Name() string { return s.name }
 
-func (s *stubSource) Discover() ([]SessionHandle, error) {
+func (s *stubSource) Discover(_ context.Context) ([]awsource.SessionHandle, error) {
 	return s.handles, nil
 }
 
-func (s *stubSource) Parse(handle SessionHandle, offset int64) (SourceUpdate, int64, error) {
-	if u, ok := s.updates[handle.SessionID]; ok {
-		delete(s.updates, handle.SessionID)
-		return u, offset + 1, nil
+func (s *stubSource) Parse(_ context.Context, handle awsource.SessionHandle, cursor awsource.Cursor) (awsource.SourceUpdate, awsource.Cursor, error) {
+	if u, ok := s.updates[handle.ID]; ok {
+		delete(s.updates, handle.ID)
+		newCursor := awsource.Cursor(string(cursor) + "1")
+		return u, newCursor, nil
 	}
-	return SourceUpdate{}, offset, nil
+	return awsource.SourceUpdate{}, cursor, nil
 }
 
 // pipelineEnv holds the shared infrastructure for pipeline integration tests:
@@ -47,7 +52,7 @@ type pipelineEnv struct {
 
 // newPipelineEnv wires up store -> broadcaster -> monitor -> HTTP/WebSocket
 // test server. The caller must defer env.cleanup().
-func newPipelineEnv(t *testing.T, src Source) *pipelineEnv {
+func newPipelineEnv(t *testing.T, src awsource.Source) *pipelineEnv {
 	t.Helper()
 
 	store := session.NewStore()
@@ -60,7 +65,7 @@ func newPipelineEnv(t *testing.T, src Source) *pipelineEnv {
 			CompletionRemoveAfter: -1, // disable auto-removal
 		},
 	}
-	mon := NewMonitor(cfg, store, broadcaster, []Source{src})
+	mon := NewMonitor(cfg, store, broadcaster, []awsource.Source{src})
 	mon.discoverProcessActivity = nil
 	mon.newTmuxResolver = nil
 
@@ -142,7 +147,7 @@ func readDelta(t *testing.T, conn *websocket.Conn) (ws.WSMessage, ws.DeltaPayloa
 //
 //	monitor.poll() -> store.BatchUpdateAndNotify -> broadcaster.QueueUpdate -> flush -> WebSocket client
 //
-// It verifies that a session discovered by a stub Source flows through the
+// It verifies that a session discovered by a stub source flows through the
 // store and broadcaster and arrives at a connected WebSocket client as a
 // properly-formed delta message with the expected fields.
 func TestPipelineIntegration(t *testing.T) {
@@ -150,23 +155,23 @@ func TestPipelineIntegration(t *testing.T) {
 
 	src := &stubSource{
 		name: "test",
-		handles: []SessionHandle{{
-			SessionID: "sess-001",
-			LogPath:   "/fake/path.jsonl",
+		handles: []awsource.SessionHandle{{
+			ID:        "sess-001",
+			Path:      "/fake/path.jsonl",
 			Source:    "test",
 			StartedAt: now,
 		}},
-		updates: map[string]SourceUpdate{
+		updates: map[string]awsource.SourceUpdate{
 			"sess-001": {
-				SessionID:    "sess-001",
-				Model:        "claude-opus-4-5",
-				TokensIn:     5000,
-				TokensOut:    500,
-				MessageCount: 3,
-				ToolCalls:    2,
-				LastTool:     "Read",
-				Activity:     "tool_use",
-				LastTime:     now,
+				SessionID:          "sess-001",
+				Model:              "claude-opus-4-5",
+				ContextTokens:      5000,
+				OutputTokens:       500,
+				MessageCountDelta:  3,
+				ToolCallCountDelta: 2,
+				CurrentTool:        "Read",
+				Activity:           awsession.ActivityWorking,
+				LastActivityAt:     now,
 			},
 		},
 	}
@@ -239,19 +244,19 @@ func TestPipelineIntegration_MultipleClients(t *testing.T) {
 
 	src := &stubSource{
 		name: "multi",
-		handles: []SessionHandle{{
-			SessionID: "sess-multi",
-			LogPath:   "/fake/multi.jsonl",
+		handles: []awsource.SessionHandle{{
+			ID:        "sess-multi",
+			Path:      "/fake/multi.jsonl",
 			Source:    "multi",
 			StartedAt: now,
 		}},
-		updates: map[string]SourceUpdate{
+		updates: map[string]awsource.SourceUpdate{
 			"sess-multi": {
-				SessionID:    "sess-multi",
-				Model:        "gemini-2.0",
-				MessageCount: 1,
-				Activity:     "thinking",
-				LastTime:     now,
+				SessionID:         "sess-multi",
+				Model:             "gemini-2.0",
+				MessageCountDelta: 1,
+				Activity:          awsession.ActivityWorking,
+				LastActivityAt:    now,
 			},
 		},
 	}
@@ -283,21 +288,21 @@ func TestPipelineIntegration_PrivacyFilter(t *testing.T) {
 
 	src := &stubSource{
 		name: "private",
-		handles: []SessionHandle{{
-			SessionID:  "sess-priv",
-			LogPath:    "/fake/priv.jsonl",
+		handles: []awsource.SessionHandle{{
+			ID:         "sess-priv",
+			Path:       "/fake/priv.jsonl",
 			Source:     "private",
 			WorkingDir: "/home/user/secret-project",
 			StartedAt:  now,
 		}},
-		updates: map[string]SourceUpdate{
+		updates: map[string]awsource.SourceUpdate{
 			"sess-priv": {
-				SessionID:    "sess-priv",
-				Model:        "claude-opus-4-5",
-				MessageCount: 1,
-				Activity:     "thinking",
-				LastTime:     now,
-				WorkingDir:   "/home/user/secret-project",
+				SessionID:         "sess-priv",
+				Model:             "claude-opus-4-5",
+				MessageCountDelta: 1,
+				Activity:          awsession.ActivityWorking,
+				LastActivityAt:    now,
+				WorkingDir:        "/home/user/secret-project",
 			},
 		},
 	}

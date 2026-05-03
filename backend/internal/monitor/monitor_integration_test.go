@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	awsource "github.com/mrf/agentwatch/source"
+
 	"github.com/agent-racer/backend/internal/config"
 	"github.com/agent-racer/backend/internal/session"
 	"github.com/agent-racer/backend/internal/ws"
@@ -19,23 +21,23 @@ import (
 // while Start() is running.
 type countingTestSource struct {
 	mu        sync.Mutex
-	handles   []SessionHandle
+	handles   []awsource.SessionHandle
 	pollCount atomic.Int64
 }
 
 func (s *countingTestSource) Name() string { return "claude" }
 
-func (s *countingTestSource) Discover() ([]SessionHandle, error) {
+func (s *countingTestSource) Discover(_ context.Context) ([]awsource.SessionHandle, error) {
 	s.pollCount.Add(1)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	h := make([]SessionHandle, len(s.handles))
+	h := make([]awsource.SessionHandle, len(s.handles))
 	copy(h, s.handles)
 	return h, nil
 }
 
-func (s *countingTestSource) Parse(handle SessionHandle, offset int64) (SourceUpdate, int64, error) {
-	return parseJSONLHandle(handle, offset)
+func (s *countingTestSource) Parse(_ context.Context, handle awsource.SessionHandle, cursor awsource.Cursor) (awsource.SourceUpdate, awsource.Cursor, error) {
+	return parseJSONLHandle(handle, cursor)
 }
 
 // waitForPolls blocks until the source has been polled at least n times,
@@ -57,7 +59,7 @@ func waitForPolls(t *testing.T, src *countingTestSource, n int64, timeout time.D
 func newIntegrationMonitor(src *countingTestSource, cfg *config.Config) (*Monitor, *session.Store) {
 	store := session.NewStore()
 	broadcaster := ws.NewBroadcaster(store, 50*time.Millisecond, 10*time.Second, 0)
-	m := NewMonitor(cfg, store, broadcaster, []Source{src})
+	m := NewMonitor(cfg, store, broadcaster, []awsource.Source{src})
 	m.discoverProcessActivity = func(prevCPU map[int]cpuSample, elapsed time.Duration) ([]ProcessActivity, map[int]cpuSample) {
 		return nil, prevCPU
 	}
@@ -85,7 +87,7 @@ func TestStartPopulatesStoreFromRealJSONL(t *testing.T) {
 		jsonlLine("user", "session-b", ts1, "", "", "/home/user/beta"))
 
 	src := &countingTestSource{
-		handles: []SessionHandle{
+		handles: []awsource.SessionHandle{
 			newTestHandle("session-a", pathA, "/home/user/alpha", now),
 			newTestHandle("session-b", pathB, "/home/user/beta", now),
 		},
@@ -138,7 +140,7 @@ func TestStartPopulatesStoreFromRealJSONL(t *testing.T) {
 
 // TestStartIncrementalParsingAcrossTicks verifies that data appended to a
 // JSONL file between poll ticks is picked up incrementally — the monitor
-// resumes parsing from the last offset rather than re-reading the entire file.
+// resumes parsing from the last cursor rather than re-reading the entire file.
 func TestStartIncrementalParsingAcrossTicks(t *testing.T) {
 	dir := t.TempDir()
 	now := time.Now().UTC()
@@ -151,7 +153,7 @@ func TestStartIncrementalParsingAcrossTicks(t *testing.T) {
 			jsonlLine("assistant", "session-inc", ts2, "claude-opus-4-5-20251101", "", "/home/user/proj"))
 
 	src := &countingTestSource{
-		handles: []SessionHandle{newTestHandle("session-inc", path, "/home/user/proj", now)},
+		handles: []awsource.SessionHandle{newTestHandle("session-inc", path, "/home/user/proj", now)},
 	}
 
 	cfg := defaultTestConfig()
@@ -211,7 +213,7 @@ func TestStartSetConfigChangesPollingWithRealData(t *testing.T) {
 			jsonlLine("assistant", "session-cfg", ts2, "claude-opus-4-5-20251101", "", "/home/user/proj"))
 
 	src := &countingTestSource{
-		handles: []SessionHandle{newTestHandle("session-cfg", path, "/home/user/proj", now)},
+		handles: []awsource.SessionHandle{newTestHandle("session-cfg", path, "/home/user/proj", now)},
 	}
 
 	// Start with a very long poll interval — only the initial poll fires.
@@ -288,7 +290,7 @@ func TestStartContextCancellationStopsPolling(t *testing.T) {
 		jsonlLine("user", "session-stop", ts, "", "", "/home/user/proj"))
 
 	src := &countingTestSource{
-		handles: []SessionHandle{newTestHandle("session-stop", path, "/home/user/proj", now)},
+		handles: []awsource.SessionHandle{newTestHandle("session-stop", path, "/home/user/proj", now)},
 	}
 
 	cfg := defaultTestConfig()

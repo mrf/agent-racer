@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	awsource "github.com/mrf/agentwatch/source"
+
 	"github.com/agent-racer/backend/internal/session"
 	"github.com/agent-racer/backend/internal/ws"
 )
@@ -17,13 +19,13 @@ type pollCountSource struct {
 
 func (s *pollCountSource) Name() string { return "poll-counter" }
 
-func (s *pollCountSource) Discover() ([]SessionHandle, error) {
+func (s *pollCountSource) Discover(_ context.Context) ([]awsource.SessionHandle, error) {
 	s.count.Add(1)
 	return nil, nil
 }
 
-func (s *pollCountSource) Parse(_ SessionHandle, offset int64) (SourceUpdate, int64, error) {
-	return SourceUpdate{}, offset, nil
+func (s *pollCountSource) Parse(_ context.Context, _ awsource.SessionHandle, cursor awsource.Cursor) (awsource.SourceUpdate, awsource.Cursor, error) {
+	return awsource.SourceUpdate{}, cursor, nil
 }
 
 // TestSetConfigRecreatesPollTicker verifies that calling SetConfig with a new
@@ -38,7 +40,7 @@ func TestSetConfigRecreatesPollTicker(t *testing.T) {
 
 	store := session.NewStore()
 	broadcaster := ws.NewBroadcaster(store, 50*time.Millisecond, 10*time.Second, 0)
-	m := NewMonitor(cfg, store, broadcaster, []Source{src})
+	m := NewMonitor(cfg, store, broadcaster, []awsource.Source{src})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
