@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"time"
 
+	"github.com/agent-racer/backend/internal/racer"
 	"github.com/agent-racer/backend/internal/session"
 	"github.com/agent-racer/backend/internal/ws"
 )
@@ -38,14 +39,14 @@ func NewGenerator(store *session.Store, broadcaster *ws.Broadcaster, tickInterva
 	}
 	return &MockGenerator{
 		store:        store,
-		broadcaster:  broadcaster,
+		bridge:       racer.NewBridge(store, broadcaster),
 		tickInterval: tickInterval,
 	}
 }
 
 type MockGenerator struct {
 	store        *session.Store
-	broadcaster  *ws.Broadcaster
+	bridge       *racer.Bridge
 	sessions     []*mockSession
 	statsEvents  chan<- session.Event
 	tickInterval time.Duration
@@ -162,10 +163,13 @@ func (g *MockGenerator) Start(ctx context.Context) {
 		},
 	}
 
+	var initials []*session.SessionState
 	for _, ms := range g.sessions {
-		g.store.Update(ms.state)
+		copy := *ms.state
+		initials = append(initials, &copy)
 		g.emitEvent(session.EventNew, ms.state)
 	}
+	g.bridge.PushUpdate(initials)
 
 	go g.run(ctx)
 }
@@ -187,7 +191,6 @@ func (g *MockGenerator) run(ctx context.Context) {
 					continue
 				}
 				g.advanceMock(ms, tick)
-				g.store.Update(ms.state)
 				copy := *ms.state
 				updates = append(updates, &copy)
 				if ms.completed {
@@ -197,7 +200,7 @@ func (g *MockGenerator) run(ctx context.Context) {
 				}
 			}
 			if len(updates) > 0 {
-				g.broadcaster.QueueUpdate(updates)
+				g.bridge.PushUpdate(updates)
 			}
 		}
 	}
@@ -347,7 +350,7 @@ func (g *MockGenerator) advanceSteady(ms *mockSession, tick int) {
 		now := time.Now()
 		ms.state.CompletedAt = &now
 		ms.completed = true
-		g.broadcaster.QueueCompletion(ms.state.ID, session.Complete, ms.state.Name)
+		g.bridge.QueueCompletion(ms.state.ID, session.Complete, ms.state.Name)
 	}
 }
 
@@ -380,7 +383,7 @@ func (g *MockGenerator) advanceBurst(ms *mockSession, tick int) {
 		now := time.Now()
 		ms.state.CompletedAt = &now
 		ms.completed = true
-		g.broadcaster.QueueCompletion(ms.state.ID, session.Complete, ms.state.Name)
+		g.bridge.QueueCompletion(ms.state.ID, session.Complete, ms.state.Name)
 	}
 }
 
@@ -419,7 +422,7 @@ func (g *MockGenerator) advanceStall(ms *mockSession, tick int) {
 		now := time.Now()
 		ms.state.CompletedAt = &now
 		ms.completed = true
-		g.broadcaster.QueueCompletion(ms.state.ID, session.Complete, ms.state.Name)
+		g.bridge.QueueCompletion(ms.state.ID, session.Complete, ms.state.Name)
 	}
 }
 
@@ -446,7 +449,7 @@ func (g *MockGenerator) advanceError(ms *mockSession, tick int) {
 		now := time.Now()
 		ms.state.CompletedAt = &now
 		ms.completed = true
-		g.broadcaster.QueueCompletion(ms.state.ID, session.Errored, ms.state.Name)
+		g.bridge.QueueCompletion(ms.state.ID, session.Errored, ms.state.Name)
 	}
 }
 
@@ -477,6 +480,6 @@ func (g *MockGenerator) advanceMethodical(ms *mockSession, tick int) {
 		now := time.Now()
 		ms.state.CompletedAt = &now
 		ms.completed = true
-		g.broadcaster.QueueCompletion(ms.state.ID, session.Complete, ms.state.Name)
+		g.bridge.QueueCompletion(ms.state.ID, session.Complete, ms.state.Name)
 	}
 }
