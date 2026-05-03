@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	awmonitor "github.com/mrf/agentwatch/monitor"
+
 	"github.com/agent-racer/backend/internal/session"
 	"gopkg.in/yaml.v3"
 )
@@ -122,6 +124,23 @@ type SourcesConfig struct {
 	Gemini bool `yaml:"gemini"`
 }
 
+// EnabledNames returns the names of all enabled sources in a deterministic order.
+// The returned names correspond to the names used by agentwatch source implementations
+// (e.g. "claude", "codex", "gemini") and can be used to filter a source registry.
+func (s *SourcesConfig) EnabledNames() []string {
+	var names []string
+	if s.Claude {
+		names = append(names, "claude")
+	}
+	if s.Codex {
+		names = append(names, "codex")
+	}
+	if s.Gemini {
+		names = append(names, "gemini")
+	}
+	return names
+}
+
 type ServerConfig struct {
 	Port           int      `yaml:"port"`
 	Host           string   `yaml:"host"`
@@ -157,6 +176,38 @@ type MonitorConfig struct {
 	HealthWarningThreshold  int           `yaml:"health_warning_threshold"`
 	StatsEventBuffer        int           `yaml:"stats_event_buffer"`
 	MockTickInterval        time.Duration `yaml:"mock_tick_interval"`
+}
+
+// MonitorOptions returns the subset of this configuration as agentwatch
+// monitor.Option values. Use these when constructing an agentwatch monitor
+// to keep its timing and health parameters consistent with agent-racer's config.
+//
+// Fields with no agentwatch equivalent are omitted:
+//   - BroadcastThrottle, SnapshotInterval — broadcaster-level, not monitor
+//   - ChurningCPUThreshold, ChurningRequiresNetwork — process-awareness (not in agentwatch)
+//   - StatsEventBuffer, MockTickInterval — racer-specific features
+//   - SessionEndDir — passed as a per-source claude option, not a monitor option
+func (m *MonitorConfig) MonitorOptions() []awmonitor.Option {
+	var opts []awmonitor.Option
+	if m.PollInterval > 0 {
+		opts = append(opts, awmonitor.WithPollInterval(m.PollInterval))
+	}
+	// SessionStaleAfter == 0 disables stale detection; pass through to propagate intent.
+	if m.SessionStaleAfter >= 0 {
+		opts = append(opts, awmonitor.WithStaleThreshold(m.SessionStaleAfter))
+	}
+	// CompletionRemoveAfter == 0 removes immediately; < 0 disables removal.
+	// Pass through non-negative values; negative means "never remove" which has
+	// no agentwatch equivalent, so omit it.
+	if m.CompletionRemoveAfter >= 0 {
+		opts = append(opts, awmonitor.WithCompletionRetention(m.CompletionRemoveAfter))
+	}
+	// HealthWarningThreshold == 0 means "use racer default (3)". Agentwatch already
+	// defaults to 3, so only override when explicitly configured.
+	if m.HealthWarningThreshold > 0 {
+		opts = append(opts, awmonitor.WithHealthThreshold(m.HealthWarningThreshold))
+	}
+	return opts
 }
 
 type SoundConfig struct {
