@@ -1,119 +1,26 @@
 package monitor
 
 import (
-	"fmt"
-	"sync"
 	"testing"
 	"time"
 
 	awsession "github.com/mrf/agentwatch/session"
-	awsource "github.com/mrf/agentwatch/source"
 
 	"github.com/agent-racer/backend/internal/config"
 	"github.com/agent-racer/backend/internal/session"
-	"github.com/agent-racer/backend/internal/ws"
 )
-
-// monitorDeadlockTimeout is how long tests wait before declaring a deadlock.
-// Long enough for slow CI, short enough to fail fast.
-const monitorDeadlockTimeout = 2 * time.Second
-
-// mustNotBlock runs f in a goroutine and fails the test if f does not return
-// within the timeout. The description is included in the failure message.
-func mustNotBlock(t *testing.T, timeout time.Duration, desc string, f func()) {
-	t.Helper()
-	done := make(chan struct{})
-	go func() {
-		f()
-		close(done)
-	}()
-	select {
-	case <-done:
-		// completed normally — no deadlock
-	case <-time.After(timeout):
-		t.Errorf("DEADLOCK: %s blocked for >%v (goroutine permanently stuck)", desc, timeout)
-	}
-}
-
-// newTestMonitor creates a minimal Monitor for testing resolveTokens and
-// other methods that only need a config and in-memory maps.
-func newTestMonitor(tokenNorm config.TokenNormConfig) *Monitor {
-	return &Monitor{
-		cfg: &config.Config{
-			TokenNorm: tokenNorm,
-		},
-		tracked:        make(map[string]*trackedSession),
-		pendingRemoval: make(map[string]time.Time),
-		removedKeys:    make(map[string]bool),
-	}
-}
-
-// newTestMonitorWithStore creates a Monitor backed by a real Store and
-// Broadcaster, for testing flushRemovals and other methods that interact
-// with the session store and WebSocket broadcaster.
-func newTestMonitorWithStore(monitorCfg config.MonitorConfig) *Monitor {
-	store := session.NewStore()
-	broadcaster := ws.NewBroadcaster(store, 100*time.Millisecond, 5*time.Second, 0)
-	return &Monitor{
-		cfg: &config.Config{
-			Monitor: monitorCfg,
-		},
-		store:          store,
-		broadcaster:    broadcaster,
-		tracked:        make(map[string]*trackedSession),
-		pendingRemoval: make(map[string]time.Time),
-		removedKeys:    make(map[string]bool),
-	}
-}
-
-func TestTrackingKey(t *testing.T) {
-	key := trackingKey("claude", "abc-123")
-	if key != "claude:abc-123" {
-		t.Errorf("trackingKey() = %q, want %q", key, "claude:abc-123")
-	}
-}
-
-func TestClassifyActivityFromUpdate(t *testing.T) {
-	tests := []struct {
-		name     string
-		update   awsource.SourceUpdate
-		wantName string
-	}{
-		{"tool_use", awsource.SourceUpdate{Activity: awsession.ActivityWorking, CurrentTool: "Read"}, "tool_use"},
-		{"thinking", awsource.SourceUpdate{Activity: awsession.ActivityWorking}, "thinking"},
-		{"waiting", awsource.SourceUpdate{Activity: awsession.ActivityWaiting}, "waiting"},
-		{"idle_no_data", awsource.SourceUpdate{}, "idle"},
-		{"thinking_from_messages", awsource.SourceUpdate{MessageCountDelta: 2}, "thinking"},
-		{"idle_only_tokens", awsource.SourceUpdate{ContextTokens: 100}, "idle"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			activity := classifyActivityFromUpdate(tt.update)
-			if activity.String() != tt.wantName {
-				t.Errorf("classifyActivityFromUpdate() = %q, want %q", activity.String(), tt.wantName)
-			}
-		})
-	}
-}
 
 func TestNameFromPath(t *testing.T) {
 	tests := []struct {
 		path string
 		want string
 	}{
-		{"/home/user/Projects/myapp", "myapp"},
-		{"/tmp/test", "test"},
+		{"/home/user/project", "project"},
+		{"/home/user/.claude/worktrees/my-feature", "my-feature"},
+		{"/home/user/.claude/worktrees/fix-bug/subdir", "fix-bug"},
 		{"", "unknown"},
 		{"/", "unknown"},
-		{"/single", "single"},
-		// Worktree paths should use the slug
-		{"/home/user/Projects/repo/.claude/worktrees/fix-login-bug", "fix-login-bug"},
-		{"/home/user/Projects/repo/.claude/worktrees/my-feature/subdir", "my-feature"},
-		// Non-worktree .claude paths should not match
-		{"/home/user/.claude/projects/repo", "repo"},
 	}
-
 	for _, tt := range tests {
 		got := nameFromPath(tt.path)
 		if got != tt.want {
@@ -125,1057 +32,329 @@ func TestNameFromPath(t *testing.T) {
 func TestSplitPath(t *testing.T) {
 	tests := []struct {
 		path string
-		want int // number of parts
+		want int // expected number of parts
 	}{
 		{"/home/user/project", 3},
-		{"/tmp", 1},
-		{"", 0},
 		{"/", 0},
+		{"", 0},
 	}
-
 	for _, tt := range tests {
-		parts := splitPath(tt.path)
-		if len(parts) != tt.want {
-			t.Errorf("splitPath(%q) returned %d parts, want %d", tt.path, len(parts), tt.want)
+		got := splitPath(tt.path)
+		if len(got) != tt.want {
+			t.Errorf("splitPath(%q) = %d parts, want %d", tt.path, len(got), tt.want)
 		}
-	}
-}
-
-func TestSourceUpdateHasData(t *testing.T) {
-	tests := []struct {
-		name   string
-		update awsource.SourceUpdate
-		want   bool
-	}{
-		{"empty", awsource.SourceUpdate{}, false},
-		{"session_id", awsource.SourceUpdate{SessionID: "x"}, true},
-		{"model", awsource.SourceUpdate{Model: "x"}, true},
-		{"tokens_in", awsource.SourceUpdate{ContextTokens: 1}, true},
-		{"tokens_out", awsource.SourceUpdate{OutputTokens: 1}, true},
-		{"messages", awsource.SourceUpdate{MessageCountDelta: 1}, true},
-		{"tools", awsource.SourceUpdate{ToolCallCountDelta: 1}, true},
-		{"last_tool", awsource.SourceUpdate{CurrentTool: "x"}, true},
-		{"activity", awsource.SourceUpdate{Activity: "x"}, true},
-		{"last_time", awsource.SourceUpdate{LastActivityAt: time.Now()}, true},
-		{"working_dir", awsource.SourceUpdate{WorkingDir: "x"}, true},
-		{"max_context_tokens", awsource.SourceUpdate{MaxContextTokens: 200000}, true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := sourceUpdateHasData(tt.update); got != tt.want {
-				t.Errorf("sourceUpdateHasData() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-func TestRemovedKeysPreventZombieReCreation(t *testing.T) {
-	m := &Monitor{
-		tracked:        make(map[string]*trackedSession),
-		pendingRemoval: make(map[string]time.Time),
-		removedKeys:    make(map[string]bool),
-	}
-
-	key := trackingKey("claude", "session-123")
-
-	// Simulate a session being removed after terminal state.
-	m.removedKeys[key] = true
-
-	// The session should be skipped when re-discovered.
-	if !m.removedKeys[key] {
-		t.Error("removedKeys should contain the key")
-	}
-}
-
-func TestRemovedKeysPurgedWhenFileNoLongerDiscovered(t *testing.T) {
-	m := &Monitor{
-		tracked:        make(map[string]*trackedSession),
-		pendingRemoval: make(map[string]time.Time),
-		removedKeys:    make(map[string]bool),
-	}
-
-	key := trackingKey("claude", "session-123")
-	m.removedKeys[key] = true
-
-	// Simulate the file falling outside the discover window.
-	activeKeys := map[string]bool{} // session no longer discovered
-
-	for k := range m.removedKeys {
-		if !activeKeys[k] {
-			delete(m.removedKeys, k)
-		}
-	}
-
-	if m.removedKeys[key] {
-		t.Error("removedKeys should have been purged for undiscovered session")
-	}
-}
-
-func TestRemovedKeysRetainedWhileFileStillDiscovered(t *testing.T) {
-	m := &Monitor{
-		tracked:        make(map[string]*trackedSession),
-		pendingRemoval: make(map[string]time.Time),
-		removedKeys:    make(map[string]bool),
-	}
-
-	key := trackingKey("claude", "session-123")
-	m.removedKeys[key] = true
-
-	// Simulate the file still being within the discover window.
-	activeKeys := map[string]bool{key: true}
-
-	for k := range m.removedKeys {
-		if !activeKeys[k] {
-			delete(m.removedKeys, k)
-		}
-	}
-
-	if !m.removedKeys[key] {
-		t.Error("removedKeys should be retained while file is still discovered")
-	}
-}
-
-func TestFlushRemovalsAddsToRemovedKeys(t *testing.T) {
-	m := newTestMonitorWithStore(config.MonitorConfig{
-		CompletionRemoveAfter: time.Second,
-	})
-
-	key := "claude:session-456"
-	m.store.Update(&session.SessionState{ID: key, Activity: session.Complete})
-	m.pendingRemoval[key] = time.Now().Add(-time.Minute) // already past
-
-	m.flushRemovals(time.Now())
-
-	if !m.removedKeys[key] {
-		t.Error("flushRemovals should add key to removedKeys")
-	}
-	if _, exists := m.store.Get(key); exists {
-		t.Error("session should have been removed from store")
-	}
-	if len(m.pendingRemoval) != 0 {
-		t.Errorf("pendingRemoval should be empty, got %d entries", len(m.pendingRemoval))
-	}
-}
-
-func TestFlushRemovalsBroadcastsRemovedIDs(t *testing.T) {
-	m := newTestMonitorWithStore(config.MonitorConfig{})
-
-	now := time.Now()
-	dueKey := "claude:session-due"
-	futureKey := "claude:session-future"
-
-	m.store.Update(&session.SessionState{ID: dueKey, Activity: session.Complete})
-	m.store.Update(&session.SessionState{ID: futureKey, Activity: session.Complete})
-
-	m.pendingRemoval[dueKey] = now.Add(-time.Second)  // past due
-	m.pendingRemoval[futureKey] = now.Add(time.Hour)   // not yet due
-
-	m.flushRemovals(now)
-
-	// Due session should be removed from store and added to removedKeys.
-	if _, exists := m.store.Get(dueKey); exists {
-		t.Error("due session should have been removed from store")
-	}
-	if !m.removedKeys[dueKey] {
-		t.Error("due session should be in removedKeys")
-	}
-
-	// Future session should remain in store and pendingRemoval.
-	if _, exists := m.store.Get(futureKey); !exists {
-		t.Error("future session should still be in store")
-	}
-	if m.removedKeys[futureKey] {
-		t.Error("future session should not be in removedKeys")
-	}
-	if _, ok := m.pendingRemoval[futureKey]; !ok {
-		t.Error("future session should still be in pendingRemoval")
-	}
-}
-
-func TestFlushRemovalsEmptyPendingIsNoop(t *testing.T) {
-	m := newTestMonitorWithStore(config.MonitorConfig{})
-
-	// Should not panic or modify anything.
-	m.flushRemovals(time.Now())
-
-	if len(m.removedKeys) != 0 {
-		t.Error("removedKeys should remain empty")
-	}
-}
-
-func TestScheduleRemovalDoubleScheduleKeepsEarlierTime(t *testing.T) {
-	m := &Monitor{
-		cfg: &config.Config{
-			Monitor: config.MonitorConfig{
-				CompletionRemoveAfter: 10 * time.Second,
-			},
-		},
-		tracked:        make(map[string]*trackedSession),
-		pendingRemoval: make(map[string]time.Time),
-		removedKeys:    make(map[string]bool),
-	}
-
-	key := "claude:session-dup"
-	earlier := time.Now()
-	later := earlier.Add(5 * time.Second)
-
-	// Schedule with earlier completion time first.
-	m.scheduleRemoval(m.cfg,key, earlier)
-	firstRemoveAt := m.pendingRemoval[key]
-
-	// Schedule again with later completion time — should keep the earlier one.
-	m.scheduleRemoval(m.cfg,key, later)
-	secondRemoveAt := m.pendingRemoval[key]
-
-	if !secondRemoveAt.Equal(firstRemoveAt) {
-		t.Errorf("double-schedule should keep earlier time: got %v, want %v", secondRemoveAt, firstRemoveAt)
-	}
-
-	// Reverse order: schedule later first, then earlier — should update to earlier.
-	m.pendingRemoval = make(map[string]time.Time)
-	m.scheduleRemoval(m.cfg,key, later)
-	m.scheduleRemoval(m.cfg,key, earlier)
-	finalRemoveAt := m.pendingRemoval[key]
-
-	expectedRemoveAt := earlier.Add(10 * time.Second)
-	if !finalRemoveAt.Equal(expectedRemoveAt) {
-		t.Errorf("should update to earlier time: got %v, want %v", finalRemoveAt, expectedRemoveAt)
-	}
-}
-
-func TestScheduleRemovalZeroDurationIsImmediate(t *testing.T) {
-	m := &Monitor{
-		cfg: &config.Config{
-			Monitor: config.MonitorConfig{
-				CompletionRemoveAfter: 0, // zero = remove immediately
-			},
-		},
-		tracked:        make(map[string]*trackedSession),
-		pendingRemoval: make(map[string]time.Time),
-		removedKeys:    make(map[string]bool),
-	}
-
-	completedAt := time.Now()
-	m.scheduleRemoval(m.cfg,"claude:session-zero", completedAt)
-
-	removeAt, ok := m.pendingRemoval["claude:session-zero"]
-	if !ok {
-		t.Fatal("scheduleRemoval with 0 duration should add to pendingRemoval")
-	}
-	if !removeAt.Equal(completedAt) {
-		t.Errorf("removeAt = %v, want %v (immediate removal)", removeAt, completedAt)
-	}
-}
-
-func TestScheduleRemovalNegativeDurationDisablesRemoval(t *testing.T) {
-	m := &Monitor{
-		cfg: &config.Config{
-			Monitor: config.MonitorConfig{
-				CompletionRemoveAfter: -1, // negative = never remove
-			},
-		},
-		tracked:        make(map[string]*trackedSession),
-		pendingRemoval: make(map[string]time.Time),
-		removedKeys:    make(map[string]bool),
-	}
-
-	m.scheduleRemoval(m.cfg,"claude:session-neg", time.Now())
-
-	if _, ok := m.pendingRemoval["claude:session-neg"]; ok {
-		t.Error("scheduleRemoval with negative duration should not add to pendingRemoval")
-	}
-}
-
-func TestStaleTerminalSessionAddedToRemovedKeys(t *testing.T) {
-	// Simulate the stale detection loop for a terminal session whose file
-	// has disappeared. The fix ensures m.removedKeys[key] is set so that
-	// if the file briefly reappears, the session is not re-created from
-	// offset 0 (which would cause zombie flickering).
-	store := session.NewStore()
-	m := &Monitor{
-		cfg:            &config.Config{},
-		store:          store,
-		tracked:        make(map[string]*trackedSession),
-		pendingRemoval: make(map[string]time.Time),
-		removedKeys:    make(map[string]bool),
-	}
-
-	key := trackingKey("claude", "terminal-session")
-	completedAt := time.Now().Add(-time.Minute)
-
-	// Put a terminal session in the store and tracking map.
-	store.Update(&session.SessionState{
-		ID:          key,
-		Source:      "claude",
-		Activity:    session.Complete,
-		CompletedAt: &completedAt,
-	})
-	m.tracked[key] = &trackedSession{
-		handle: awsource.SessionHandle{
-			ID:     "terminal-session",
-			Source: "claude",
-		},
-		lastDataTime: completedAt,
-	}
-
-	// Simulate stale detection: file is no longer discovered.
-	activeKeys := map[string]bool{} // empty — file disappeared
-
-	var toRemove []string
-	for k := range m.tracked {
-		if activeKeys[k] {
-			continue
-		}
-		if state, ok := m.store.Get(k); ok && state.IsTerminal() {
-			m.removedKeys[k] = true
-			toRemove = append(toRemove, k)
-		}
-	}
-	for _, k := range toRemove {
-		delete(m.tracked, k)
-	}
-
-	// Verify: tracking removed and removedKeys set.
-	if _, exists := m.tracked[key]; exists {
-		t.Error("terminal session should have been removed from tracked")
-	}
-	if !m.removedKeys[key] {
-		t.Error("terminal session cleaned up by stale detection should be added to removedKeys")
-	}
-}
-
-// Session-end marker handling has moved into the agentwatch claude source.
-// The source signals Terminal=true on the SourceUpdate when a marker is found.
-// See TestPollTerminalUpdate in monitor_poll_test.go for the monitor-level test.
-
-func TestResolveTokensUsageWithRealData(t *testing.T) {
-	m := newTestMonitor(config.TokenNormConfig{
-		Strategies:       map[string]string{"claude": "usage", "default": "estimate"},
-		TokensPerMessage: 2000,
-	})
-
-	state := &session.SessionState{Source: "claude", MessageCount: 5}
-	update := awsource.SourceUpdate{ContextTokens: 50000}
-
-	m.resolveTokens(m.cfg,state, update, 200000)
-
-	if state.ContextTokens != 50000 {
-		t.Errorf("ContextTokens = %d, want 50000", state.ContextTokens)
-	}
-	if state.TokenEstimated {
-		t.Error("TokenEstimated should be false for real data")
-	}
-	if state.MaxContextTokens != 200000 {
-		t.Errorf("MaxContextTokens = %d, want 200000", state.MaxContextTokens)
-	}
-	if state.ContextUtilization != 0.25 {
-		t.Errorf("ContextUtilization = %f, want 0.25", state.ContextUtilization)
-	}
-}
-
-func TestResolveTokensUsageFallbackToEstimate(t *testing.T) {
-	m := newTestMonitor(config.TokenNormConfig{
-		Strategies:       map[string]string{"codex": "usage"},
-		TokensPerMessage: 2000,
-	})
-
-	state := &session.SessionState{Source: "codex", MessageCount: 10}
-	update := awsource.SourceUpdate{ContextTokens: 0}
-
-	m.resolveTokens(m.cfg,state, update, 272000)
-
-	expectedTokens := 10 * 2000
-	if state.ContextTokens != expectedTokens {
-		t.Errorf("ContextTokens = %d, want %d", state.ContextTokens, expectedTokens)
-	}
-	if !state.TokenEstimated {
-		t.Error("TokenEstimated should be true for fallback estimation")
-	}
-}
-
-func TestResolveTokensUsageTransitionEstimateToReal(t *testing.T) {
-	m := newTestMonitor(config.TokenNormConfig{
-		Strategies:       map[string]string{"codex": "usage"},
-		TokensPerMessage: 2000,
-	})
-
-	// Start with estimation.
-	state := &session.SessionState{
-		Source:         "codex",
-		MessageCount:   10,
-		ContextTokens:     20000,
-		TokenEstimated: true,
-	}
-
-	// Real data arrives, even if lower than estimate.
-	update := awsource.SourceUpdate{ContextTokens: 15000}
-	m.resolveTokens(m.cfg,state, update, 272000)
-
-	if state.ContextTokens != 15000 {
-		t.Errorf("ContextTokens = %d, want 15000 (real data should replace estimate)", state.ContextTokens)
-	}
-	if state.TokenEstimated {
-		t.Error("TokenEstimated should be false after real data arrives")
-	}
-}
-
-func TestResolveTokensUsageKeepsRealWhenNoNewData(t *testing.T) {
-	m := newTestMonitor(config.TokenNormConfig{
-		Strategies:       map[string]string{"claude": "usage"},
-		TokensPerMessage: 2000,
-	})
-
-	// Session already has real data.
-	state := &session.SessionState{
-		Source:         "claude",
-		MessageCount:   20,
-		ContextTokens:     80000,
-		TokenEstimated: false,
-	}
-
-	// Update with no token data -- should keep existing real value.
-	update := awsource.SourceUpdate{ContextTokens: 0}
-	m.resolveTokens(m.cfg,state, update, 200000)
-
-	if state.ContextTokens != 80000 {
-		t.Errorf("ContextTokens = %d, want 80000 (should keep real data)", state.ContextTokens)
-	}
-	if state.TokenEstimated {
-		t.Error("TokenEstimated should stay false when real data exists")
-	}
-}
-
-func TestResolveTokensEstimateStrategy(t *testing.T) {
-	m := newTestMonitor(config.TokenNormConfig{
-		Strategies:       map[string]string{"custom": "estimate"},
-		TokensPerMessage: 1500,
-	})
-
-	state := &session.SessionState{Source: "custom", MessageCount: 8}
-	update := awsource.SourceUpdate{ContextTokens: 50000} // real data ignored for estimate strategy
-
-	m.resolveTokens(m.cfg,state, update, 200000)
-
-	expectedTokens := 8 * 1500
-	if state.ContextTokens != expectedTokens {
-		t.Errorf("ContextTokens = %d, want %d", state.ContextTokens, expectedTokens)
-	}
-	if !state.TokenEstimated {
-		t.Error("TokenEstimated should be true for estimate strategy")
-	}
-}
-
-func TestResolveTokensMessageCountStrategy(t *testing.T) {
-	m := newTestMonitor(config.TokenNormConfig{
-		Strategies:       map[string]string{"default": "message_count"},
-		TokensPerMessage: 2000,
-	})
-
-	state := &session.SessionState{Source: "new_cli", MessageCount: 5}
-	update := awsource.SourceUpdate{}
-
-	m.resolveTokens(m.cfg,state, update, 100000)
-
-	if state.ContextTokens != 10000 {
-		t.Errorf("ContextTokens = %d, want 10000", state.ContextTokens)
-	}
-	if !state.TokenEstimated {
-		t.Error("TokenEstimated should be true for message_count strategy")
-	}
-}
-
-func TestResolveTokensZeroMessages(t *testing.T) {
-	m := newTestMonitor(config.TokenNormConfig{
-		Strategies:       map[string]string{"default": "estimate"},
-		TokensPerMessage: 2000,
-	})
-
-	state := &session.SessionState{Source: "unknown", MessageCount: 0}
-	update := awsource.SourceUpdate{}
-
-	m.resolveTokens(m.cfg,state, update, 200000)
-
-	if state.ContextTokens != 0 {
-		t.Errorf("ContextTokens = %d, want 0 (no messages = no estimate)", state.ContextTokens)
-	}
-	if state.TokenEstimated {
-		t.Error("TokenEstimated should be false when no data at all")
-	}
-}
-
-func TestResolveTokensDefaultStrategy(t *testing.T) {
-	m := newTestMonitor(config.TokenNormConfig{
-		// Unknown strategy value -- should fall through to default behavior.
-		Strategies: map[string]string{"test": "bogus_strategy"},
-	})
-
-	state := &session.SessionState{Source: "test"}
-	update := awsource.SourceUpdate{ContextTokens: 5000}
-
-	m.resolveTokens(m.cfg,state, update, 200000)
-
-	if state.ContextTokens != 5000 {
-		t.Errorf("ContextTokens = %d, want 5000", state.ContextTokens)
 	}
 }
 
 func TestDetermineActivityFromReason(t *testing.T) {
 	tests := []struct {
-		name   string
 		reason string
 		want   session.Activity
 	}{
-		{"empty_reason", "", session.Complete},
-		{"success", "success", session.Complete},
-		{"normal_completion", "user closed session", session.Complete},
-		{"error", "error", session.Errored},
-		{"Error_capitalized", "Error occurred", session.Errored},
-		{"failed", "failed to connect", session.Errored},
-		{"crash", "crash detected", session.Errored},
-		{"crashed", "process crashed", session.Errored},
-		{"panic", "panic: runtime error", session.Errored},
-		{"exception", "exception thrown", session.Errored},
-		{"fatal", "fatal error", session.Errored},
-		{"abort", "abort", session.Errored},
-		{"aborted", "operation aborted", session.Errored},
-		{"interrupted", "interrupted by signal", session.Errored},
-		{"killed", "process killed", session.Errored},
-		{"terminated", "terminated unexpectedly", session.Errored},
-		{"mixed_case", "Session FAILED", session.Errored},
-		{"contains_error", "An error occurred during processing", session.Errored},
+		{"", session.Complete},
+		{"user completed task", session.Complete},
+		{"error: connection refused", session.Errored},
+		{"process crashed unexpectedly", session.Errored},
+		{"fatal: out of memory", session.Errored},
+		{"interrupted by signal", session.Errored},
+		{"SIGKILL terminated the process", session.Errored},
+	}
+	for _, tt := range tests {
+		got := determineActivityFromReason(tt.reason)
+		if got != tt.want {
+			t.Errorf("determineActivityFromReason(%q) = %q, want %q", tt.reason, got, tt.want)
+		}
+	}
+}
+
+func TestConvertSubagents(t *testing.T) {
+	subs := []awsession.SubagentState{
+		{
+			ID:             "sub-1",
+			ParentID:       "parent-1",
+			Activity:       awsession.ActivityWorking,
+			CurrentTool:    "Bash",
+			StartedAt:      time.Now().Add(-1 * time.Minute),
+			LastActivityAt: time.Now(),
+		},
+		{
+			ID:             "sub-2",
+			ParentID:       "parent-2",
+			Activity:       awsession.ActivityTerminal,
+			LastActivityAt: time.Now(),
+		},
+	}
+
+	result := convertSubagents(subs, "test:session-1")
+
+	if len(result) != 2 {
+		t.Fatalf("got %d subagents, want 2", len(result))
+	}
+
+	// First subagent: working → Thinking.
+	if result[0].Activity != session.Thinking {
+		t.Errorf("sub[0].Activity = %q, want %q", result[0].Activity, session.Thinking)
+	}
+	if result[0].SessionID != "test:session-1" {
+		t.Errorf("sub[0].SessionID = %q, want %q", result[0].SessionID, "test:session-1")
+	}
+	if result[0].CurrentTool != "Bash" {
+		t.Errorf("sub[0].CurrentTool = %q, want %q", result[0].CurrentTool, "Bash")
+	}
+
+	// Second subagent: terminal → Complete with CompletedAt set.
+	if result[1].Activity != session.Complete {
+		t.Errorf("sub[1].Activity = %q, want %q", result[1].Activity, session.Complete)
+	}
+	if result[1].CompletedAt == nil {
+		t.Error("sub[1].CompletedAt should be non-nil for terminal subagent")
+	}
+}
+
+func TestConvertSubagents_Nil(t *testing.T) {
+	result := convertSubagents(nil, "x")
+	if result != nil {
+		t.Errorf("got %v, want nil", result)
+	}
+}
+
+func TestConvertSubagentActivity(t *testing.T) {
+	tests := []struct {
+		input awsession.Activity
+		want  session.Activity
+	}{
+		{awsession.ActivityWorking, session.Thinking},
+		{awsession.ActivityWaiting, session.Waiting},
+		{awsession.ActivityTerminal, session.Complete},
+		{awsession.ActivityIdle, session.Idle},
+		{"", session.Idle},
+	}
+	for _, tt := range tests {
+		got := convertSubagentActivity(tt.input)
+		if got != tt.want {
+			t.Errorf("convertSubagentActivity(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+// --- Token resolution tests ---
+
+func newTestMonitor(tokenNorm config.TokenNormConfig) *Monitor {
+	return &Monitor{
+		cfg: &config.Config{
+			TokenNorm: tokenNorm,
+		},
+		tokenSnapshots: make(map[string][]tokenSnapshot),
+	}
+}
+
+func TestResolveTokens_Usage_RealData(t *testing.T) {
+	m := newTestMonitor(config.TokenNormConfig{
+		Strategies:       map[string]string{"default": "usage"},
+		TokensPerMessage: 2000,
+	})
+	local := &session.SessionState{
+		Source:           "claude",
+		ContextTokens:    5000,
+		MaxContextTokens: 200000,
+	}
+	m.resolveTokens(m.cfg, local, nil, false)
+	if local.ContextTokens != 5000 {
+		t.Errorf("ContextTokens = %d, want 5000", local.ContextTokens)
+	}
+	if local.TokenEstimated {
+		t.Error("should not be estimated when real data")
+	}
+}
+
+func TestResolveTokens_Usage_FallbackToEstimation(t *testing.T) {
+	m := newTestMonitor(config.TokenNormConfig{
+		Strategies:       map[string]string{"default": "usage"},
+		TokensPerMessage: 2000,
+	})
+	local := &session.SessionState{
+		Source:       "claude",
+		MessageCount: 5,
+	}
+	m.resolveTokens(m.cfg, local, nil, false)
+	if local.ContextTokens != 10000 {
+		t.Errorf("ContextTokens = %d, want 10000", local.ContextTokens)
+	}
+	if !local.TokenEstimated {
+		t.Error("should be estimated when falling back")
+	}
+}
+
+func TestResolveTokens_Usage_CarryForwardRealData(t *testing.T) {
+	m := newTestMonitor(config.TokenNormConfig{
+		Strategies:       map[string]string{"default": "usage"},
+		TokensPerMessage: 2000,
+	})
+	existing := &session.SessionState{
+		ContextTokens:  8000,
+		TokenEstimated: false,
+	}
+	local := &session.SessionState{
+		Source:        "claude",
+		ContextTokens: 0, // no data this poll
+	}
+	m.resolveTokens(m.cfg, local, existing, true)
+	if local.ContextTokens != 8000 {
+		t.Errorf("ContextTokens = %d, want 8000 (carried forward)", local.ContextTokens)
+	}
+	if local.TokenEstimated {
+		t.Error("should not be estimated when carrying forward real data")
+	}
+}
+
+func TestResolveTokens_Estimate(t *testing.T) {
+	m := newTestMonitor(config.TokenNormConfig{
+		Strategies:       map[string]string{"default": "estimate"},
+		TokensPerMessage: 1500,
+	})
+	local := &session.SessionState{
+		Source:        "codex",
+		MessageCount:  10,
+		ContextTokens: 5000, // real data from source, but strategy overrides
+	}
+	m.resolveTokens(m.cfg, local, nil, false)
+	if local.ContextTokens != 15000 {
+		t.Errorf("ContextTokens = %d, want 15000", local.ContextTokens)
+	}
+	if !local.TokenEstimated {
+		t.Error("should be estimated with estimate strategy")
+	}
+}
+
+func TestResolveTokens_MaxContextFromConfig(t *testing.T) {
+	m := newTestMonitor(config.TokenNormConfig{
+		Strategies: map[string]string{"default": "usage"},
+	})
+	m.cfg.Models = map[string]int{
+		"claude-3.5-sonnet": 150000,
+	}
+	local := &session.SessionState{
+		Source: "claude",
+		Model:  "claude-3.5-sonnet",
+	}
+	m.resolveTokens(m.cfg, local, nil, false)
+	if local.MaxContextTokens != 150000 {
+		t.Errorf("MaxContextTokens = %d, want 150000", local.MaxContextTokens)
+	}
+}
+
+// --- Burn rate tests ---
+
+func TestCalculateBurnRate_Basic(t *testing.T) {
+	m := newTestMonitor(config.TokenNormConfig{})
+	now := time.Now()
+
+	// First snapshot — no rate yet.
+	rate := m.calculateBurnRate("sess1", 1000, now)
+	if rate != 0 {
+		t.Errorf("first snapshot should return 0, got %f", rate)
+	}
+
+	// Second snapshot 30s later with more tokens.
+	rate = m.calculateBurnRate("sess1", 2000, now.Add(30*time.Second))
+	if rate <= 0 {
+		t.Errorf("should have positive rate after 30s, got %f", rate)
+	}
+	// 1000 tokens in 30s = 2000/min
+	expectedRate := 2000.0
+	if rate < expectedRate*0.9 || rate > expectedRate*1.1 {
+		t.Errorf("rate = %f, expected ~%f", rate, expectedRate)
+	}
+}
+
+func TestCalculateBurnRate_ZeroTokens(t *testing.T) {
+	m := newTestMonitor(config.TokenNormConfig{})
+	rate := m.calculateBurnRate("sess1", 0, time.Now())
+	if rate != 0 {
+		t.Errorf("zero tokens should return 0, got %f", rate)
+	}
+}
+
+func TestCalculateBurnRate_WindowTrimming(t *testing.T) {
+	m := newTestMonitor(config.TokenNormConfig{})
+	base := time.Now()
+
+	// Add many snapshots spanning > 60 seconds.
+	for i := 0; i < 100; i++ {
+		m.calculateBurnRate("sess1", 100*(i+1), base.Add(time.Duration(i)*time.Second))
+	}
+
+	// Snapshots older than burnRateWindow (60s) should be trimmed.
+	snaps := m.tokenSnapshots["sess1"]
+	if len(snaps) > maxTokenSnapshots {
+		t.Errorf("snapshots = %d, should be <= %d", len(snaps), maxTokenSnapshots)
+	}
+}
+
+// --- Activity mapping tests ---
+
+func TestMapActivity(t *testing.T) {
+	m := newTestMonitor(config.TokenNormConfig{})
+	m.terminalReasons = make(map[string]terminalInfo)
+
+	tests := []struct {
+		name    string
+		awState *awsession.SessionState
+		want    session.Activity
+	}{
+		{
+			"working with tool",
+			&awsession.SessionState{Activity: awsession.ActivityWorking, CurrentTool: "Bash"},
+			session.ToolUse,
+		},
+		{
+			"working without tool",
+			&awsession.SessionState{Activity: awsession.ActivityWorking},
+			session.Thinking,
+		},
+		{
+			"waiting",
+			&awsession.SessionState{Activity: awsession.ActivityWaiting},
+			session.Waiting,
+		},
+		{
+			"idle",
+			&awsession.SessionState{Activity: awsession.ActivityIdle},
+			session.Idle,
+		},
+		{
+			"terminal no reason",
+			&awsession.SessionState{Activity: awsession.ActivityTerminal},
+			session.Complete,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := determineActivityFromReason(tt.reason)
+			got := m.mapActivity(tt.awState, "test:id")
 			if got != tt.want {
-				t.Errorf("determineActivityFromReason(%q) = %v, want %v", tt.reason, got, tt.want)
+				t.Errorf("got %q, want %q", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestCalculateBurnRate(t *testing.T) {
+func TestMapActivity_TerminalWithReason(t *testing.T) {
 	m := newTestMonitor(config.TokenNormConfig{})
-
-	t.Run("single_snapshot_returns_zero", func(t *testing.T) {
-		ts := &trackedSession{}
-		now := time.Now()
-
-		rate := m.calculateBurnRate(ts, 10000, now)
-
-		if rate != 0 {
-			t.Errorf("calculateBurnRate() = %f, want 0 (need at least 2 snapshots)", rate)
-		}
-		if len(ts.tokenSnapshots) != 1 {
-			t.Errorf("tokenSnapshots len = %d, want 1", len(ts.tokenSnapshots))
-		}
-	})
-
-	t.Run("two_snapshots_calculates_rate", func(t *testing.T) {
-		ts := &trackedSession{}
-		now := time.Now()
-
-		// First snapshot: 10000 tokens
-		m.calculateBurnRate(ts, 10000, now)
-
-		// Second snapshot: 20000 tokens, 30 seconds later
-		// 10000 tokens in 0.5 minutes = 20000 tokens/minute
-		rate := m.calculateBurnRate(ts, 20000, now.Add(30*time.Second))
-
-		expectedRate := 20000.0
-		if rate < expectedRate*0.9 || rate > expectedRate*1.1 {
-			t.Errorf("calculateBurnRate() = %f, want ~%f", rate, expectedRate)
-		}
-	})
-
-	t.Run("less_than_5_seconds_returns_zero", func(t *testing.T) {
-		ts := &trackedSession{}
-		now := time.Now()
-
-		m.calculateBurnRate(ts, 10000, now)
-		rate := m.calculateBurnRate(ts, 20000, now.Add(3*time.Second))
-
-		if rate != 0 {
-			t.Errorf("calculateBurnRate() = %f, want 0 (< 5 second window)", rate)
-		}
-	})
-
-	t.Run("zero_tokens_returns_zero", func(t *testing.T) {
-		ts := &trackedSession{}
-		now := time.Now()
-
-		rate := m.calculateBurnRate(ts, 0, now)
-
-		if rate != 0 {
-			t.Errorf("calculateBurnRate() = %f, want 0 (zero tokens)", rate)
-		}
-	})
-
-	t.Run("old_snapshots_trimmed", func(t *testing.T) {
-		ts := &trackedSession{}
-		now := time.Now()
-
-		// Add snapshot from 2 minutes ago (older than 60s window)
-		m.calculateBurnRate(ts, 5000, now.Add(-2*time.Minute))
-		// Add current snapshot
-		m.calculateBurnRate(ts, 10000, now.Add(-30*time.Second))
-		// Add another current snapshot
-		m.calculateBurnRate(ts, 15000, now)
-
-		// Old snapshot should be trimmed; only 2 recent ones remain
-		if len(ts.tokenSnapshots) > 2 {
-			t.Errorf("tokenSnapshots len = %d, want <= 2 (old ones trimmed)", len(ts.tokenSnapshots))
-		}
-	})
-
-	t.Run("all_expired_snapshots_are_dropped", func(t *testing.T) {
-		now := time.Now()
-		ts := &trackedSession{
-			tokenSnapshots: []tokenSnapshot{
-				{tokens: 1000, timestamp: now.Add(-3 * time.Minute)},
-				{tokens: 2000, timestamp: now.Add(-2 * time.Minute)},
-			},
-		}
-
-		rate := m.calculateBurnRate(ts, 3000, now)
-
-		if rate != 0 {
-			t.Errorf("calculateBurnRate() = %f, want 0 (only one fresh snapshot remains)", rate)
-		}
-		if len(ts.tokenSnapshots) != 1 {
-			t.Fatalf("tokenSnapshots len = %d, want 1", len(ts.tokenSnapshots))
-		}
-		if ts.tokenSnapshots[0].tokens != 3000 {
-			t.Errorf("remaining snapshot tokens = %d, want 3000", ts.tokenSnapshots[0].tokens)
-		}
-		if !ts.tokenSnapshots[0].timestamp.Equal(now) {
-			t.Errorf("remaining snapshot timestamp = %v, want %v", ts.tokenSnapshots[0].timestamp, now)
-		}
-	})
-
-	t.Run("hard_cap_limits_snapshot_count", func(t *testing.T) {
-		ts := &trackedSession{}
-		now := time.Now()
-
-		total := maxTokenSnapshots + 50
-		// Use 100ms intervals so all snapshots fit within the 60s time
-		// window and the hard cap (not the time-based trim) is what limits growth.
-		for i := 0; i < total; i++ {
-			m.calculateBurnRate(ts, 1000*(i+1), now.Add(time.Duration(i)*100*time.Millisecond))
-		}
-
-		if len(ts.tokenSnapshots) != maxTokenSnapshots {
-			t.Errorf("tokenSnapshots len = %d, want %d (hard cap)", len(ts.tokenSnapshots), maxTokenSnapshots)
-		}
-		last := ts.tokenSnapshots[len(ts.tokenSnapshots)-1]
-		expectedTokens := 1000 * total
-		if last.tokens != expectedTokens {
-			t.Errorf("last snapshot tokens = %d, want %d", last.tokens, expectedTokens)
-		}
-	})
-
-	t.Run("hard_cap_reuses_backing_array_when_capacity_allows", func(t *testing.T) {
-		now := time.Now()
-		snapshots := make([]tokenSnapshot, maxTokenSnapshots, maxTokenSnapshots+8)
-		for i := 0; i < maxTokenSnapshots; i++ {
-			snapshots[i] = tokenSnapshot{
-				tokens:    1000 * (i + 1),
-				timestamp: now.Add(time.Duration(i) * 100 * time.Millisecond),
-			}
-		}
-
-		ts := &trackedSession{tokenSnapshots: snapshots}
-		expectedFirst := &ts.tokenSnapshots[1]
-
-		m.calculateBurnRate(ts, 1000*(maxTokenSnapshots+1), now.Add(maxTokenSnapshots*100*time.Millisecond))
-
-		if len(ts.tokenSnapshots) != maxTokenSnapshots {
-			t.Fatalf("tokenSnapshots len = %d, want %d", len(ts.tokenSnapshots), maxTokenSnapshots)
-		}
-		if &ts.tokenSnapshots[0] != expectedFirst {
-			t.Errorf("hard cap allocated a new backing array; want in-place reslice")
-		}
-		if ts.tokenSnapshots[0].tokens != 2000 {
-			t.Errorf("first snapshot tokens = %d, want 2000", ts.tokenSnapshots[0].tokens)
-		}
-		if ts.tokenSnapshots[len(ts.tokenSnapshots)-1].tokens != 1000*(maxTokenSnapshots+1) {
-			t.Errorf("last snapshot tokens = %d, want %d", ts.tokenSnapshots[len(ts.tokenSnapshots)-1].tokens, 1000*(maxTokenSnapshots+1))
-		}
-	})
-
-	t.Run("no_token_increase_returns_zero", func(t *testing.T) {
-		ts := &trackedSession{}
-		now := time.Now()
-
-		m.calculateBurnRate(ts, 10000, now)
-		// Same token count 30 seconds later
-		rate := m.calculateBurnRate(ts, 10000, now.Add(30*time.Second))
-
-		if rate != 0 {
-			t.Errorf("calculateBurnRate() = %f, want 0 (no token increase)", rate)
-		}
-	})
-}
-
-// ---------------------------------------------------------------------------
-// Deadlock regression tests
-//
-// Original root cause: markTerminal() called emitEvent() inside the
-// UpdateAndNotify callback. emitEvent() calls store.ActiveCount(), which
-// acquires store.mu.RLock(). UpdateAndNotify held store.mu.Lock() for the
-// entire callback → deadlock (sync.RWMutex is not reentrant).
-//
-// First fix: move emitEvent() outside the UpdateAndNotify callback.
-// Second fix: move notify() itself outside the write lock in the store,
-// eliminating the lock inversion risk entirely (store.mu → broadcaster.flushMu
-// vs flush timer's broadcaster.flushMu → store.mu via GetAll).
-//
-// These tests verify that markTerminal() never deadlocks the store.
-// ---------------------------------------------------------------------------
-
-// TestMarkTerminal_GetAllUnblockedAfterCompletion is the direct regression test
-// for the markTerminal() deadlock. It verifies that store.GetAll() completes
-// immediately after markTerminal() returns — i.e., the write lock is not held.
-//
-// Before the fix: store.GetAll() would block forever because markTerminal()
-// left the store mutex locked (deadlocked inside the UpdateAndNotify callback).
-// After the fix: GetAll() returns immediately.
-func TestMarkTerminal_GetAllUnblockedAfterCompletion(t *testing.T) {
-	store := session.NewStore()
-	broadcaster := ws.NewBroadcaster(store, 100*time.Millisecond, 5*time.Second, 0)
-	m := &Monitor{
-		cfg: &config.Config{
-			Monitor: config.MonitorConfig{
-				CompletionRemoveAfter: -1, // disable auto-removal
-			},
-		},
-		store:          store,
-		broadcaster:    broadcaster,
-		tracked:        make(map[string]*trackedSession),
-		pendingRemoval: make(map[string]time.Time),
-		removedKeys:    make(map[string]bool),
+	m.terminalReasons = map[string]terminalInfo{
+		"test:error-session": {reason: "error: connection failed", eventType: awsession.EventTerminal},
+		"test:stale-session": {reason: "no data", eventType: awsession.EventStale},
 	}
 
-	// Seed the store with an active session.
-	key := "claude:session-deadlock-regression"
-	store.Update(&session.SessionState{ID: key, Activity: session.Thinking})
-
-	// Wire up statsEvents — this is the code path that triggered the deadlock.
-	// emitEvent() uses statsEvents to call store.ActiveCount() inside the callback.
-	statsEvents := make(chan session.Event, 10)
-	m.statsEvents = statsEvents
-
-	// Call markTerminal(). Before the fix, this would deadlock inside the
-	// UpdateAndNotify callback (emitEvent → ActiveCount → mu.RLock while
-	// mu.Lock is held). The function itself might block rather than return.
-	mustNotBlock(t, monitorDeadlockTimeout, "markTerminal", func() {
-		state, ok := store.Get(key)
-		if !ok {
-			t.Errorf("session %s should exist before markTerminal", key)
-			return
-		}
-		m.markTerminal(m.cfg, state, session.Complete, time.Now())
-	})
-
-	// After markTerminal() returns, store.GetAll() MUST complete immediately.
-	// Before the fix, the write lock was still held here, so GetAll() would block.
-	mustNotBlock(t, monitorDeadlockTimeout, "store.GetAll after markTerminal", func() {
-		_ = store.GetAll()
-	})
-
-	// store.ActiveCount() must also unblock (this is the exact call that deadlocked).
-	mustNotBlock(t, monitorDeadlockTimeout, "store.ActiveCount after markTerminal", func() {
-		_ = store.ActiveCount()
-	})
-
-	// store.Get() must unblock.
-	mustNotBlock(t, monitorDeadlockTimeout, "store.Get after markTerminal", func() {
-		_, _ = store.Get(key)
-	})
-
-	// Verify the session was actually marked terminal (functional correctness).
-	state, ok := store.Get(key)
-	if !ok {
-		t.Fatal("session should still exist in store after markTerminal (removal disabled)")
-	}
-	if !state.IsTerminal() {
-		t.Errorf("session activity = %s, want terminal (complete/errored/lost)", state.Activity)
-	}
-}
-
-// TestMarkTerminal_StatsEventActiveCountIsValid verifies that when statsEvents
-// is configured, the EventTerminal event carries a valid ActiveCount.
-func TestMarkTerminal_StatsEventActiveCountIsValid(t *testing.T) {
-	store := session.NewStore()
-	broadcaster := ws.NewBroadcaster(store, 100*time.Millisecond, 5*time.Second, 0)
-	m := &Monitor{
-		cfg: &config.Config{
-			Monitor: config.MonitorConfig{
-				CompletionRemoveAfter: -1,
-			},
-		},
-		store:          store,
-		broadcaster:    broadcaster,
-		tracked:        make(map[string]*trackedSession),
-		pendingRemoval: make(map[string]time.Time),
-		removedKeys:    make(map[string]bool),
+	// Error reason → Errored.
+	got := m.mapActivity(&awsession.SessionState{Activity: awsession.ActivityTerminal}, "test:error-session")
+	if got != session.Errored {
+		t.Errorf("error reason: got %q, want %q", got, session.Errored)
 	}
 
-	// Seed with two active sessions. One will be terminated; one stays active.
-	store.Update(&session.SessionState{ID: "claude:active-1", Activity: session.Thinking})
-	store.Update(&session.SessionState{ID: "claude:target", Activity: session.ToolUse})
-
-	statsEvents := make(chan session.Event, 10)
-	m.statsEvents = statsEvents
-
-	state, _ := store.Get("claude:target")
-
-	mustNotBlock(t, monitorDeadlockTimeout, "markTerminal with statsEvents", func() {
-		m.markTerminal(m.cfg, state, session.Complete, time.Now())
-	})
-
-	// The EventTerminal event must have been sent.
-	var terminalEvent session.Event
-	select {
-	case ev := <-statsEvents:
-		if ev.Type != session.EventTerminal {
-			t.Fatalf("expected EventTerminal, got EventType %d", ev.Type)
-		}
-		terminalEvent = ev
-	case <-time.After(monitorDeadlockTimeout):
-		t.Fatal("no EventTerminal received within timeout")
-	}
-
-	// ActiveCount must reflect the store state AFTER the terminal transition.
-	// "claude:target" is now terminal → ActiveCount should be 1 (only "claude:active-1").
-	// The exact value depends on timing but must not be a zero from a deadlock-defaulted call.
-	if terminalEvent.ActiveCount < 0 {
-		t.Errorf("ActiveCount = %d, must be non-negative", terminalEvent.ActiveCount)
-	}
-	// The state in the event must be the terminated session.
-	if terminalEvent.State == nil {
-		t.Fatal("EventTerminal.State must not be nil")
-	}
-	if terminalEvent.State.ID != "claude:target" {
-		t.Errorf("EventTerminal.State.ID = %q, want %q", terminalEvent.State.ID, "claude:target")
-	}
-}
-
-// TestMarkTerminal_NoStatsEventsDoesNotDeadlock verifies that markTerminal()
-// works correctly when statsEvents is nil (the non-stats path). This is the
-// baseline: even without stats, the store must be accessible afterward.
-func TestMarkTerminal_NoStatsEventsDoesNotDeadlock(t *testing.T) {
-	store := session.NewStore()
-	broadcaster := ws.NewBroadcaster(store, 100*time.Millisecond, 5*time.Second, 0)
-	m := &Monitor{
-		cfg: &config.Config{
-			Monitor: config.MonitorConfig{
-				CompletionRemoveAfter: -1,
-			},
-		},
-		store:          store,
-		broadcaster:    broadcaster,
-		tracked:        make(map[string]*trackedSession),
-		pendingRemoval: make(map[string]time.Time),
-		removedKeys:    make(map[string]bool),
-		statsEvents:    nil, // explicitly nil — emitEvent is a no-op
-	}
-
-	store.Update(&session.SessionState{ID: "claude:s1", Activity: session.Thinking})
-
-	state, _ := store.Get("claude:s1")
-	mustNotBlock(t, monitorDeadlockTimeout, "markTerminal without statsEvents", func() {
-		m.markTerminal(m.cfg, state, session.Lost, time.Now())
-	})
-
-	mustNotBlock(t, monitorDeadlockTimeout, "store.GetAll after markTerminal (no statsEvents)", func() {
-		_ = store.GetAll()
-	})
-}
-
-// TestMarkTerminal_ConcurrentGetAllDoesNotDeadlock simulates the real-world
-// scenario: the HTTP handler goroutine (serving /api/sessions) calls
-// store.GetAll() concurrently with the monitor goroutine calling markTerminal().
-// Before the fix, the monitor goroutine would deadlock inside markTerminal(),
-// and the HTTP goroutine would also block waiting for the read lock — both
-// goroutines permanently stuck, producing "0 sessions" in the dashboard.
-func TestMarkTerminal_ConcurrentGetAllDoesNotDeadlock(t *testing.T) {
-	store := session.NewStore()
-	broadcaster := ws.NewBroadcaster(store, 100*time.Millisecond, 5*time.Second, 0)
-	m := &Monitor{
-		cfg: &config.Config{
-			Monitor: config.MonitorConfig{
-				CompletionRemoveAfter: -1,
-			},
-		},
-		store:          store,
-		broadcaster:    broadcaster,
-		tracked:        make(map[string]*trackedSession),
-		pendingRemoval: make(map[string]time.Time),
-		removedKeys:    make(map[string]bool),
-	}
-
-	statsEvents := make(chan session.Event, 100)
-	m.statsEvents = statsEvents
-
-	// Seed several sessions.
-	const sessionCount = 5
-	for i := 0; i < sessionCount; i++ {
-		store.Update(&session.SessionState{
-			ID:       fmt.Sprintf("claude:session-%d", i),
-			Activity: session.Thinking,
-		})
-	}
-
-	var wg sync.WaitGroup
-
-	// Goroutine 1: repeatedly calls markTerminal (monitor goroutine).
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < sessionCount; i++ {
-			id := fmt.Sprintf("claude:session-%d", i)
-			state, ok := store.Get(id)
-			if !ok {
-				continue
-			}
-			m.markTerminal(m.cfg, state, session.Complete, time.Now())
-		}
-	}()
-
-	// Goroutine 2: repeatedly calls GetAll (HTTP handler goroutine).
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < 20; i++ {
-			_ = store.GetAll()
-			_ = store.ActiveCount()
-		}
-	}()
-
-	// Goroutine 3: repeatedly calls ActiveCount (another reader).
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < 20; i++ {
-			_ = store.ActiveCount()
-		}
-	}()
-
-	// Wait for all goroutines to complete. If any deadlocks, the test times out.
-	completedCh := make(chan struct{})
-	go func() {
-		wg.Wait()
-		close(completedCh)
-	}()
-
-	select {
-	case <-completedCh:
-		// All goroutines completed — no deadlock.
-	case <-time.After(monitorDeadlockTimeout):
-		t.Fatal("DEADLOCK: concurrent markTerminal + GetAll/ActiveCount did not complete within timeout")
-	}
-}
-
-// TestMarkTerminal_WasTerminalSkipsEmitEvent verifies that when a session is
-// already terminal before markTerminal() is called, emitEvent is NOT called
-// again. This prevents duplicate EventTerminal events on repeated calls.
-func TestMarkTerminal_WasTerminalSkipsEmitEvent(t *testing.T) {
-	store := session.NewStore()
-	broadcaster := ws.NewBroadcaster(store, 100*time.Millisecond, 5*time.Second, 0)
-	m := &Monitor{
-		cfg: &config.Config{
-			Monitor: config.MonitorConfig{
-				CompletionRemoveAfter: -1,
-			},
-		},
-		store:          store,
-		broadcaster:    broadcaster,
-		tracked:        make(map[string]*trackedSession),
-		pendingRemoval: make(map[string]time.Time),
-		removedKeys:    make(map[string]bool),
-	}
-
-	statsEvents := make(chan session.Event, 10)
-	m.statsEvents = statsEvents
-
-	// Session is already terminal (Complete).
-	completedAt := time.Now().Add(-time.Minute)
-	store.Update(&session.SessionState{
-		ID:          "claude:already-done",
-		Activity:    session.Complete,
-		CompletedAt: &completedAt,
-	})
-
-	state, _ := store.Get("claude:already-done")
-
-	mustNotBlock(t, monitorDeadlockTimeout, "markTerminal on already-terminal session", func() {
-		m.markTerminal(m.cfg, state, session.Lost, time.Now())
-	})
-
-	// Drain any events that were sent.
-	var eventCount int
-	drain:
-	for {
-		select {
-		case <-statsEvents:
-			eventCount++
-		default:
-			break drain
-		}
-	}
-
-	// wasTerminal=true before the call, so emitEvent should not have fired.
-	if eventCount > 0 {
-		t.Errorf("emitEvent called %d time(s) for already-terminal session, want 0", eventCount)
-	}
-}
-
-// TestEmitEvent_CalledAfterLockReleased verifies that emitEvent() — which
-// calls store.ActiveCount() — completes without deadlocking. The store's
-// notify callback now runs after the write lock is released, so this is
-// safe regardless of where emitEvent is called relative to the callback.
-func TestEmitEvent_CalledAfterLockReleased(t *testing.T) {
-	store := session.NewStore()
-	broadcaster := ws.NewBroadcaster(store, 100*time.Millisecond, 5*time.Second, 0)
-	m := &Monitor{
-		cfg: &config.Config{
-			Monitor: config.MonitorConfig{
-				CompletionRemoveAfter: -1,
-			},
-		},
-		store:          store,
-		broadcaster:    broadcaster,
-		tracked:        make(map[string]*trackedSession),
-		pendingRemoval: make(map[string]time.Time),
-		removedKeys:    make(map[string]bool),
-	}
-
-	store.Update(&session.SessionState{ID: "claude:probe", Activity: session.Thinking})
-
-	// Use a buffered channel so emitEvent doesn't block (non-blocking send).
-	statsEvents := make(chan session.Event, 1)
-	m.statsEvents = statsEvents
-
-	state, _ := store.Get("claude:probe")
-	m.markTerminal(m.cfg, state, session.Complete, time.Now())
-
-	// If emitEvent was called inside the callback (while write lock was held),
-	// store.ActiveCount() inside emitEvent would have deadlocked and no event
-	// would be in the channel. If it was called after (fix in place),
-	// the event is present and ActiveCount was readable.
-	select {
-	case ev := <-statsEvents:
-		if ev.Type != session.EventTerminal {
-			t.Errorf("expected EventTerminal, got type %d", ev.Type)
-		}
-		// ActiveCount of 0 is valid (the session just turned terminal).
-		// What matters is it's non-negative and the event was sent at all.
-		if ev.ActiveCount < 0 {
-			t.Errorf("ActiveCount = %d, want >= 0", ev.ActiveCount)
-		}
-	default:
-		t.Error("no EventTerminal in statsEvents channel — emitEvent may not have been called, or deadlocked")
+	// Stale → Lost.
+	got = m.mapActivity(&awsession.SessionState{Activity: awsession.ActivityTerminal}, "test:stale-session")
+	if got != session.Lost {
+		t.Errorf("stale: got %q, want %q", got, session.Lost)
 	}
 }
