@@ -3,8 +3,10 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestTokenStrategy(t *testing.T) {
@@ -888,6 +890,98 @@ func TestServerConfigTLSEnabled(t *testing.T) {
 			sc := ServerConfig{TLSCert: tt.cert, TLSKey: tt.key}
 			if got := sc.TLSEnabled(); got != tt.want {
 				t.Errorf("TLSEnabled() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestMonitorOptions(t *testing.T) {
+	t.Run("default config yields four options", func(t *testing.T) {
+		m := defaultConfig().Monitor
+		opts := m.MonitorOptions()
+		// PollInterval > 0, SessionStaleAfter >= 0, CompletionRemoveAfter >= 0, HealthWarningThreshold > 0
+		if len(opts) != 4 {
+			t.Errorf("expected 4 options, got %d", len(opts))
+		}
+	})
+
+	t.Run("zero HealthWarningThreshold omits health option", func(t *testing.T) {
+		m := defaultConfig().Monitor
+		m.HealthWarningThreshold = 0
+		opts := m.MonitorOptions()
+		// Only PollInterval, StaleThreshold, CompletionRetention
+		if len(opts) != 3 {
+			t.Errorf("expected 3 options (no health threshold), got %d", len(opts))
+		}
+	})
+
+	t.Run("zero SessionStaleAfter still produces stale option", func(t *testing.T) {
+		m := defaultConfig().Monitor
+		m.SessionStaleAfter = 0
+		opts := m.MonitorOptions()
+		// 0 means disabled — still propagated (4 options total)
+		if len(opts) != 4 {
+			t.Errorf("expected 4 options (zero stale threshold passes through), got %d", len(opts))
+		}
+	})
+
+	t.Run("negative CompletionRemoveAfter omits retention option", func(t *testing.T) {
+		m := defaultConfig().Monitor
+		m.CompletionRemoveAfter = -1
+		opts := m.MonitorOptions()
+		// PollInterval, StaleThreshold, HealthThreshold (CompletionRetention omitted)
+		if len(opts) != 3 {
+			t.Errorf("expected 3 options (no completion retention), got %d", len(opts))
+		}
+	})
+
+	t.Run("zero PollInterval omits poll option", func(t *testing.T) {
+		m := MonitorConfig{
+			SessionStaleAfter:      2 * time.Minute,
+			CompletionRemoveAfter:  5 * time.Minute,
+			HealthWarningThreshold: 3,
+		}
+		opts := m.MonitorOptions()
+		// PollInterval == 0 is omitted; others remain
+		if len(opts) != 3 {
+			t.Errorf("expected 3 options (no poll interval), got %d", len(opts))
+		}
+	})
+}
+
+func TestSourcesConfigEnabledNames(t *testing.T) {
+	tests := []struct {
+		name   string
+		cfg    SourcesConfig
+		want   []string
+	}{
+		{
+			name: "all disabled",
+			cfg:  SourcesConfig{Claude: false, Codex: false, Gemini: false},
+			want: nil,
+		},
+		{
+			name: "claude only (default)",
+			cfg:  SourcesConfig{Claude: true, Codex: false, Gemini: false},
+			want: []string{"claude"},
+		},
+		{
+			name: "all enabled",
+			cfg:  SourcesConfig{Claude: true, Codex: true, Gemini: true},
+			want: []string{"claude", "codex", "gemini"},
+		},
+		{
+			name: "codex and gemini only",
+			cfg:  SourcesConfig{Claude: false, Codex: true, Gemini: true},
+			want: []string{"codex", "gemini"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.cfg.EnabledNames()
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("EnabledNames() = %v, want %v", got, tt.want)
 			}
 		})
 	}
