@@ -360,8 +360,8 @@ func TestMergeSubagentsAppendsNew(t *testing.T) {
 	if sub.CurrentTool != "Edit" {
 		t.Errorf("CurrentTool = %s, want Edit", sub.CurrentTool)
 	}
-	if got, want := sub.TokensUsed, 100+50+400; got != want {
-		t.Errorf("TokensUsed = %d, want %d", got, want)
+	if got, want := sub.ContextTokens, 100+50+400; got != want {
+		t.Errorf("ContextTokens = %d, want %d", got, want)
 	}
 	if sub.MessageCount != 3 {
 		t.Errorf("MessageCount = %d, want 3", sub.MessageCount)
@@ -394,7 +394,7 @@ func TestMergeSubagentsUpdatesExisting(t *testing.T) {
 				Model:           "claude-opus-4-5-20251101",
 				Activity:        session.Thinking,
 				CurrentTool:     "Read",
-				TokensUsed:      500,
+				ContextTokens:      500,
 				MessageCount:    2,
 				ToolCallCount:   1,
 				StartedAt:       ts,
@@ -443,8 +443,8 @@ func TestMergeSubagentsUpdatesExisting(t *testing.T) {
 	if sub.CurrentTool != "Bash" {
 		t.Errorf("CurrentTool = %s, want Bash", sub.CurrentTool)
 	}
-	if got, want := sub.TokensUsed, 1200; got != want {
-		t.Errorf("TokensUsed = %d, want %d (max of old=500 and new=1200)", got, want)
+	if got, want := sub.ContextTokens, 1200; got != want {
+		t.Errorf("ContextTokens = %d, want %d (max of old=500 and new=1200)", got, want)
 	}
 	if got, want := sub.MessageCount, 2+4; got != want {
 		t.Errorf("MessageCount = %d, want %d (accumulated)", got, want)
@@ -524,8 +524,8 @@ func TestMergeSubagentsNilUsageKeepsZeroTokens(t *testing.T) {
 	if len(state.Subagents) != 1 {
 		t.Fatalf("expected 1 subagent, got %d", len(state.Subagents))
 	}
-	if state.Subagents[0].TokensUsed != 0 {
-		t.Errorf("TokensUsed = %d, want 0 (nil usage)", state.Subagents[0].TokensUsed)
+	if state.Subagents[0].ContextTokens != 0 {
+		t.Errorf("ContextTokens = %d, want 0 (nil usage)", state.Subagents[0].ContextTokens)
 	}
 }
 

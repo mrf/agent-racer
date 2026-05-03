@@ -161,8 +161,8 @@ func TestAdvanceMock_EarlyTicksAreStarting(t *testing.T) {
 			t.Errorf("tick %d: Activity = %v, want Starting", tick, ms.state.Activity)
 		}
 	}
-	if ms.state.TokensUsed != 1000 {
-		t.Errorf("after 2 early ticks: TokensUsed = %d, want 1000 (500 per tick)", ms.state.TokensUsed)
+	if ms.state.ContextTokens != 1000 {
+		t.Errorf("after 2 early ticks: ContextTokens = %d, want 1000 (500 per tick)", ms.state.ContextTokens)
 	}
 }
 
@@ -203,9 +203,9 @@ func TestAdvanceSteady_TokensGrow(t *testing.T) {
 	gen := newTestGen()
 	ms := newTestMS("steady", 1000, 100000)
 
-	before := ms.state.TokensUsed
+	before := ms.state.ContextTokens
 	gen.advanceSteady(ms, 5)
-	after := ms.state.TokensUsed
+	after := ms.state.ContextTokens
 
 	delta := after - before
 	// tokensPerTick=1000, jitter in [-200,+200), so delta in [800, 1200).
@@ -243,18 +243,18 @@ func TestAdvanceSteady_CompletesAtMaxTokens(t *testing.T) {
 	ms := newTestMS("steady", 1000, 2000)
 
 	// Push tokens close to max so next advance completes.
-	ms.state.TokensUsed = 1900
+	ms.state.ContextTokens = 1900
 
 	gen.advanceSteady(ms, 5)
 
 	if !ms.completed {
-		t.Fatal("session not completed when TokensUsed >= maxTokens")
+		t.Fatal("session not completed when ContextTokens >= maxTokens")
 	}
 	if ms.state.Activity != session.Complete {
 		t.Errorf("Activity = %v, want Complete", ms.state.Activity)
 	}
-	if ms.state.TokensUsed != ms.maxTokens {
-		t.Errorf("TokensUsed = %d, want capped at %d", ms.state.TokensUsed, ms.maxTokens)
+	if ms.state.ContextTokens != ms.maxTokens {
+		t.Errorf("ContextTokens = %d, want capped at %d", ms.state.ContextTokens, ms.maxTokens)
 	}
 	if ms.state.CompletedAt == nil {
 		t.Error("CompletedAt is nil after completion")
@@ -304,12 +304,12 @@ func TestAdvanceBurst_BurstPhasesHaveHigherGrowth(t *testing.T) {
 	// Burst phase: tick%8 < 3 → multiplier 2.5x.
 	msBurst := newTestMS("burst", 1000, 200000)
 	gen.advanceBurst(msBurst, 0) // 0%8=0, burst
-	burstDelta := msBurst.state.TokensUsed
+	burstDelta := msBurst.state.ContextTokens
 
 	// Normal phase: tick%8 >= 3.
 	msNormal := newTestMS("burst", 1000, 200000)
 	gen.advanceBurst(msNormal, 3) // 3%8=3, normal
-	normalDelta := msNormal.state.TokensUsed
+	normalDelta := msNormal.state.ContextTokens
 
 	// Burst growth base is 2500 (+jitter 0-499), normal is 1000 (+jitter 0-499).
 	// Burst minimum (2500) should exceed normal maximum (1499).
@@ -337,15 +337,15 @@ func TestAdvanceBurst_ToolUseDuringBurst(t *testing.T) {
 func TestAdvanceBurst_CompletesAtMaxTokens(t *testing.T) {
 	gen := newTestGen()
 	ms := newTestMS("burst", 1000, 2000)
-	ms.state.TokensUsed = 1999
+	ms.state.ContextTokens = 1999
 
 	gen.advanceBurst(ms, 5)
 
 	if !ms.completed {
 		t.Fatal("burst session not completed at maxTokens")
 	}
-	if ms.state.TokensUsed != ms.maxTokens {
-		t.Errorf("TokensUsed = %d, want %d", ms.state.TokensUsed, ms.maxTokens)
+	if ms.state.ContextTokens != ms.maxTokens {
+		t.Errorf("ContextTokens = %d, want %d", ms.state.ContextTokens, ms.maxTokens)
 	}
 }
 
@@ -358,9 +358,9 @@ func TestAdvanceStall_WorkPhaseGrowsTokens(t *testing.T) {
 	ms := newTestMS("stall", 800, 120000)
 
 	// tick 5 → phase=5%70=5, in work phase (< 40).
-	before := ms.state.TokensUsed
+	before := ms.state.ContextTokens
 	gen.advanceStall(ms, 5)
-	if ms.state.TokensUsed <= before {
+	if ms.state.ContextTokens <= before {
 		t.Error("tokens did not grow during work phase")
 	}
 	if ms.state.Activity == session.Waiting {
@@ -375,13 +375,13 @@ func TestAdvanceStall_StallPhaseIsWaiting(t *testing.T) {
 	// Ticks at or past stallStart (40) should all be waiting.
 	stallTicks := []int{40, 50, 60, 69}
 	for _, tick := range stallTicks {
-		before := ms.state.TokensUsed
+		before := ms.state.ContextTokens
 		gen.advanceStall(ms, tick)
 		if ms.state.Activity != session.Waiting {
 			t.Errorf("tick %d (phase %d): Activity = %v, want Waiting", tick, tick%70, ms.state.Activity)
 		}
-		if ms.state.TokensUsed != before {
-			t.Errorf("tick %d: tokens changed during stall (%d → %d)", tick, before, ms.state.TokensUsed)
+		if ms.state.ContextTokens != before {
+			t.Errorf("tick %d: tokens changed during stall (%d → %d)", tick, before, ms.state.ContextTokens)
 		}
 	}
 }
@@ -406,7 +406,7 @@ func TestAdvanceStall_PermanentAfterStallStart(t *testing.T) {
 func TestAdvanceStall_CompletesAtMaxTokens(t *testing.T) {
 	gen := newTestGen()
 	ms := newTestMS("stall", 800, 2000)
-	ms.state.TokensUsed = 1999
+	ms.state.ContextTokens = 1999
 
 	gen.advanceStall(ms, 5) // work phase
 
@@ -424,10 +424,10 @@ func TestAdvanceError_GrowsTokensBeforeThreshold(t *testing.T) {
 	ms := newTestMS("error", 1800, 200000)
 	ms.errorAt = 0.6
 
-	before := ms.state.TokensUsed
+	before := ms.state.ContextTokens
 	gen.advanceError(ms, 5)
 
-	if ms.state.TokensUsed <= before {
+	if ms.state.ContextTokens <= before {
 		t.Error("tokens did not grow before error threshold")
 	}
 	if ms.completed {
@@ -443,7 +443,7 @@ func TestAdvanceError_ErrorsAtThreshold(t *testing.T) {
 	// Set utilization just below threshold, then advance to cross it.
 	// With maxContext=200000 and errorAt=0.6, threshold is 120000 tokens.
 	// tokensPerTick=1800 + jitter up to 400 → max ~2200 per tick.
-	ms.state.TokensUsed = 119000
+	ms.state.ContextTokens = 119000
 	ms.state.UpdateUtilization()
 
 	gen.advanceError(ms, 5)
@@ -483,9 +483,9 @@ func TestAdvanceMethodical_TokensGrow(t *testing.T) {
 	gen := newTestGen()
 	ms := newTestMS("methodical", 600, 160000)
 
-	before := ms.state.TokensUsed
+	before := ms.state.ContextTokens
 	gen.advanceMethodical(ms, 5)
-	if ms.state.TokensUsed <= before {
+	if ms.state.ContextTokens <= before {
 		t.Error("tokens did not grow for methodical pattern")
 	}
 }
@@ -523,11 +523,11 @@ func TestAdvanceMethodical_SinusoidalPaceVariation(t *testing.T) {
 	// At tick≈0 sin(0)=0 → pace=0.7; at tick≈16 sin(1.6)≈1 → pace≈1.0.
 	msLow := newTestMS("methodical", 1000, 500000)
 	gen.advanceMethodical(msLow, 1) // sin(0.1)≈0.1 → pace≈0.73
-	lowGrowth := msLow.state.TokensUsed
+	lowGrowth := msLow.state.ContextTokens
 
 	msHigh := newTestMS("methodical", 1000, 500000)
 	gen.advanceMethodical(msHigh, 16) // sin(1.6)≈0.9996 → pace≈1.0
-	highGrowth := msHigh.state.TokensUsed
+	highGrowth := msHigh.state.ContextTokens
 
 	if highGrowth <= lowGrowth {
 		t.Errorf("high-pace growth (%d) <= low-pace growth (%d); sinusoidal variation not working", highGrowth, lowGrowth)
@@ -537,15 +537,15 @@ func TestAdvanceMethodical_SinusoidalPaceVariation(t *testing.T) {
 func TestAdvanceMethodical_CompletesAtMaxTokens(t *testing.T) {
 	gen := newTestGen()
 	ms := newTestMS("methodical", 1000, 2000)
-	ms.state.TokensUsed = 1500
+	ms.state.ContextTokens = 1500
 
 	gen.advanceMethodical(ms, 16) // pace≈1.0 → growth≈1000
 
 	if !ms.completed {
 		t.Fatal("methodical session not completed at maxTokens")
 	}
-	if ms.state.TokensUsed != ms.maxTokens {
-		t.Errorf("TokensUsed = %d, want %d", ms.state.TokensUsed, ms.maxTokens)
+	if ms.state.ContextTokens != ms.maxTokens {
+		t.Errorf("ContextTokens = %d, want %d", ms.state.ContextTokens, ms.maxTokens)
 	}
 }
 
@@ -682,13 +682,13 @@ func TestAdvanceSubagents_AlreadyCompletedSubagentIsSkipped(t *testing.T) {
 	gen.advanceSubagents(ms, 5) // spawn
 	gen.advanceSubagents(ms, 8) // complete
 
-	tokensAfterComplete := ms.state.Subagents[0].TokensUsed
+	tokensAfterComplete := ms.state.Subagents[0].ContextTokens
 
 	gen.advanceSubagents(ms, 9) // should skip
 
-	if ms.state.Subagents[0].TokensUsed != tokensAfterComplete {
+	if ms.state.Subagents[0].ContextTokens != tokensAfterComplete {
 		t.Errorf("tokens changed after completion: %d → %d",
-			tokensAfterComplete, ms.state.Subagents[0].TokensUsed)
+			tokensAfterComplete, ms.state.Subagents[0].ContextTokens)
 	}
 }
 
@@ -714,8 +714,8 @@ func TestAdvanceSubagents_TokensAndCountersIncrement(t *testing.T) {
 	gen.advanceSubagents(ms, 6) // first activity tick
 
 	sub := ms.state.Subagents[0]
-	if sub.TokensUsed <= 0 {
-		t.Error("TokensUsed should be > 0 after activity tick")
+	if sub.ContextTokens <= 0 {
+		t.Error("ContextTokens should be > 0 after activity tick")
 	}
 	if sub.MessageCount <= 0 {
 		t.Error("MessageCount should be > 0 after activity tick")
@@ -774,8 +774,8 @@ func TestAdvanceMock_DispatchesCorrectPattern(t *testing.T) {
 		gen.advanceMock(ms, 5)
 
 		// All patterns should have grown tokens and moved past Starting.
-		if ms.state.TokensUsed <= 1000 {
-			t.Errorf("pattern %q: TokensUsed = %d, want > 1000 after tick 5", p, ms.state.TokensUsed)
+		if ms.state.ContextTokens <= 1000 {
+			t.Errorf("pattern %q: ContextTokens = %d, want > 1000 after tick 5", p, ms.state.ContextTokens)
 		}
 		if ms.state.Activity == session.Starting {
 			t.Errorf("pattern %q: still Starting after tick 5", p)

@@ -2,54 +2,51 @@ package session
 
 import (
 	"encoding/json"
-	"reflect"
+	"fmt"
 	"time"
+
+	agwsession "github.com/mrf/agentwatch/session"
 )
 
-type Activity int
+// Activity represents what an agent session is currently doing.
+// It is a string type so unknown future values round-trip safely.
+type Activity string
 
 const (
-	Starting Activity = iota
-	Thinking
-	ToolUse
-	Waiting
-	Idle
-	Complete
-	Errored
-	Lost
+	Starting Activity = "starting"
+	Thinking Activity = "thinking"
+	ToolUse  Activity = "tool_use"
+	Waiting  Activity = "waiting"
+	Idle     Activity = "idle"
+	Complete Activity = "complete"
+	Errored  Activity = "errored"
+	Lost     Activity = "lost"
 )
 
-var activityNames = map[Activity]string{
-	Starting: "starting",
-	Thinking: "thinking",
-	ToolUse:  "tool_use",
-	Waiting:  "waiting",
-	Idle:     "idle",
-	Complete: "complete",
-	Errored:  "errored",
-	Lost:     "lost",
-}
-
-var activityFromName = map[string]Activity{
-	"starting": Starting,
-	"thinking": Thinking,
-	"tool_use": ToolUse,
-	"waiting":  Waiting,
-	"idle":     Idle,
-	"complete": Complete,
-	"errored":  Errored,
-	"lost":     Lost,
+// knownActivities is the set of activities this package recognises.
+// Unknown values are still accepted for forward-compatibility.
+var knownActivities = map[Activity]struct{}{
+	Starting: {},
+	Thinking: {},
+	ToolUse:  {},
+	Waiting:  {},
+	Idle:     {},
+	Complete: {},
+	Errored:  {},
+	Lost:     {},
 }
 
 func (a Activity) String() string {
-	if s, ok := activityNames[a]; ok {
-		return s
-	}
-	return "unknown"
+	return string(a)
 }
 
 func (a Activity) MarshalJSON() ([]byte, error) {
-	return json.Marshal(a.String())
+	// Zero value of the old int enum was Starting (iota = 0). Preserve that
+	// behaviour for code that creates SessionState without setting Activity.
+	if a == "" {
+		return json.Marshal(string(Starting))
+	}
+	return json.Marshal(string(a))
 }
 
 func (a *Activity) UnmarshalJSON(data []byte) error {
@@ -57,16 +54,21 @@ func (a *Activity) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &s); err != nil {
 		return err
 	}
-	v, ok := activityFromName[s]
-	if !ok {
-		return &json.UnmarshalTypeError{
-			Value: "string " + s,
-			Type:  reflect.TypeOf(*a),
-		}
+	v := Activity(s)
+	if _, ok := knownActivities[v]; !ok {
+		return fmt.Errorf("unknown Activity %q", s)
 	}
 	*a = v
 	return nil
 }
+
+// LifecycleState mirrors agentwatch's LifecycleState for session lifecycle tracking.
+type LifecycleState = agwsession.LifecycleState
+
+const (
+	LifecycleActive   = agwsession.LifecycleActive
+	LifecycleTerminal = agwsession.LifecycleTerminal
+)
 
 type SessionState struct {
 	ID                 string          `json:"id"`
@@ -74,7 +76,9 @@ type SessionState struct {
 	Slug               string          `json:"slug,omitempty"` // Internal session name (e.g. "mighty-cuddling-castle")
 	Source             string          `json:"source"`
 	Activity           Activity        `json:"activity"`
-	TokensUsed         int             `json:"tokensUsed"`
+	Lifecycle          LifecycleState  `json:"lifecycle,omitempty"`
+	ContextTokens      int             `json:"tokensUsed"` // JSON tag kept for wire-protocol compatibility
+	OutputTokens       int             `json:"outputTokens,omitempty"`
 	TokenEstimated     bool            `json:"tokenEstimated"`
 	MaxContextTokens   int             `json:"maxContextTokens"`
 	ContextUtilization float64         `json:"contextUtilization"`
@@ -112,7 +116,7 @@ type SubagentState struct {
 	Model           string     `json:"model"`
 	Activity        Activity   `json:"activity"`
 	CurrentTool     string     `json:"currentTool,omitempty"`
-	TokensUsed      int        `json:"tokensUsed"`
+	ContextTokens   int        `json:"tokensUsed"` // JSON tag kept for wire-protocol compatibility
 	MessageCount    int        `json:"messageCount"`
 	ToolCallCount   int        `json:"toolCallCount"`
 	StartedAt       time.Time  `json:"startedAt"`
@@ -149,7 +153,7 @@ func (s *SessionState) Clone() *SessionState {
 
 func (s *SessionState) UpdateUtilization() {
 	if s.MaxContextTokens > 0 {
-		s.ContextUtilization = float64(s.TokensUsed) / float64(s.MaxContextTokens)
+		s.ContextUtilization = float64(s.ContextTokens) / float64(s.MaxContextTokens)
 		if s.ContextUtilization > 1.0 {
 			s.ContextUtilization = 1.0
 		}
@@ -157,5 +161,8 @@ func (s *SessionState) UpdateUtilization() {
 }
 
 func (s *SessionState) IsTerminal() bool {
+	if s.Lifecycle == LifecycleTerminal {
+		return true
+	}
 	return s.Activity == Complete || s.Activity == Errored || s.Activity == Lost
 }

@@ -896,7 +896,7 @@ func TestStatsTracker_TokensBurned_UsesDelta(t *testing.T) {
 	for _, tokens := range []int{10_000, 25_000, 40_000} {
 		eventCh <- session.Event{
 			Type:        session.EventUpdate,
-			State:       &session.SessionState{ID: "s1", TokensUsed: tokens},
+			State:       &session.SessionState{ID: "s1", ContextTokens: tokens},
 			ActiveCount: 1,
 		}
 	}
@@ -928,24 +928,24 @@ func TestStatsTracker_TokensBurned_MultipleSessions(t *testing.T) {
 	// Session 1: two updates, cumulative 5k then 12k.
 	eventCh <- session.Event{
 		Type:        session.EventUpdate,
-		State:       &session.SessionState{ID: "s1", TokensUsed: 5_000},
+		State:       &session.SessionState{ID: "s1", ContextTokens: 5_000},
 		ActiveCount: 2,
 	}
 	eventCh <- session.Event{
 		Type:        session.EventUpdate,
-		State:       &session.SessionState{ID: "s1", TokensUsed: 12_000},
+		State:       &session.SessionState{ID: "s1", ContextTokens: 12_000},
 		ActiveCount: 2,
 	}
 
 	// Session 2: two updates, cumulative 8k then 20k.
 	eventCh <- session.Event{
 		Type:        session.EventUpdate,
-		State:       &session.SessionState{ID: "s2", TokensUsed: 8_000},
+		State:       &session.SessionState{ID: "s2", ContextTokens: 8_000},
 		ActiveCount: 2,
 	}
 	eventCh <- session.Event{
 		Type:        session.EventUpdate,
-		State:       &session.SessionState{ID: "s2", TokensUsed: 20_000},
+		State:       &session.SessionState{ID: "s2", ContextTokens: 20_000},
 		ActiveCount: 2,
 	}
 
@@ -1015,7 +1015,7 @@ func TestStatsTracker_EquipConcurrentWithProcessEvent(t *testing.T) {
 					ID:                 sid,
 					ContextUtilization: 0.6,
 					BurnRatePerMinute:  500.0,
-					TokensUsed:         10_000 * (i + 1),
+					ContextTokens:         10_000 * (i + 1),
 				},
 				ActiveCount: i + 1,
 			}
@@ -1136,7 +1136,7 @@ func TestStatsTracker_WeeklySnapshot_NotResetOnFirstTerminal(t *testing.T) {
 	// EventUpdate: tokens accumulated in snapshot.
 	eventCh <- session.Event{
 		Type:        session.EventUpdate,
-		State:       &session.SessionState{ID: "s1", TokensUsed: 10_000},
+		State:       &session.SessionState{ID: "s1", ContextTokens: 10_000},
 		ActiveCount: 1,
 	}
 	tracker.Flush()

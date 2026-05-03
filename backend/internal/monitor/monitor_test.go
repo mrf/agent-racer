@@ -541,8 +541,8 @@ func TestResolveTokensUsageWithRealData(t *testing.T) {
 
 	m.resolveTokens(m.cfg,state, update, 200000)
 
-	if state.TokensUsed != 50000 {
-		t.Errorf("TokensUsed = %d, want 50000", state.TokensUsed)
+	if state.ContextTokens != 50000 {
+		t.Errorf("ContextTokens = %d, want 50000", state.ContextTokens)
 	}
 	if state.TokenEstimated {
 		t.Error("TokenEstimated should be false for real data")
@@ -567,8 +567,8 @@ func TestResolveTokensUsageFallbackToEstimate(t *testing.T) {
 	m.resolveTokens(m.cfg,state, update, 272000)
 
 	expectedTokens := 10 * 2000
-	if state.TokensUsed != expectedTokens {
-		t.Errorf("TokensUsed = %d, want %d", state.TokensUsed, expectedTokens)
+	if state.ContextTokens != expectedTokens {
+		t.Errorf("ContextTokens = %d, want %d", state.ContextTokens, expectedTokens)
 	}
 	if !state.TokenEstimated {
 		t.Error("TokenEstimated should be true for fallback estimation")
@@ -585,7 +585,7 @@ func TestResolveTokensUsageTransitionEstimateToReal(t *testing.T) {
 	state := &session.SessionState{
 		Source:         "codex",
 		MessageCount:   10,
-		TokensUsed:     20000,
+		ContextTokens:     20000,
 		TokenEstimated: true,
 	}
 
@@ -593,8 +593,8 @@ func TestResolveTokensUsageTransitionEstimateToReal(t *testing.T) {
 	update := SourceUpdate{TokensIn: 15000}
 	m.resolveTokens(m.cfg,state, update, 272000)
 
-	if state.TokensUsed != 15000 {
-		t.Errorf("TokensUsed = %d, want 15000 (real data should replace estimate)", state.TokensUsed)
+	if state.ContextTokens != 15000 {
+		t.Errorf("ContextTokens = %d, want 15000 (real data should replace estimate)", state.ContextTokens)
 	}
 	if state.TokenEstimated {
 		t.Error("TokenEstimated should be false after real data arrives")
@@ -611,7 +611,7 @@ func TestResolveTokensUsageKeepsRealWhenNoNewData(t *testing.T) {
 	state := &session.SessionState{
 		Source:         "claude",
 		MessageCount:   20,
-		TokensUsed:     80000,
+		ContextTokens:     80000,
 		TokenEstimated: false,
 	}
 
@@ -619,8 +619,8 @@ func TestResolveTokensUsageKeepsRealWhenNoNewData(t *testing.T) {
 	update := SourceUpdate{TokensIn: 0}
 	m.resolveTokens(m.cfg,state, update, 200000)
 
-	if state.TokensUsed != 80000 {
-		t.Errorf("TokensUsed = %d, want 80000 (should keep real data)", state.TokensUsed)
+	if state.ContextTokens != 80000 {
+		t.Errorf("ContextTokens = %d, want 80000 (should keep real data)", state.ContextTokens)
 	}
 	if state.TokenEstimated {
 		t.Error("TokenEstimated should stay false when real data exists")
@@ -639,8 +639,8 @@ func TestResolveTokensEstimateStrategy(t *testing.T) {
 	m.resolveTokens(m.cfg,state, update, 200000)
 
 	expectedTokens := 8 * 1500
-	if state.TokensUsed != expectedTokens {
-		t.Errorf("TokensUsed = %d, want %d", state.TokensUsed, expectedTokens)
+	if state.ContextTokens != expectedTokens {
+		t.Errorf("ContextTokens = %d, want %d", state.ContextTokens, expectedTokens)
 	}
 	if !state.TokenEstimated {
 		t.Error("TokenEstimated should be true for estimate strategy")
@@ -658,8 +658,8 @@ func TestResolveTokensMessageCountStrategy(t *testing.T) {
 
 	m.resolveTokens(m.cfg,state, update, 100000)
 
-	if state.TokensUsed != 10000 {
-		t.Errorf("TokensUsed = %d, want 10000", state.TokensUsed)
+	if state.ContextTokens != 10000 {
+		t.Errorf("ContextTokens = %d, want 10000", state.ContextTokens)
 	}
 	if !state.TokenEstimated {
 		t.Error("TokenEstimated should be true for message_count strategy")
@@ -677,8 +677,8 @@ func TestResolveTokensZeroMessages(t *testing.T) {
 
 	m.resolveTokens(m.cfg,state, update, 200000)
 
-	if state.TokensUsed != 0 {
-		t.Errorf("TokensUsed = %d, want 0 (no messages = no estimate)", state.TokensUsed)
+	if state.ContextTokens != 0 {
+		t.Errorf("ContextTokens = %d, want 0 (no messages = no estimate)", state.ContextTokens)
 	}
 	if state.TokenEstimated {
 		t.Error("TokenEstimated should be false when no data at all")
@@ -696,8 +696,8 @@ func TestResolveTokensDefaultStrategy(t *testing.T) {
 
 	m.resolveTokens(m.cfg,state, update, 200000)
 
-	if state.TokensUsed != 5000 {
-		t.Errorf("TokensUsed = %d, want 5000", state.TokensUsed)
+	if state.ContextTokens != 5000 {
+		t.Errorf("ContextTokens = %d, want 5000", state.ContextTokens)
 	}
 }
 

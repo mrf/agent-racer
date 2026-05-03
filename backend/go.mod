@@ -21,3 +21,7 @@ require (
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	golang.org/x/sys v0.20.0 // indirect
 )
+
+require github.com/mrf/agentwatch v0.1.0
+
+replace github.com/mrf/agentwatch => /home/mrf/Projects/agentwatch
