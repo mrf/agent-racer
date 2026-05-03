@@ -8,20 +8,45 @@ import (
 	agwsession "github.com/mrf/agentwatch/session"
 )
 
-// TestMarshalJSON_ContextTokensFieldPresent verifies that the token-count field
-// appears in wire JSON under the name used by the embedded SessionState.
-// NOTE: the original RacerState had a custom MarshalJSON that renamed
-// contextTokens -> tokensUsed for frontend wire compatibility; that method was
-// removed during the agentwatch migration. The frontend currently reads
-// "tokensUsed" -- see agent-racer production code for the restoration needed.
-func TestMarshalJSON_ContextTokensFieldPresent(t *testing.T) {
-	r := RacerState{
-		SessionState: agwsession.SessionState{
-			ID:            "sess-1",
-			Source:        "claude",
-			ContextTokens: 12345,
+// baseSession returns a populated agentwatch SessionState for test use.
+func baseSession() agwsession.SessionState {
+	ts := time.Date(2026, 5, 1, 10, 0, 0, 0, time.UTC)
+	completedAt := time.Date(2026, 5, 1, 11, 0, 0, 0, time.UTC)
+	return agwsession.SessionState{
+		ID:                 "sess-1",
+		Source:             "claude",
+		Slug:               "mighty-castle",
+		Activity:           agwsession.ActivityWorking,
+		Lifecycle:          agwsession.LifecycleActive,
+		ContextTokens:      5000,
+		OutputTokens:       200,
+		TokenEstimated:     false,
+		MaxContextTokens:   200000,
+		ContextUtilization: 0.025,
+		Model:              "claude-sonnet-4-6",
+		WorkingDir:         "/home/user/project",
+		Branch:             "main",
+		CurrentTool:        "Bash",
+		MessageCount:       10,
+		ToolCallCount:      5,
+		StartedAt:          ts,
+		LastActivityAt:     ts,
+		LastDataReceivedAt: ts,
+		CompletedAt:        &completedAt,
+		Subagents: []agwsession.SubagentState{
+			{
+				ID:             "sub-1",
+				Activity:       agwsession.ActivityWorking,
+				StartedAt:      ts,
+				LastActivityAt: ts,
+			},
 		},
 	}
+}
+
+func TestMarshalJSON_TokensUsedFieldName(t *testing.T) {
+	r := RacerState{SessionState: baseSession()}
+	r.ContextTokens = 12345
 
 	data, err := json.Marshal(r)
 	if err != nil {
@@ -33,13 +58,17 @@ func TestMarshalJSON_ContextTokensFieldPresent(t *testing.T) {
 		t.Fatalf("unmarshal to map error: %v", err)
 	}
 
-	v, ok := m["contextTokens"]
+	if _, ok := m["contextTokens"]; ok {
+		t.Error("contextTokens must not appear in wire JSON; expected tokensUsed")
+	}
+
+	v, ok := m["tokensUsed"]
 	if !ok {
-		t.Fatal("contextTokens field missing from wire JSON")
+		t.Fatal("tokensUsed field missing from wire JSON")
 	}
 
 	if int(v.(float64)) != 12345 {
-		t.Errorf("contextTokens = %v, want 12345", v)
+		t.Errorf("tokensUsed = %v, want 12345", v)
 	}
 }
 
@@ -63,10 +92,16 @@ func TestMarshalJSON_FlatStructure(t *testing.T) {
 			LastDataReceivedAt: time.Date(2026, 5, 2, 8, 30, 0, 0, time.UTC),
 			CompletedAt:        &completedAt,
 		},
-		Name:          "My Racer",
-		Lane:          2,
-		Position:      1,
-		PositionDelta: 1,
+		Name:              "My Racer",
+		Lane:              2,
+		Position:          1,
+		PositionDelta:     1,
+		IsChurning:        true,
+		BurnRatePerMinute: 3.14,
+		CompactionCount:   2,
+		PID:               9876,
+		TmuxTarget:        "agent-racer:1",
+		LastAssistantText: "hello",
 	}
 
 	data, err := json.Marshal(r)
@@ -87,7 +122,7 @@ func TestMarshalJSON_FlatStructure(t *testing.T) {
 		{"source", "claude"},
 		{"activity", "idle"},
 		{"lifecycle", "active"},
-		{"contextTokens", float64(1000)},
+		{"tokensUsed", float64(1000)},
 		{"maxContextTokens", float64(100000)},
 		{"model", "claude-opus-4-6"},
 		{"workingDir", "/tmp"},
@@ -97,6 +132,12 @@ func TestMarshalJSON_FlatStructure(t *testing.T) {
 		{"lane", float64(2)},
 		{"position", float64(1)},
 		{"positionDelta", float64(1)},
+		{"isChurning", true},
+		{"burnRatePerMinute", 3.14},
+		{"compactionCount", float64(2)},
+		{"pid", float64(9876)},
+		{"tmuxTarget", "agent-racer:1"},
+		{"lastAssistantText", "hello"},
 	}
 
 	for i := 0; i < len(checks); i++ {
@@ -138,7 +179,8 @@ func TestMarshalJSON_OmitsZeroOptionalFields(t *testing.T) {
 	omitted := []string{
 		"slug", "branch", "currentTool", "outputTokens",
 		"completedAt", "subagents",
-		"position", "positionDelta",
+		"isChurning", "tmuxTarget", "pid", "burnRatePerMinute",
+		"compactionCount", "lastAssistantText", "position", "positionDelta",
 	}
 
 	for i := 0; i < len(omitted); i++ {
@@ -161,13 +203,24 @@ func TestClone_ScalarFieldsMatch(t *testing.T) {
 			Activity:      agwsession.ActivityWorking,
 			ContextTokens: 999,
 		},
+		Name:     "Racer One",
+		Lane:     3,
+		Position: 2,
 	}
 
-	// Clone() is inherited from SessionState and returns session.SessionState.
 	c := r.Clone()
 
 	if c.ID != r.ID {
 		t.Errorf("ID mismatch: got %q, want %q", c.ID, r.ID)
+	}
+	if c.Name != r.Name {
+		t.Errorf("Name mismatch: got %q, want %q", c.Name, r.Name)
+	}
+	if c.Lane != r.Lane {
+		t.Errorf("Lane mismatch: got %d, want %d", c.Lane, r.Lane)
+	}
+	if c.Position != r.Position {
+		t.Errorf("Position mismatch: got %d, want %d", c.Position, r.Position)
 	}
 	if c.ContextTokens != r.ContextTokens {
 		t.Errorf("ContextTokens mismatch: got %d, want %d", c.ContextTokens, r.ContextTokens)
@@ -233,27 +286,32 @@ func TestClone_DeepCopiesSubagents(t *testing.T) {
 	}
 }
 
-func TestClone_MutatingSessionFieldsDoesNotAffectOriginal(t *testing.T) {
+func TestClone_MutatingRacerFieldsDoesNotAffectOriginal(t *testing.T) {
 	r := RacerState{
-		SessionState: agwsession.SessionState{
-			ID:            "r5",
-			ContextTokens: 500,
-		},
-		Lane:          1,
-		Position:      3,
-		PositionDelta: -1,
+		SessionState:      agwsession.SessionState{ID: "r5"},
+		Lane:              1,
+		Position:          3,
+		PositionDelta:     -1,
+		BurnRatePerMinute: 2.5,
+		CompactionCount:   1,
+		IsChurning:        true,
 	}
 
-	// Clone() is inherited from SessionState and returns session.SessionState.
 	c := r.Clone()
-	c.ContextTokens = 9999
+	c.Lane = 99
+	c.Position = 99
+	c.PositionDelta = 99
+	c.BurnRatePerMinute = 99.9
+	c.CompactionCount = 99
+	c.IsChurning = false
 
-	if r.ContextTokens != 500 {
-		t.Error("mutating clone's ContextTokens affected original")
-	}
-	// RacerState-specific fields are value types; cloning the embedded SessionState
-	// does not affect them on the original.
 	if r.Lane != 1 || r.Position != 3 || r.PositionDelta != -1 {
-		t.Error("racer int fields on original were unexpectedly changed")
+		t.Error("mutating clone's int racer fields affected original")
+	}
+	if r.BurnRatePerMinute != 2.5 || r.CompactionCount != 1 {
+		t.Error("mutating clone's float/count racer fields affected original")
+	}
+	if !r.IsChurning {
+		t.Error("mutating clone's IsChurning affected original")
 	}
 }
