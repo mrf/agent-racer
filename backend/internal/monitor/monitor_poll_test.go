@@ -73,14 +73,14 @@ func (s *stubSource) setUpdate(id string, u awsource.SourceUpdate) {
 	s.updates[id] = u
 }
 
-// newTestEnv creates a Monitor wired to a stubSource, a local store, and a
-// broadcaster. Process and tmux enrichments are disabled.
 // testConfig returns a config suitable for testing.
 func testConfig() *config.Config {
-	cfg, _, _ := config.LoadOrDefault("/dev/null/nonexistent")
+	cfg, _, _ := config.LoadOrDefault("/tmp/nonexistent-agent-racer-test-config.yaml")
 	return cfg
 }
 
+// newTestEnv creates a Monitor wired to a stubSource, a local store, and a
+// broadcaster. Process and tmux enrichments are disabled.
 func newTestEnv(src *stubSource) (*Monitor, *session.Store, *ws.Broadcaster) {
 	cfg := testConfig()
 	cfg.Monitor.PollInterval = 100 * time.Millisecond
