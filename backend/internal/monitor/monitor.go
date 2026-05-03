@@ -635,7 +635,7 @@ func (m *Monitor) pollSource(ctx context.Context, src awsource.Source, cfg *conf
 		m.resolveTokens(cfg, state, update, maxTokens)
 
 		// Calculate burn rate from token history
-		state.BurnRatePerMinute = m.calculateBurnRate(ts, state.TokensUsed, now)
+		state.BurnRatePerMinute = m.calculateBurnRate(ts, state.ContextTokens, now)
 
 		if !existed {
 			m.emitEvent(session.EventNew, state)
@@ -784,7 +784,7 @@ func classifyActivityFromUpdate(update awsource.SourceUpdate) session.Activity {
 // estimation when unavailable. For "estimate" and "message_count" it always
 // derives tokens from the accumulated message count.
 //
-// This method sets TokensUsed, TokenEstimated, MaxContextTokens, and
+// This method sets ContextTokens, TokenEstimated, MaxContextTokens, and
 // ContextUtilization on the session state.
 func (m *Monitor) resolveTokens(cfg *config.Config, state *session.SessionState, update awsource.SourceUpdate, maxTokens int) {
 	strategy := cfg.TokenStrategy(state.Source)
@@ -798,16 +798,16 @@ func (m *Monitor) resolveTokens(cfg *config.Config, state *session.SessionState,
 		if update.ContextTokens > 0 {
 			// Real token data always wins. When transitioning from
 			// estimated to actual, accept the real value even if lower.
-			if state.TokenEstimated || update.ContextTokens > state.TokensUsed {
-				state.TokensUsed = update.ContextTokens
+			if state.TokenEstimated || update.ContextTokens > state.ContextTokens {
+				state.ContextTokens = update.ContextTokens
 				state.TokenEstimated = false
 			}
-		} else if state.TokenEstimated || state.TokensUsed == 0 {
+		} else if state.TokenEstimated || state.ContextTokens == 0 {
 			// No real data yet -- fall back to estimation.
 			if state.MessageCount > 0 {
 				estimated := state.MessageCount * tokensPerMsg
-				if estimated > state.TokensUsed {
-					state.TokensUsed = estimated
+				if estimated > state.ContextTokens {
+					state.ContextTokens = estimated
 					state.TokenEstimated = true
 				}
 			}
@@ -816,16 +816,16 @@ func (m *Monitor) resolveTokens(cfg *config.Config, state *session.SessionState,
 	case "estimate", "message_count":
 		if state.MessageCount > 0 {
 			estimated := state.MessageCount * tokensPerMsg
-			if estimated > state.TokensUsed {
-				state.TokensUsed = estimated
+			if estimated > state.ContextTokens {
+				state.ContextTokens = estimated
 			}
 			state.TokenEstimated = true
 		}
 
 	default:
 		// Unknown strategy: use real data only, no estimation.
-		if update.ContextTokens > 0 && update.ContextTokens > state.TokensUsed {
-			state.TokensUsed = update.ContextTokens
+		if update.ContextTokens > 0 && update.ContextTokens > state.ContextTokens {
+			state.ContextTokens = update.ContextTokens
 		}
 	}
 
