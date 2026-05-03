@@ -15,10 +15,10 @@ import (
 	"syscall"
 	"time"
 
+	awsource "github.com/mrf/agentwatch/source"
 	awclaude "github.com/mrf/agentwatch/sources/claude"
 	awcodex "github.com/mrf/agentwatch/sources/codex"
 	awgemini "github.com/mrf/agentwatch/sources/gemini"
-	awsource "github.com/mrf/agentwatch/source"
 
 	"github.com/agent-racer/backend/internal/config"
 	"github.com/agent-racer/backend/internal/frontend"
@@ -227,6 +227,14 @@ func main() {
 		log.Printf("Warning: track store unavailable: %v", trackErr)
 	} else {
 		server.SetTrackHandler(tracks.NewHandler(trackStore))
+		// Provide active track ID to snapshot broadcasts.
+		broadcaster.SetActiveTrackProvider(func() *string {
+			id := server.Config().Track.Active
+			if id == "" {
+				return nil
+			}
+			return &id
+		})
 	}
 
 	// Stats tracker for gamification system.
