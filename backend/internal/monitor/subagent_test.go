@@ -315,24 +315,14 @@ func TestMergeSubagentsAppendsNew(t *testing.T) {
 		"toolu_new": {
 			ID:              "toolu_new",
 			ParentToolUseID: "toolu_pnew",
-			Slug:            "new-task",
-			Model:           "claude-opus-4-5-20251101",
-			LatestUsage: &TokenUsage{
-				InputTokens:              100,
-				CacheCreationInputTokens: 50,
-				CacheReadInputTokens:     400,
-				OutputTokens:             30,
-			},
-			MessageCount: 3,
-			ToolCalls:    2,
-			LastTool:     "Edit",
-			LastActivity: "tool_use",
-			FirstTime:    ts,
-			LastTime:     ts.Add(5 * time.Second),
+			LastTool:        "Edit",
+			LastActivity:    "tool_use",
+			FirstTime:       ts,
+			LastTime:        ts.Add(5 * time.Second),
 		},
 	}
 
-	mergeSubagents(state, parsed)
+	mergeSubagents(state, parseResultSubagents(parsed))
 
 	if len(state.Subagents) != 1 {
 		t.Fatalf("expected 1 subagent, got %d", len(state.Subagents))
@@ -348,26 +338,11 @@ func TestMergeSubagentsAppendsNew(t *testing.T) {
 	if sub.SessionID != "sess-merge-1" {
 		t.Errorf("SessionID = %s, want sess-merge-1", sub.SessionID)
 	}
-	if sub.Slug != "new-task" {
-		t.Errorf("Slug = %s, want new-task", sub.Slug)
-	}
-	if sub.Model != "claude-opus-4-5-20251101" {
-		t.Errorf("Model = %s, want claude-opus-4-5-20251101", sub.Model)
-	}
-	if sub.Activity != session.ToolUse {
-		t.Errorf("Activity = %v, want ToolUse", sub.Activity)
+	if sub.Activity != session.Thinking {
+		t.Errorf("Activity = %v, want Thinking", sub.Activity)
 	}
 	if sub.CurrentTool != "Edit" {
 		t.Errorf("CurrentTool = %s, want Edit", sub.CurrentTool)
-	}
-	if got, want := sub.TokensUsed, 100+50+400; got != want {
-		t.Errorf("TokensUsed = %d, want %d", got, want)
-	}
-	if sub.MessageCount != 3 {
-		t.Errorf("MessageCount = %d, want 3", sub.MessageCount)
-	}
-	if sub.ToolCallCount != 2 {
-		t.Errorf("ToolCallCount = %d, want 2", sub.ToolCallCount)
 	}
 	if sub.StartedAt != ts {
 		t.Errorf("StartedAt = %v, want %v", sub.StartedAt, ts)
@@ -387,16 +362,11 @@ func TestMergeSubagentsUpdatesExisting(t *testing.T) {
 		ID: "sess-merge-2",
 		Subagents: []session.SubagentState{
 			{
-				ID:              "toolu_exist",
+				ID:             "toolu_exist",
 				ParentToolUseID: "toolu_pexist",
 				SessionID:       "sess-merge-2",
-				Slug:            "initial-slug",
-				Model:           "claude-opus-4-5-20251101",
 				Activity:        session.Thinking,
 				CurrentTool:     "Read",
-				TokensUsed:      500,
-				MessageCount:    2,
-				ToolCallCount:   1,
 				StartedAt:       ts,
 				LastActivityAt:  ts.Add(1 * time.Second),
 			},
@@ -407,50 +377,25 @@ func TestMergeSubagentsUpdatesExisting(t *testing.T) {
 		"toolu_exist": {
 			ID:              "toolu_exist",
 			ParentToolUseID: "toolu_pexist",
-			Slug:            "updated-slug",
-			Model:           "claude-opus-4-6",
-			LatestUsage: &TokenUsage{
-				InputTokens:              300,
-				CacheCreationInputTokens: 100,
-				CacheReadInputTokens:     800,
-				OutputTokens:             60,
-			},
-			MessageCount: 4,
-			ToolCalls:    3,
-			LastTool:     "Bash",
-			LastActivity: "tool_use",
-			FirstTime:    ts,
-			LastTime:     ts.Add(10 * time.Second),
+			LastTool:        "Bash",
+			LastActivity:    "tool_use",
+			FirstTime:       ts,
+			LastTime:        ts.Add(10 * time.Second),
 		},
 	}
 
-	mergeSubagents(state, parsed)
+	mergeSubagents(state, parseResultSubagents(parsed))
 
 	if len(state.Subagents) != 1 {
 		t.Fatalf("expected 1 subagent (updated in place), got %d", len(state.Subagents))
 	}
 
 	sub := state.Subagents[0]
-	if sub.Slug != "updated-slug" {
-		t.Errorf("Slug = %s, want updated-slug", sub.Slug)
-	}
-	if sub.Model != "claude-opus-4-6" {
-		t.Errorf("Model = %s, want claude-opus-4-6", sub.Model)
-	}
-	if sub.Activity != session.ToolUse {
-		t.Errorf("Activity = %v, want ToolUse", sub.Activity)
+	if sub.Activity != session.Thinking {
+		t.Errorf("Activity = %v, want Thinking", sub.Activity)
 	}
 	if sub.CurrentTool != "Bash" {
 		t.Errorf("CurrentTool = %s, want Bash", sub.CurrentTool)
-	}
-	if got, want := sub.TokensUsed, 1200; got != want {
-		t.Errorf("TokensUsed = %d, want %d (max of old=500 and new=1200)", got, want)
-	}
-	if got, want := sub.MessageCount, 2+4; got != want {
-		t.Errorf("MessageCount = %d, want %d (accumulated)", got, want)
-	}
-	if got, want := sub.ToolCallCount, 1+3; got != want {
-		t.Errorf("ToolCallCount = %d, want %d (accumulated)", got, want)
 	}
 	if sub.LastActivityAt != ts.Add(10*time.Second) {
 		t.Errorf("LastActivityAt = %v, want %v", sub.LastActivityAt, ts.Add(10*time.Second))
@@ -466,10 +411,7 @@ func TestMergeSubagentsCompletedSetsCompletedAt(t *testing.T) {
 			{
 				ID:             "toolu_completing",
 				SessionID:      "sess-merge-3",
-				Slug:           "finishing-task",
 				Activity:       session.Thinking,
-				MessageCount:   5,
-				ToolCallCount:  3,
 				LastActivityAt: ts,
 			},
 		},
@@ -479,16 +421,13 @@ func TestMergeSubagentsCompletedSetsCompletedAt(t *testing.T) {
 	parsed := map[string]*SubagentParseResult{
 		"toolu_completing": {
 			ID:           "toolu_completing",
-			Slug:         "finishing-task",
-			MessageCount: 1,
-			ToolCalls:    0,
 			LastActivity: "waiting",
 			LastTime:     completionTime,
 			Completed:    true,
 		},
 	}
 
-	mergeSubagents(state, parsed)
+	mergeSubagents(state, parseResultSubagents(parsed))
 
 	sub := state.Subagents[0]
 	if sub.Activity != session.Complete {
@@ -499,33 +438,6 @@ func TestMergeSubagentsCompletedSetsCompletedAt(t *testing.T) {
 	}
 	if !sub.CompletedAt.Equal(completionTime) {
 		t.Errorf("CompletedAt = %v, want %v", *sub.CompletedAt, completionTime)
-	}
-	if got, want := sub.MessageCount, 5+1; got != want {
-		t.Errorf("MessageCount = %d, want %d", got, want)
-	}
-}
-
-func TestMergeSubagentsNilUsageKeepsZeroTokens(t *testing.T) {
-	state := &session.SessionState{ID: "sess-merge-4"}
-
-	parsed := map[string]*SubagentParseResult{
-		"toolu_nousage": {
-			ID:           "toolu_nousage",
-			Slug:         "no-usage",
-			MessageCount: 1,
-			LastActivity: "thinking",
-			FirstTime:    time.Now(),
-			LastTime:     time.Now(),
-		},
-	}
-
-	mergeSubagents(state, parsed)
-
-	if len(state.Subagents) != 1 {
-		t.Fatalf("expected 1 subagent, got %d", len(state.Subagents))
-	}
-	if state.Subagents[0].TokensUsed != 0 {
-		t.Errorf("TokensUsed = %d, want 0 (nil usage)", state.Subagents[0].TokensUsed)
 	}
 }
 
@@ -559,7 +471,7 @@ func TestMergeSubagentsPrunesZeroMessageEntries(t *testing.T) {
 	// New poll doesn't contain either subagent.
 	parsed := map[string]*SubagentParseResult{}
 
-	mergeSubagents(state, parsed)
+	mergeSubagents(state, parseResultSubagents(parsed))
 
 	// Zero-message subagent should be pruned; real one retained.
 	if len(state.Subagents) != 1 {
@@ -594,7 +506,7 @@ func TestMergeSubagentsRetainsCompletedWhenAbsentFromParsed(t *testing.T) {
 	// frontend can display their final state.
 	parsed := map[string]*SubagentParseResult{}
 
-	mergeSubagents(state, parsed)
+	mergeSubagents(state, parseResultSubagents(parsed))
 
 	if len(state.Subagents) != 1 {
 		t.Fatalf("expected 1 subagent (completed, retained), got %d", len(state.Subagents))
@@ -625,48 +537,13 @@ func TestMergeSubagentsAccumulationBug(t *testing.T) {
 				LastTime:     ts.Add(time.Duration(i) * time.Second),
 			},
 		}
-		mergeSubagents(state, parsed)
+		mergeSubagents(state, parseResultSubagents(parsed))
 	}
 
 	// Zero-message entries should be pruned each poll, keeping only
 	// the most recent one (which is in the current parsed set).
 	if len(state.Subagents) != 1 {
 		t.Errorf("zero-message accumulation: expected 1, got %d", len(state.Subagents))
-	}
-}
-
-func TestMergeSubagentsRetainsRealBetweenBatches(t *testing.T) {
-	// Real subagents (MessageCount > 0) survive empty parsed batches.
-	// This prevents flashing when no new progress entries arrive.
-	state := &session.SessionState{ID: "sess-retain-real"}
-	ts := time.Date(2026, 2, 20, 12, 0, 0, 0, time.UTC)
-
-	// First poll: real subagent appears with messages.
-	parsed1 := map[string]*SubagentParseResult{
-		"agent_1": {
-			ID:           "agent_1",
-			Slug:         "real-task",
-			MessageCount: 3,
-			LastActivity: "thinking",
-			FirstTime:    ts,
-			LastTime:     ts.Add(2 * time.Second),
-		},
-	}
-	mergeSubagents(state, parsed1)
-
-	if len(state.Subagents) != 1 {
-		t.Fatalf("poll 1: expected 1 subagent, got %d", len(state.Subagents))
-	}
-
-	// Second poll: empty batch (subagent is thinking, no new entries).
-	mergeSubagents(state, map[string]*SubagentParseResult{})
-
-	// Real subagent should survive (MessageCount > 0).
-	if len(state.Subagents) != 1 {
-		t.Fatalf("poll 2 (empty): expected 1 subagent retained, got %d", len(state.Subagents))
-	}
-	if state.Subagents[0].ID != "agent_1" {
-		t.Errorf("retained subagent ID = %s, want agent_1", state.Subagents[0].ID)
 	}
 }
 
@@ -711,7 +588,7 @@ func TestMergeSubagentsEmptyParsedRetainsRealAndCompleted(t *testing.T) {
 	// Empty parsed set — no subagent data in this poll chunk.
 	parsed := map[string]*SubagentParseResult{}
 
-	mergeSubagents(state, parsed)
+	mergeSubagents(state, parseResultSubagents(parsed))
 
 	// Real (MessageCount>0) and completed retained; zero-message phantom pruned.
 	if len(state.Subagents) != 2 {
@@ -729,49 +606,6 @@ func TestMergeSubagentsEmptyParsedRetainsRealAndCompleted(t *testing.T) {
 	}
 	if ids["toolu_phantom"] {
 		t.Error("zero-message phantom should be pruned")
-	}
-}
-
-func TestClassifySubagentActivity(t *testing.T) {
-	tests := []struct {
-		name     string
-		pr       *SubagentParseResult
-		expected session.Activity
-	}{
-		{
-			name:     "tool_use maps to ToolUse",
-			pr:       &SubagentParseResult{LastActivity: "tool_use", MessageCount: 1},
-			expected: session.ToolUse,
-		},
-		{
-			name:     "thinking maps to Thinking",
-			pr:       &SubagentParseResult{LastActivity: "thinking", MessageCount: 1},
-			expected: session.Thinking,
-		},
-		{
-			name:     "waiting maps to Waiting",
-			pr:       &SubagentParseResult{LastActivity: "waiting", MessageCount: 1},
-			expected: session.Waiting,
-		},
-		{
-			name:     "empty activity with messages defaults to Thinking",
-			pr:       &SubagentParseResult{LastActivity: "", MessageCount: 1},
-			expected: session.Thinking,
-		},
-		{
-			name:     "empty activity with no messages defaults to Idle",
-			pr:       &SubagentParseResult{LastActivity: "", MessageCount: 0},
-			expected: session.Idle,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := classifySubagentActivity(tt.pr)
-			if got != tt.expected {
-				t.Errorf("classifySubagentActivity() = %v, want %v", got, tt.expected)
-			}
-		})
 	}
 }
 

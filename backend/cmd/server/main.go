@@ -15,6 +15,11 @@ import (
 	"syscall"
 	"time"
 
+	awclaude "github.com/mrf/agentwatch/sources/claude"
+	awcodex "github.com/mrf/agentwatch/sources/codex"
+	awgemini "github.com/mrf/agentwatch/sources/gemini"
+	awsource "github.com/mrf/agentwatch/source"
+
 	"github.com/agent-racer/backend/internal/config"
 	"github.com/agent-racer/backend/internal/frontend"
 	"github.com/agent-racer/backend/internal/gamification"
@@ -36,16 +41,49 @@ type serverOptions struct {
 	showVersion bool
 }
 
-func buildSources(cfg *config.Config) []monitor.Source {
-	var sources []monitor.Source
+func buildSources(cfg *config.Config) []awsource.Source {
+	reg := awsource.NewRegistry()
+
 	if cfg.Sources.Claude {
-		sources = append(sources, monitor.NewClaudeSource(10*time.Minute))
+		home, _ := os.UserHomeDir()
+		claudeRoot := filepath.Join(home, ".claude", "projects")
+		_ = awclaude.Register(reg,
+			awclaude.WithRoot(claudeRoot),
+			awclaude.WithSessionEndDir(cfg.Monitor.SessionEndDir),
+		)
 	}
 	if cfg.Sources.Codex {
-		sources = append(sources, monitor.NewCodexSource(10*time.Minute))
+		codexRoot := os.Getenv("CODEX_HOME")
+		if codexRoot == "" {
+			home, _ := os.UserHomeDir()
+			codexRoot = filepath.Join(home, ".codex")
+		}
+		_ = awcodex.Register(reg,
+			awcodex.WithRoot(codexRoot),
+			awcodex.WithDiscoverWindow(10*time.Minute),
+		)
 	}
 	if cfg.Sources.Gemini {
-		sources = append(sources, monitor.NewGeminiSource(10*time.Minute))
+		home, _ := os.UserHomeDir()
+		geminiRoot := filepath.Join(home, ".gemini", "tmp")
+		_ = awgemini.Register(reg,
+			awgemini.WithRoot(geminiRoot),
+		)
+	}
+
+	names := reg.Names()
+	sources := make([]awsource.Source, 0, len(names))
+	for i := 0; i < len(names); i++ {
+		f, ok := reg.Get(names[i])
+		if !ok {
+			continue
+		}
+		src, err := f()
+		if err != nil {
+			log.Printf("failed to build source %q: %v", names[i], err)
+			continue
+		}
+		sources = append(sources, src)
 	}
 	return sources
 }
