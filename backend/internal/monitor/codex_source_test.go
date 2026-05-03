@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/agent-racer/backend/internal/jsonl"
+	"github.com/mrf/agentwatch/jsonl"
 )
 
 func TestCodexSourceName(t *testing.T) {
@@ -508,9 +508,9 @@ func TestCodexSourceParseSkipsOversizedLine(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "rollout-bigline.jsonl")
 
-	// Build a line whose JSON payload exceeds jsonl.MaxLineLength.
+	// Build a line whose JSON payload exceeds jsonl.MaxLineSize.
 	// We embed a huge string in a valid JSON envelope so the line ends with \n.
-	bigValue := strings.Repeat("x", jsonl.MaxLineLength+10)
+	bigValue := strings.Repeat("x", jsonl.MaxLineSize+10)
 	oversizedLine := fmt.Sprintf(`{"type":"response_item","payload":{"type":"message","text":%q}}`+"\n", bigValue)
 
 	normalLine := `{"type":"session_meta","payload":{"session_id":"bigline-test","model":"o3"}}` + "\n"

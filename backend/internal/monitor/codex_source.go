@@ -7,11 +7,11 @@ import (
 	"io"
 	"log/slog"
 	"os"
-
-	"github.com/agent-racer/backend/internal/jsonl"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/mrf/agentwatch/jsonl"
 )
 
 // CodexSource implements Source for OpenAI Codex CLI sessions. It discovers
@@ -147,7 +147,7 @@ func (c *CodexSource) Parse(handle SessionHandle, offset int64) (SourceUpdate, i
 		}
 
 		// Skip oversized lines to prevent excessive memory use during JSON parsing.
-		if len(line) > jsonl.MaxLineLength {
+		if len(line) > jsonl.MaxLineSize {
 			slog.Warn("skipping oversized line", "source", "codex", "bytes", len(line), "path", handle.LogPath, "offset", parsedOffset)
 			parsedOffset += int64(len(line))
 			if err == io.EOF {

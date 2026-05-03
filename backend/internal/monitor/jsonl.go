@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/agent-racer/backend/internal/jsonl"
+	"github.com/mrf/agentwatch/jsonl"
 )
 
 // maxDecodePathCandidates bounds ambiguous decode search so a long
