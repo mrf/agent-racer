@@ -33,6 +33,17 @@ func makeTerminalSession(id, source string) session.SessionState {
 	}
 }
 
+// drain empties a stats event channel.
+func drain(ch <-chan StatsEvent) {
+	for {
+		select {
+		case <-ch:
+		default:
+			return
+		}
+	}
+}
+
 // --- Lane Assignment ---
 
 func TestLaneAssignmentOnSnapshot(t *testing.T) {
@@ -642,13 +653,234 @@ func TestConcurrentAccess(t *testing.T) {
 	}
 }
 
-// drain empties a stats event channel.
-func drain(ch <-chan StatsEvent) {
+// --- Deadlock Detection ---
+// Ported from session/store_test.go to verify that the Sink's lock
+// discipline allows safe concurrent access during event processing.
+
+// deadlockTimeout is the maximum time we allow a Sink operation to complete
+// before declaring a deadlock.
+const deadlockTimeout = 2 * time.Second
+
+// mustCompleteWithin runs f in a goroutine and fails the test if f does not
+// return within the given timeout. A timeout means the goroutine is permanently
+// blocked — the classic symptom of mutex re-entrancy.
+func mustCompleteWithin(t *testing.T, timeout time.Duration, desc string, f func()) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		f()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(timeout):
+		t.Errorf("DEADLOCK: %s did not complete within %v (goroutine is permanently blocked)", desc, timeout)
+	}
+}
+
+func TestConcurrentHandleEventAndGet(t *testing.T) {
+	sink := NewSink()
+
+	// Seed some data.
+	if err := sink.HandleEvent(context.Background(), monitor.Event{
+		Type: monitor.EventSnapshot,
+		Sessions: []session.SessionState{
+			makeSession("a", "claude", 0.5),
+			makeSession("b", "codex", 0.3),
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify GetAll and Get complete without deadlock during HandleEvent.
+	mustCompleteWithin(t, deadlockTimeout, "GetAll during snapshot", func() {
+		for i := 0; i < 50; i++ {
+			_ = sink.GetAll()
+		}
+	})
+
+	mustCompleteWithin(t, deadlockTimeout, "Get during delta", func() {
+		for i := 0; i < 50; i++ {
+			_ = sink.Get("a")
+		}
+	})
+}
+
+func TestConcurrentOvertakeCallbackDoesNotDeadlock(t *testing.T) {
+	// The overtake callback runs outside the Sink's lock. Verify that
+	// calling Get/GetAll from inside the callback does not deadlock.
+	var sinkRef *Sink
+	sink := NewSink(WithOvertakeCallback(func(ev OvertakeEvent) {
+		// This should NOT deadlock — the callback runs outside the lock.
+		mustCompleteWithin(t, deadlockTimeout, "Get inside overtake callback", func() {
+			_ = sinkRef.GetAll()
+		})
+	}))
+	sinkRef = sink
+
+	// Establish initial positions: a=P1, b=P2.
+	if err := sink.HandleEvent(context.Background(), monitor.Event{
+		Type: monitor.EventSnapshot,
+		Sessions: []session.SessionState{
+			makeSession("a", "claude", 0.8),
+			makeSession("b", "codex", 0.3),
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// b overtakes a — triggers callback.
+	mustCompleteWithin(t, deadlockTimeout, "HandleEvent with overtake callback", func() {
+		if err := sink.HandleEvent(context.Background(), monitor.Event{
+			Type: monitor.EventDelta,
+			Updates: []session.SessionState{
+				makeSession("b", "codex", 0.9),
+				makeSession("a", "claude", 0.8),
+			},
+		}); err != nil {
+			t.Error(err)
+		}
+	})
+}
+
+func TestConcurrentStatsChannelDoesNotDeadlock(t *testing.T) {
+	// The stats channel uses non-blocking sends. Verify that even with a
+	// full channel, HandleEvent completes without deadlocking.
+	ch := make(chan StatsEvent, 1) // small buffer
+	sink := NewSink(WithStatsChannel(ch))
+
+	// Fill the channel so sends will be dropped.
+	ch <- StatsEvent{}
+
+	mustCompleteWithin(t, deadlockTimeout, "HandleEvent with full stats channel", func() {
+		_ = sink.HandleEvent(context.Background(), monitor.Event{
+			Type:    monitor.EventDelta,
+			Updates: []session.SessionState{makeSession("a", "claude", 0.5)},
+		})
+	})
+}
+
+// --- Snapshot Replacement ---
+
+func TestSnapshotReplacesAllSessions(t *testing.T) {
+	sink := NewSink()
+
+	// Initial snapshot with a and b.
+	if err := sink.HandleEvent(context.Background(), monitor.Event{
+		Type: monitor.EventSnapshot,
+		Sessions: []session.SessionState{
+			makeSession("a", "claude", 0.5),
+			makeSession("b", "codex", 0.3),
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(sink.GetAll()) != 2 {
+		t.Fatalf("expected 2 sessions, got %d", len(sink.GetAll()))
+	}
+
+	// Second snapshot with only c — a and b should be gone.
+	if err := sink.HandleEvent(context.Background(), monitor.Event{
+		Type: monitor.EventSnapshot,
+		Sessions: []session.SessionState{
+			makeSession("c", "gemini", 0.7),
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	all := sink.GetAll()
+	if len(all) != 1 {
+		t.Fatalf("expected 1 session after replacement snapshot, got %d", len(all))
+	}
+	if all[0].ID != "c" {
+		t.Errorf("remaining session ID = %s, want c", all[0].ID)
+	}
+	if sink.Get("a") != nil {
+		t.Error("session a should have been replaced")
+	}
+	if sink.Get("b") != nil {
+		t.Error("session b should have been replaced")
+	}
+}
+
+// --- Stats ActiveCount Accuracy ---
+
+func TestStatsEventActiveCount(t *testing.T) {
+	ch := make(chan StatsEvent, 16)
+	sink := NewSink(WithStatsChannel(ch))
+
+	// Create 3 sessions via delta — all active.
+	if err := sink.HandleEvent(context.Background(), monitor.Event{
+		Type: monitor.EventDelta,
+		Updates: []session.SessionState{
+			makeSession("a", "claude", 0.5),
+			makeSession("b", "codex", 0.3),
+			makeSession("c", "gemini", 0.8),
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Drain — the last event should have ActiveCount=3.
+	var lastEvent StatsEvent
+	eventCount := 0
+loop:
 	for {
 		select {
-		case <-ch:
+		case ev := <-ch:
+			lastEvent = ev
+			eventCount++
 		default:
-			return
+			break loop
 		}
+	}
+	if eventCount == 0 {
+		t.Fatal("expected stats events")
+	}
+	// All 3 sessions are active (non-terminal).
+	if lastEvent.ActiveCount != 3 {
+		t.Errorf("ActiveCount = %d, want 3", lastEvent.ActiveCount)
+	}
+}
+
+// --- GetAll Returns Copies ---
+
+func TestGetAllReturnsCopies(t *testing.T) {
+	sink := NewSink()
+
+	if err := sink.HandleEvent(context.Background(), monitor.Event{
+		Type:     monitor.EventSnapshot,
+		Sessions: []session.SessionState{makeSession("a", "claude", 0.5)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	all := sink.GetAll()
+	all[0].Lane = 999
+
+	fresh := sink.Get("a")
+	if fresh.Lane == 999 {
+		t.Error("GetAll did not return a copy — mutation leaked into sink")
+	}
+}
+
+func TestGetReturnsCopy(t *testing.T) {
+	sink := NewSink()
+
+	if err := sink.HandleEvent(context.Background(), monitor.Event{
+		Type:     monitor.EventSnapshot,
+		Sessions: []session.SessionState{makeSession("a", "claude", 0.5)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got := sink.Get("a")
+	got.Lane = 999
+
+	fresh := sink.Get("a")
+	if fresh.Lane == 999 {
+		t.Error("Get did not return a copy — mutation leaked into sink")
 	}
 }
