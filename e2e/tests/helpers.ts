@@ -9,9 +9,18 @@ export const AUTH_TOKEN: string = (() => {
   return token;
 })();
 
+type QueryValue = boolean | number | string | undefined;
+
 /** Navigate to the app root with the auth token in the query string. */
-export async function gotoApp(page: Page): Promise<void> {
-  await page.goto(`/?token=${AUTH_TOKEN}`);
+export async function gotoApp(page: Page, query: Record<string, QueryValue> = {}): Promise<void> {
+  const params = new URLSearchParams({ token: AUTH_TOKEN });
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined || value === false) {
+      continue;
+    }
+    params.set(key, value === true ? '1' : String(value));
+  }
+  await page.goto(`/?${params.toString()}`);
 }
 
 export interface RacerInfo {

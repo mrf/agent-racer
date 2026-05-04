@@ -4,7 +4,7 @@ import { waitForConnection, waitForRacers, clickFirstRacer, gotoApp } from './he
 
 test.describe('Keyboard shortcuts', () => {
   test.beforeEach(async ({ page }) => {
-    await gotoApp(page);
+    await gotoApp(page, { debug: true });
     await waitForConnection(page);
   });
 

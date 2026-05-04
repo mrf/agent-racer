@@ -1,13 +1,24 @@
 import { defineConfig, devices } from '@playwright/test';
 import { randomBytes } from 'node:crypto';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const SERVER_PORT = 8077;
 const GENERATED_CONFIG = '.e2e-config.generated.yaml';
+const generatedConfigPath = resolve(__dirname, GENERATED_CONFIG);
 
-// Generate a random auth token for each test run so no static token is committed.
-const E2E_AUTH_TOKEN = randomBytes(16).toString('hex');
+function readGeneratedAuthToken(): string {
+  if (!existsSync(generatedConfigPath)) {
+    return '';
+  }
+  const generatedConfig = readFileSync(generatedConfigPath, 'utf-8');
+  return generatedConfig.match(/^\s+auth_token:\s*"([^"]+)"\s*$/m)?.[1] || '';
+}
+
+// Playwright may evaluate this config multiple times. Reuse the first generated
+// token so the already-started backend and later test workers agree on auth.
+const E2E_AUTH_TOKEN =
+  process.env.E2E_AUTH_TOKEN || readGeneratedAuthToken() || randomBytes(16).toString('hex');
 process.env.E2E_AUTH_TOKEN = E2E_AUTH_TOKEN;
 
 // Write a generated config that includes the random token.
@@ -19,7 +30,6 @@ const generatedConfig = baseConfig.replace(
 if (generatedConfig === baseConfig) {
   throw new Error('Failed to inject auth_token into e2e config — regex did not match');
 }
-const generatedConfigPath = resolve(__dirname, GENERATED_CONFIG);
 writeFileSync(generatedConfigPath, generatedConfig);
 
 export default defineConfig({
@@ -40,19 +50,27 @@ export default defineConfig({
     timeout: 60_000,
   },
   projects: [
-    { name: 'chromium', device: 'Desktop Chrome' },
-    { name: 'firefox', device: 'Desktop Firefox' },
-  ].flatMap(({ name, device }) => [
     {
-      name,
+      name: 'chromium',
       testIgnore: /connection-status/,
-      use: { ...devices[device] },
+      use: { ...devices['Desktop Chrome'] },
     },
     {
-      name: `${name}-connection`,
-      testMatch: /connection-status/,
-      dependencies: [name],
-      use: { ...devices[device] },
+      name: 'firefox',
+      testIgnore: /connection-status/,
+      use: { ...devices['Desktop Firefox'] },
     },
-  ]),
+    {
+      name: 'chromium-connection',
+      testMatch: /connection-status/,
+      dependencies: ['chromium', 'firefox'],
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'firefox-connection',
+      testMatch: /connection-status/,
+      dependencies: ['chromium-connection'],
+      use: { ...devices['Desktop Firefox'] },
+    },
+  ],
 });

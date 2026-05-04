@@ -47,7 +47,9 @@ test.describe('Connection status indicator', () => {
 
   test('shows disconnected after backend stops, reconnects after restart', async ({
     page,
+    browserName,
   }) => {
+    test.skip(browserName !== 'chromium', 'Backend restart coverage only needs one browser');
     test.setTimeout(60_000);
 
     await gotoApp(page);

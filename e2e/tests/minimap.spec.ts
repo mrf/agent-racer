@@ -6,7 +6,7 @@ const PIXEL_BRIGHTNESS_THRESHOLD = 10;
 
 test.describe('Minimap', () => {
   test.beforeEach(async ({ page }) => {
-    await gotoApp(page);
+    await gotoApp(page, { debug: true });
     await waitForConnection(page);
   });
 

@@ -7,7 +7,7 @@ test.describe('Achievement panel', () => {
   test.setTimeout(90_000);
 
   test.beforeEach(async ({ page }) => {
-    await gotoApp(page);
+    await gotoApp(page, { debug: true });
     await waitForConnection(page);
   });
 
@@ -58,7 +58,7 @@ test.describe('Reward selector (Garage)', () => {
   test.setTimeout(90_000);
 
   test.beforeEach(async ({ page }) => {
-    await gotoApp(page);
+    await gotoApp(page, { debug: true });
     await waitForConnection(page);
   });
 
@@ -139,11 +139,21 @@ test.describe('Gamification WS events', () => {
     await page.routeWebSocket(/\/ws$/, route => {
       const server = route.connectToServer();
       route.onMessage(msg => server.send(msg));
-      server.onMessage(msg => route.send(msg));
+      server.onMessage(msg => {
+        try {
+          const parsed = JSON.parse(String(msg));
+          if (parsed.type === 'battlepass_progress' || parsed.type === 'achievement_unlocked') {
+            return;
+          }
+        } catch {
+          // Non-JSON frames are forwarded unchanged.
+        }
+        route.send(msg);
+      });
       wsRoute = route;
     });
 
-    await gotoApp(page);
+    await gotoApp(page, { debug: true });
     await waitForConnection(page);
   });
 

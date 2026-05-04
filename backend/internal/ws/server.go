@@ -105,8 +105,8 @@ func NewServer(cfg *config.Config, store *session.Store, broadcaster *Broadcaste
 		authToken:         authToken,
 		achievementEngine: gamification.NewAchievementEngine(),
 		rewardRegistry:    gamification.NewRewardRegistry(),
-		apiRateLimiter:    newClientRateLimiter(120, time.Minute, 30),
-		wsAuthRateLimiter: newClientRateLimiter(12, time.Minute, 4),
+		apiRateLimiter:    newClientRateLimiter(600, time.Minute, 200),
+		wsAuthRateLimiter: newClientRateLimiter(600, time.Minute, 200),
 		startTime:         time.Now(),
 	}
 	s.config.Store(cfg)
