@@ -12,6 +12,13 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// SessionProvider abstracts read access to session state, allowing the
+// broadcaster to work with any store implementation that provides sessions.
+type SessionProvider interface {
+	GetAll() []*session.SessionState
+	Get(id string) (*session.SessionState, bool)
+}
+
 // ErrTooManyConnections is returned by AddClient when the maximum number of
 // concurrent WebSocket connections has been reached.
 var ErrTooManyConnections = errors.New("too many WebSocket connections")
@@ -86,7 +93,7 @@ type Broadcaster struct {
 	mu                  sync.RWMutex
 	clients             map[*client]bool
 	maxConns            int
-	store               *session.Store
+	store               SessionProvider
 	privacy             *session.PrivacyFilter
 	throttle            time.Duration
 	snapshotTicker      *time.Ticker
@@ -102,7 +109,7 @@ type Broadcaster struct {
 	stopOnce            sync.Once
 }
 
-func NewBroadcaster(store *session.Store, throttle, snapshotInterval time.Duration, maxConns int) *Broadcaster {
+func NewBroadcaster(store SessionProvider, throttle, snapshotInterval time.Duration, maxConns int) *Broadcaster {
 	b := &Broadcaster{
 		clients:        make(map[*client]bool),
 		maxConns:       maxConns,
@@ -145,7 +152,6 @@ func (b *Broadcaster) SetActiveTrackProvider(fn func() string) {
 func (b *Broadcaster) BroadcastSnapshot() {
 	b.broadcast(b.snapshotMessage())
 }
-
 
 // privacyFilter returns the current privacy filter under lock.
 func (b *Broadcaster) privacyFilter() *session.PrivacyFilter {

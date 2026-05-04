@@ -21,6 +21,7 @@ import (
 	"github.com/agent-racer/backend/internal/session"
 	"github.com/agent-racer/backend/internal/tracks"
 	"github.com/gorilla/websocket"
+	agwmonitor "github.com/mrf/agentwatch/monitor"
 )
 
 // validTmuxTarget matches a tmux target like "session:window.pane" where the
@@ -30,8 +31,6 @@ var validTmuxTarget = regexp.MustCompile(`^[a-zA-Z0-9_.-]+:\d+\.\d+$`)
 const (
 	// maxRequestBodySize is the maximum allowed size for JSON request bodies (1 MB).
 	maxRequestBodySize int64 = 1 << 20
-	// maxWSAuthMessageSize is the maximum allowed size for the WebSocket auth message (4 KB).
-	maxWSAuthMessageSize int64 = 4 << 10
 )
 
 // tmuxFocusSession switches to the tmux pane identified by target (e.g. "main:2.0").
@@ -55,6 +54,22 @@ func tmuxFocusSession(target string) error {
 // HealthCheckFunc returns source health status for the readiness probe.
 // Nil return means no source health info is available (e.g. mock mode).
 type HealthCheckFunc func() []SourceHealthPayload
+
+// HealthCheckFromMonitor adapts an agentwatch Monitor's health reporting to
+// the HealthCheckFunc signature used by the Server. This bridges agentwatch's
+// monitor.Health model to the racer WebSocket protocol's SourceHealthPayload.
+func HealthCheckFromMonitor(mon *agwmonitor.Monitor) HealthCheckFunc {
+	return func() []SourceHealthPayload {
+		healthMap := mon.Health()
+		var result []SourceHealthPayload
+		for _, h := range healthMap {
+			if h.Status != agwmonitor.HealthHealthy {
+				result = append(result, SourceHealthFromMonitor(h))
+			}
+		}
+		return result
+	}
+}
 
 type Server struct {
 	config            atomic.Pointer[config.Config]
@@ -131,8 +146,9 @@ func (s *Server) SetReplayHandler(h *replay.Handler) {
 	s.replayHandler = h
 }
 
-// SetHealthCheck configures the function used by /api/health to report source
-// health in readiness probes. Must be called before SetupRoutes.
+// SetHealthCheck configures the readiness probe function used by
+// /api/health?probe=ready. Returns only non-healthy sources.
+// Must be called before SetupRoutes.
 func (s *Server) SetHealthCheck(fn HealthCheckFunc) {
 	s.healthCheck = fn
 }
@@ -143,8 +159,8 @@ func (s *Server) SetTrackHandler(h *tracks.Handler) {
 	s.trackHandler = h
 }
 
-// SetHealthHook registers a function that returns source health status.
-// Used by the /healthz endpoint. Must be called before SetupRoutes.
+// SetHealthHook configures the function used by /healthz to report all source
+// health status (healthy, degraded, and failed). Must be called before SetupRoutes.
 func (s *Server) SetHealthHook(hook func() []SourceHealthPayload) {
 	s.healthHook = hook
 }
@@ -250,7 +266,6 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	conn.SetReadLimit(4096)
 
 	if s.authToken != "" {
-		conn.SetReadLimit(maxWSAuthMessageSize)
 		_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 		_, msg, err := conn.ReadMessage()
 		_ = conn.SetReadDeadline(time.Time{})

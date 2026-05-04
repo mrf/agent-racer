@@ -6,18 +6,24 @@ import (
 
 	"github.com/agent-racer/backend/internal/gamification"
 	"github.com/agent-racer/backend/internal/session"
+	agwmonitor "github.com/mrf/agentwatch/monitor"
 )
+
+// ─── Wire protocol envelope ─────────────────────────────────────────────────
 
 type MessageType string
 
 const (
-	MsgSnapshot            MessageType = "snapshot"
-	MsgDelta               MessageType = "delta"
+	// Generic (agentwatch-compatible) message types.
+	MsgSnapshot    MessageType = "snapshot"
+	MsgDelta       MessageType = "delta"
+	MsgSourceHealth MessageType = "source_health"
+
+	// Racer-specific message types.
 	MsgCompletion          MessageType = "completion"
 	MsgEquipped            MessageType = "equipped"
 	MsgError               MessageType = "error"
 	MsgAchievementUnlocked MessageType = "achievement_unlocked"
-	MsgSourceHealth        MessageType = "source_health"
 	MsgBattlePassProgress  MessageType = "battlepass_progress"
 	MsgOvertake            MessageType = "overtake"
 )
@@ -37,6 +43,12 @@ func newMessage[T any](msgType MessageType, payload T) (WSMessage, error) {
 	return WSMessage{Type: msgType, Payload: data}, nil
 }
 
+// ─── Generic (agentwatch-compatible) message types ──────────────────────────
+//
+// These message types map to agentwatch monitor.Event semantics: snapshot
+// delivers full state, delta delivers incremental updates and removals,
+// source_health delivers per-source operational status.
+
 func NewSnapshotMessage(payload SnapshotPayload) (WSMessage, error) {
 	return newMessage(MsgSnapshot, payload)
 }
@@ -44,6 +56,69 @@ func NewSnapshotMessage(payload SnapshotPayload) (WSMessage, error) {
 func NewDeltaMessage(payload DeltaPayload) (WSMessage, error) {
 	return newMessage(MsgDelta, payload)
 }
+
+func NewSourceHealthMessage(payload SourceHealthPayload) (WSMessage, error) {
+	return newMessage(MsgSourceHealth, payload)
+}
+
+// SourceHealthStatus represents the operational state of a monitored source.
+// Values are wire-compatible with agentwatch monitor.HealthStatus.
+type SourceHealthStatus string
+
+const (
+	StatusHealthy  SourceHealthStatus = "healthy"
+	StatusDegraded SourceHealthStatus = "degraded"
+	StatusFailed   SourceHealthStatus = "failed"
+)
+
+// SourceHealthPayload carries per-source health information.
+// Field layout matches agentwatch monitor.Health for interoperability.
+type SourceHealthPayload struct {
+	Source           string             `json:"source"`
+	Status           SourceHealthStatus `json:"status"`
+	DiscoverFailures int                `json:"discoverFailures"`
+	ParseFailures    int                `json:"parseFailures"`
+	LastError        string             `json:"lastError,omitempty"`
+	Timestamp        time.Time          `json:"timestamp"`
+}
+
+// SourceHealthFromMonitor converts an agentwatch monitor.Health value to the
+// ws package's SourceHealthPayload. This is the bridge between agentwatch's
+// health reporting and the racer WebSocket protocol.
+func SourceHealthFromMonitor(h agwmonitor.Health) SourceHealthPayload {
+	return SourceHealthPayload{
+		Source:           h.Source,
+		Status:           SourceHealthStatus(h.Status),
+		DiscoverFailures: h.DiscoverFailures,
+		ParseFailures:    h.ParseFailures,
+		LastError:        h.LastError,
+		Timestamp:        h.UpdatedAt,
+	}
+}
+
+// SnapshotPayload carries the full state of all tracked sessions.
+type SnapshotPayload struct {
+	Sessions      []*session.SessionState `json:"sessions"`
+	Teams         []session.TeamInfo      `json:"teams,omitempty"`
+	SourceHealth  []SourceHealthPayload   `json:"sourceHealth,omitempty"`
+	ActiveTrackID string                  `json:"activeTrackId,omitempty"`
+}
+
+// DeltaPayload carries incremental session updates and removals.
+// Semantics match agentwatch monitor.EventDelta: Updates contains full
+// snapshots of changed sessions, Removed contains IDs of sessions that
+// were evicted by the retention policy.
+type DeltaPayload struct {
+	Updates []*session.SessionState `json:"updates"`
+	Removed []string                `json:"removed,omitempty"`
+	Teams   []session.TeamInfo      `json:"teams,omitempty"`
+}
+
+// ─── Racer-specific message types ───────────────────────────────────────────
+//
+// These message types extend the generic agentwatch protocol with racing
+// gamification: completion celebrations, cosmetic equip/unequip, achievements,
+// battle pass progression, and position overtakes.
 
 func NewCompletionMessage(payload CompletionPayload) (WSMessage, error) {
 	return newMessage(MsgCompletion, payload)
@@ -57,10 +132,6 @@ func NewAchievementUnlockedMessage(payload AchievementUnlockedPayload) (WSMessag
 	return newMessage(MsgAchievementUnlocked, payload)
 }
 
-func NewSourceHealthMessage(payload SourceHealthPayload) (WSMessage, error) {
-	return newMessage(MsgSourceHealth, payload)
-}
-
 func NewBattlePassProgressMessage(payload BattlePassProgressPayload) (WSMessage, error) {
 	return newMessage(MsgBattlePassProgress, payload)
 }
@@ -69,36 +140,9 @@ func NewOvertakeMessage(payload OvertakePayload) (WSMessage, error) {
 	return newMessage(MsgOvertake, payload)
 }
 
-type SourceHealthStatus string
-
-const (
-	StatusHealthy  SourceHealthStatus = "healthy"
-	StatusDegraded SourceHealthStatus = "degraded"
-	StatusFailed   SourceHealthStatus = "failed"
-)
-
-type SourceHealthPayload struct {
-	Source           string             `json:"source"`
-	Status           SourceHealthStatus `json:"status"`
-	DiscoverFailures int                `json:"discoverFailures"`
-	ParseFailures    int                `json:"parseFailures"`
-	LastError        string             `json:"lastError,omitempty"`
-	Timestamp        time.Time          `json:"timestamp"`
-}
-
-type SnapshotPayload struct {
-	Sessions      []*session.SessionState `json:"sessions"`
-	Teams         []session.TeamInfo      `json:"teams,omitempty"`
-	SourceHealth  []SourceHealthPayload   `json:"sourceHealth,omitempty"`
-	ActiveTrackID string                  `json:"activeTrackId,omitempty"`
-}
-
-type DeltaPayload struct {
-	Updates []*session.SessionState `json:"updates"`
-	Removed []string                `json:"removed,omitempty"`
-	Teams   []session.TeamInfo      `json:"teams,omitempty"`
-}
-
+// CompletionPayload announces that a session reached a terminal state.
+// This is a racer-specific lifecycle notification; agentwatch uses
+// monitor.EventLifecycle for the equivalent signal.
 type CompletionPayload struct {
 	SessionID string           `json:"sessionId"`
 	Activity  session.Activity `json:"activity"`
