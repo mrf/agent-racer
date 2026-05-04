@@ -134,7 +134,8 @@ describe('TrackEditor save form', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
     }));
-    expect(JSON.parse(mocks.authFetch.mock.calls[0][1].body)).toMatchObject({
+    const saveCall = mocks.authFetch.mock.calls.find(c => c[0] === '/api/tracks');
+    expect(JSON.parse(saveCall[1].body)).toMatchObject({
       id: 'my-test-track',
       name: 'My Test Track',
     });
