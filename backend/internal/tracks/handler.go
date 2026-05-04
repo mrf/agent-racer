@@ -220,7 +220,7 @@ func (h *Handler) setActiveTrack(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, activeTrackResponse{ID: req.ID})
+	writeJSON(w, activeTrackResponse(req))
 }
 
 // GetByID resolves a track by ID, checking presets first then the user store.
