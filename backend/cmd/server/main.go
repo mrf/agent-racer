@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	awmonitor "github.com/mrf/agentwatch/monitor"
 	awsource "github.com/mrf/agentwatch/source"
 	awclaude "github.com/mrf/agentwatch/sources/claude"
 	awcodex "github.com/mrf/agentwatch/sources/codex"
@@ -25,6 +26,7 @@ import (
 	"github.com/agent-racer/backend/internal/gamification"
 	"github.com/agent-racer/backend/internal/mock"
 	"github.com/agent-racer/backend/internal/monitor"
+	"github.com/agent-racer/backend/internal/racer"
 	"github.com/agent-racer/backend/internal/replay"
 	"github.com/agent-racer/backend/internal/session"
 	"github.com/agent-racer/backend/internal/tracks"
@@ -41,21 +43,21 @@ type serverOptions struct {
 	showVersion bool
 }
 
-func buildSources(cfg *config.Config) []awsource.Source {
+// buildRegistry creates an agentwatch source.Registry populated according
+// to the enabled sources in cfg.
+func buildRegistry(cfg *config.Config) *awsource.Registry {
 	reg := awsource.NewRegistry()
+	home, _ := os.UserHomeDir()
 
 	if cfg.Sources.Claude {
-		home, _ := os.UserHomeDir()
-		claudeRoot := filepath.Join(home, ".claude", "projects")
 		_ = awclaude.Register(reg,
-			awclaude.WithRoot(claudeRoot),
+			awclaude.WithRoot(filepath.Join(home, ".claude", "projects")),
 			awclaude.WithSessionEndDir(cfg.Monitor.SessionEndDir),
 		)
 	}
 	if cfg.Sources.Codex {
 		codexRoot := os.Getenv("CODEX_HOME")
 		if codexRoot == "" {
-			home, _ := os.UserHomeDir()
 			codexRoot = filepath.Join(home, ".codex")
 		}
 		_ = awcodex.Register(reg,
@@ -64,13 +66,16 @@ func buildSources(cfg *config.Config) []awsource.Source {
 		)
 	}
 	if cfg.Sources.Gemini {
-		home, _ := os.UserHomeDir()
-		geminiRoot := filepath.Join(home, ".gemini", "tmp")
 		_ = awgemini.Register(reg,
-			awgemini.WithRoot(geminiRoot),
+			awgemini.WithRoot(filepath.Join(home, ".gemini", "tmp")),
 		)
 	}
 
+	return reg
+}
+
+// registrySources instantiates all sources registered in the given Registry.
+func registrySources(reg *awsource.Registry) []awsource.Source {
 	names := reg.Names()
 	sources := make([]awsource.Source, 0, len(names))
 	for i := 0; i < len(names); i++ {
@@ -86,6 +91,36 @@ func buildSources(cfg *config.Config) []awsource.Source {
 		sources = append(sources, src)
 	}
 	return sources
+}
+
+// buildSources is a convenience wrapper used by tests.
+func buildSources(cfg *config.Config) []awsource.Source {
+	return registrySources(buildRegistry(cfg))
+}
+
+// buildAWMonitor creates an agentwatch monitor.Monitor configured from cfg.
+// Returns nil if sources is empty (agentwatch requires at least one).
+func buildAWMonitor(cfg *config.Config, sources []awsource.Source, sink awmonitor.EventSink) *awmonitor.Monitor {
+	if len(sources) == 0 {
+		return nil
+	}
+	threshold := cfg.Monitor.HealthWarningThreshold
+	if threshold <= 0 {
+		threshold = 3
+	}
+	awMon, err := awmonitor.New(
+		awmonitor.WithSources(sources...),
+		awmonitor.WithPollInterval(cfg.Monitor.PollInterval),
+		awmonitor.WithSink(sink),
+		awmonitor.WithStaleThreshold(cfg.Monitor.SessionStaleAfter),
+		awmonitor.WithCompletionRetention(cfg.Monitor.CompletionRemoveAfter),
+		awmonitor.WithHealthThreshold(threshold),
+	)
+	if err != nil {
+		log.Printf("failed to create agentwatch monitor: %v", err)
+		return nil
+	}
+	return awMon
 }
 
 func parseArgs(args []string, output io.Writer) (serverOptions, error) {
@@ -299,6 +334,7 @@ func main() {
 	}()
 
 	var mon *monitor.Monitor
+	var monitorSink awmonitor.EventSink // reused across SIGHUP rebuilds
 	if opts.mockMode {
 		log.Println("Starting in mock mode")
 		gen := mock.NewGenerator(store, broadcaster, cfg.Monitor.MockTickInterval)
@@ -306,18 +342,34 @@ func main() {
 		gen.Start(ctx)
 	} else {
 		log.Println("Starting in real mode (process monitoring)")
-		sources := buildSources(cfg)
-		mon = monitor.NewMonitor(cfg, store, broadcaster, sources)
+
+		// Build sources via agentwatch Registry.
+		reg := buildRegistry(cfg)
+		sources := registrySources(reg)
+
+		// Internal monitor handles enrichment (process activity, tmux,
+		// token normalization, burn rate) and feeds the session store +
+		// broadcaster pipeline.
+		mon = monitor.NewMonitor(cfg, store, broadcaster, nil)
 		mon.SetStatsEvents(statsCh)
 		if rec != nil {
 			mon.SetSnapshotHook(rec.WriteSnapshot)
 		}
-		server.SetHealthCheck(mon.SourceHealthSnapshot)
-		go mon.Start(ctx)
-	}
 
-	if mon != nil {
+		// Wire racer.Sink (position/lane/overtake tracking) alongside the
+		// internal monitor as a multi-sink for the agentwatch monitor.
+		racerSink := racer.NewSink()
+		monitorSink = awmonitor.NewMultiSink(
+			awmonitor.EventSinkFunc(mon.HandleEvent),
+			racerSink,
+		)
+
+		awMon := buildAWMonitor(cfg, sources, monitorSink)
+		mon.SetAWMonitor(awMon)
+
+		server.SetHealthCheck(mon.SourceHealthSnapshot)
 		server.SetHealthHook(mon.SourceHealthSnapshot)
+		go mon.Start(ctx)
 	}
 
 	mux := http.NewServeMux()
@@ -372,12 +424,19 @@ func main() {
 
 			// Apply monitor-level config (models, token norm, timings).
 			if mon != nil {
-				mon.SetConfig(newCfg)
-
-				// Rebuild sources if source configuration changed.
-				if oldCfg.Sources != newCfg.Sources {
-					mon.SetSources(buildSources(newCfg))
+				// Rebuild the agentwatch monitor when source config or
+				// immutable timing settings change.
+				needsRebuild := oldCfg.Sources != newCfg.Sources ||
+					oldCfg.Monitor.SessionStaleAfter != newCfg.Monitor.SessionStaleAfter ||
+					oldCfg.Monitor.CompletionRemoveAfter != newCfg.Monitor.CompletionRemoveAfter ||
+					oldCfg.Monitor.HealthWarningThreshold != newCfg.Monitor.HealthWarningThreshold
+				if needsRebuild {
+					newSources := registrySources(buildRegistry(newCfg))
+					newAwMon := buildAWMonitor(newCfg, newSources, monitorSink)
+					mon.SetAWMonitor(newAwMon)
 				}
+
+				mon.SetConfig(newCfg)
 			}
 
 			server.SetConfig(newCfg)

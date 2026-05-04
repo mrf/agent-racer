@@ -76,6 +76,9 @@ type Monitor struct {
 	statsLastDropLog time.Time
 	snapshotHook     SnapshotHook
 	reconfigureCh    chan struct{}
+
+	// externalAWMon: when true, SetConfig skips internal agentwatch rebuilds.
+	externalAWMon bool
 }
 
 func NewMonitor(cfg *config.Config, store *session.Store, broadcaster *ws.Broadcaster, sources []awsource.Source) *Monitor {
@@ -134,16 +137,20 @@ func (m *Monitor) buildAWMonitor(sources []awsource.Source) *awmonitor.Monitor {
 // SetConfig replaces the monitor's config pointer. Timing changes
 // (PollInterval, SessionStaleAfter, CompletionRemoveAfter) trigger
 // a rebuild of the agentwatch monitor on the next poll cycle.
+// When the agentwatch monitor is externally managed (via SetAWMonitor),
+// rebuilds are skipped — the caller must provide a new monitor.
 func (m *Monitor) SetConfig(cfg *config.Config) {
 	m.mu.Lock()
 	oldCfg := m.cfg
 	m.cfg = cfg
+	external := m.externalAWMon
 	m.mu.Unlock()
 
 	// Rebuild agentwatch monitor if its immutable settings changed.
-	if oldCfg.Monitor.SessionStaleAfter != cfg.Monitor.SessionStaleAfter ||
+	// Skip when externally managed — caller handles rebuilds.
+	if !external && (oldCfg.Monitor.SessionStaleAfter != cfg.Monitor.SessionStaleAfter ||
 		oldCfg.Monitor.CompletionRemoveAfter != cfg.Monitor.CompletionRemoveAfter ||
-		oldCfg.Monitor.HealthWarningThreshold != cfg.Monitor.HealthWarningThreshold {
+		oldCfg.Monitor.HealthWarningThreshold != cfg.Monitor.HealthWarningThreshold) {
 		m.rebuildAWMonitor()
 	}
 
@@ -162,6 +169,23 @@ func (m *Monitor) SetSources(newSources []awsource.Source) {
 	m.sources = newSources
 	m.mu.Unlock()
 	m.rebuildAWMonitor()
+}
+
+// SetAWMonitor replaces the agentwatch monitor with an externally-created
+// one. The caller is responsible for managing its lifecycle (rebuilding on
+// config changes). The monitor uses this for health queries and polling.
+func (m *Monitor) SetAWMonitor(mon *awmonitor.Monitor) {
+	m.mu.Lock()
+	m.awMon = mon
+	m.externalAWMon = true
+	m.mu.Unlock()
+}
+
+// HandleEvent implements awmonitor.EventSink, bridging agentwatch events
+// to the local session store and broadcaster. Exported so callers can wire
+// it as a sink when creating the agentwatch monitor externally.
+func (m *Monitor) HandleEvent(ctx context.Context, ev awmonitor.Event) error {
+	return m.handleEvent(ctx, ev)
 }
 
 func (m *Monitor) rebuildAWMonitor() {
