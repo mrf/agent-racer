@@ -325,3 +325,147 @@ func TestPruneOldFiles_IgnoresNonJSONL(t *testing.T) {
 		t.Fatal("non-jsonl file should not be pruned")
 	}
 }
+
+func TestPruneOldFiles_NonexistentDirIsNoop(t *testing.T) {
+	// Should not panic or error on a dir that doesn't exist.
+	pruneOldFiles("/tmp/nonexistent-replay-dir-12345", 7)
+}
+
+func TestNewRecorder_PrunesOldFilesOnStartup(t *testing.T) {
+	dir := t.TempDir()
+	oldFile := createOldFile(t, dir, "old-session.jsonl", 10)
+	recentFile := createOldFile(t, dir, "recent-session.jsonl", 1)
+
+	rec, err := NewRecorder(dir, 7)
+	if err != nil {
+		t.Fatalf("NewRecorder: %v", err)
+	}
+	defer rec.Close()
+
+	if _, err := os.Stat(oldFile); !os.IsNotExist(err) {
+		t.Fatal("old file should be pruned during NewRecorder")
+	}
+	if _, err := os.Stat(recentFile); os.IsNotExist(err) {
+		t.Fatal("recent file should be kept during NewRecorder")
+	}
+}
+
+func TestRecorder_SetPrivacyFilterConcurrent(t *testing.T) {
+	_, rec := newStubRecorder(nil, nil)
+
+	var wg sync.WaitGroup
+	// Concurrent writers
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			rec.SetPrivacyFilter(&session.PrivacyFilter{MaskSessionIDs: true})
+		}()
+	}
+	// Concurrent readers (via WriteSnapshot which calls userPrivacy)
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			rec.WriteSnapshot(nil)
+		}()
+	}
+	wg.Wait()
+}
+
+func TestRecorder_SanitizeStripsFieldsWithReplayPrivacy(t *testing.T) {
+	file, rec := newStubRecorder(nil, nil)
+
+	sessions := []*session.SessionState{
+		{
+			ID:         "sess-123",
+			Name:       "test",
+			Source:     "claude",
+			WorkingDir: "/home/user/projects/myapp",
+			PID:        12345,
+			TmuxTarget: "dev:0",
+		},
+	}
+
+	rec.WriteSnapshot(sessions)
+
+	var snap Snapshot
+	if err := json.Unmarshal(file.buffer.Bytes(), &snap); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(snap.Sessions) != 1 {
+		t.Fatalf("got %d sessions, want 1", len(snap.Sessions))
+	}
+	s := snap.Sessions[0]
+
+	// replayPrivacy masks WorkingDir to basename, PID to 0, TmuxTarget to ""
+	if s.WorkingDir != "myapp" {
+		t.Errorf("WorkingDir = %q, want %q (basename only)", s.WorkingDir, "myapp")
+	}
+	if s.PID != 0 {
+		t.Errorf("PID = %d, want 0 (masked)", s.PID)
+	}
+	if s.TmuxTarget != "" {
+		t.Errorf("TmuxTarget = %q, want empty (masked)", s.TmuxTarget)
+	}
+	// ID is NOT masked by replayPrivacy (only by user filter)
+	if s.ID != "sess-123" {
+		t.Errorf("ID = %q, want %q (not masked by replay filter)", s.ID, "sess-123")
+	}
+}
+
+func TestRecorder_SanitizeAppliesUserPrivacyFilter(t *testing.T) {
+	file, rec := newStubRecorder(nil, nil)
+	rec.SetPrivacyFilter(&session.PrivacyFilter{
+		BlockedPaths: []string{"/home/user/secret"},
+	})
+
+	sessions := []*session.SessionState{
+		{ID: "allowed", Source: "claude", WorkingDir: "/home/user/projects/myapp"},
+		{ID: "blocked", Source: "claude", WorkingDir: "/home/user/secret"},
+	}
+
+	rec.WriteSnapshot(sessions)
+
+	var snap Snapshot
+	if err := json.Unmarshal(file.buffer.Bytes(), &snap); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(snap.Sessions) != 1 {
+		t.Fatalf("got %d sessions, want 1 (blocked session filtered out)", len(snap.Sessions))
+	}
+	if snap.Sessions[0].ID != "allowed" {
+		t.Fatalf("remaining session ID = %q, want %q", snap.Sessions[0].ID, "allowed")
+	}
+}
+
+func TestRecorder_SanitizeNilUserFilterStillAppliesReplayPrivacy(t *testing.T) {
+	file, rec := newStubRecorder(nil, nil)
+	rec.SetPrivacyFilter(nil)
+
+	sessions := []*session.SessionState{
+		{
+			ID:         "s1",
+			WorkingDir: "/full/path/to/project",
+			PID:        999,
+			TmuxTarget: "main:1",
+		},
+	}
+
+	rec.WriteSnapshot(sessions)
+
+	var snap Snapshot
+	if err := json.Unmarshal(file.buffer.Bytes(), &snap); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	s := snap.Sessions[0]
+	if s.WorkingDir != "project" {
+		t.Errorf("WorkingDir = %q, want %q", s.WorkingDir, "project")
+	}
+	if s.PID != 0 {
+		t.Errorf("PID = %d, want 0", s.PID)
+	}
+	if s.TmuxTarget != "" {
+		t.Errorf("TmuxTarget = %q, want empty", s.TmuxTarget)
+	}
+}
