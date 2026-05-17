@@ -45,7 +45,7 @@ export class Minimap {
     el.setAttribute('role', 'img');
     el.setAttribute('aria-label', 'Session radar minimap');
     this._canvas = el;
-    this._ctx = el.getContext('2d');
+    this._ctx = null; // Initialized lazily on first render tick
 
     el.addEventListener('click', (e) => this._handleClick(e));
     el.addEventListener('mouseenter', () => this._hoverZoom(true));
@@ -86,6 +86,7 @@ export class Minimap {
   _startLoop() {
     const tick = (now) => {
       this._animFrame = requestAnimationFrame(tick);
+      if (!this._ctx) this._ctx = this._canvas.getContext('2d');
       if (now - this._lastFrameTime < FRAME_MS) return;
       this._lastFrameTime = now;
       if (this.visible && this.raceCanvas && this._ctx) {

@@ -482,7 +482,7 @@ export class TrackEditor {
   }
 
   draw() {
-    if (!this.active) return;
+    if (!this.active || !this.ctx) return;
     const ctx = this.ctx;
     const { width, height } = this._canvasMetrics();
 
