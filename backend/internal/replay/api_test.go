@@ -2,6 +2,7 @@ package replay
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -228,5 +229,101 @@ func TestHandleGet_NilAuthAllowsAccess(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+}
+
+func TestHandleGet_ContentLengthHeader(t *testing.T) {
+	dir := t.TempDir()
+	content := `{"t":"2026-01-15T12:00:00Z","s":[{"id":"s1"}]}` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "sized.jsonl"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := serveReplay(dir, nil, http.MethodGet, "/api/replays/sized")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	cl := rec.Header().Get("Content-Length")
+	want := fmt.Sprintf("%d", len(content))
+	if cl != want {
+		t.Fatalf("Content-Length = %q, want %q", cl, want)
+	}
+}
+
+func TestHandleGet_TooLargeReturns413(t *testing.T) {
+	dir := t.TempDir()
+	// Create a sparse file exceeding MaxReplayResponseBytes without allocating real disk space.
+	path := filepath.Join(dir, "huge.jsonl")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Seek(MaxReplayResponseBytes+1, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write([]byte("\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := serveReplay(dir, nil, http.MethodGet, "/api/replays/huge")
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusRequestEntityTooLarge)
+	}
+}
+
+func TestHandleGet_PathTraversalAfterJoin(t *testing.T) {
+	// Verifies filepath.Clean defense-in-depth guard allows valid IDs that
+	// resolve within the replay directory.
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "valid-name.jsonl"), []byte("ok"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := serveReplay(dir, nil, http.MethodGet, "/api/replays/valid-name")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+}
+
+func TestHandleList_ReplayInfoFields(t *testing.T) {
+	dir := t.TempDir()
+	content := `{"t":"2026-01-15T12:00:00Z","s":[]}` + "\n"
+	path := filepath.Join(dir, "session-abc.jsonl")
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := serveReplay(dir, nil, http.MethodGet, "/api/replays")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	var result []ReplayInfo
+	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(result) != 1 {
+		t.Fatalf("got %d replays, want 1", len(result))
+	}
+
+	r := result[0]
+	if r.ID != "session-abc" {
+		t.Errorf("ID = %q, want %q", r.ID, "session-abc")
+	}
+	if r.Name != "session-abc.jsonl" {
+		t.Errorf("Name = %q, want %q", r.Name, "session-abc.jsonl")
+	}
+	if r.Size != int64(len(content)) {
+		t.Errorf("Size = %d, want %d", r.Size, len(content))
+	}
+	if r.CreatedAt.IsZero() {
+		t.Error("CreatedAt should not be zero")
 	}
 }
