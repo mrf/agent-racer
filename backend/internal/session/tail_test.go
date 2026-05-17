@@ -608,6 +608,259 @@ func TestParseTailSystem(t *testing.T) {
 	})
 }
 
+func TestSplitProgressPrefix(t *testing.T) {
+	tests := []struct {
+		name       string
+		input      string
+		wantPrefix string
+		wantRest   string
+	}{
+		{
+			name:       "with slug prefix",
+			input:      "[my-agent] Read b/c.go",
+			wantPrefix: "[my-agent] ",
+			wantRest:   "Read b/c.go",
+		},
+		{
+			name:       "no prefix",
+			input:      "Read b/c.go",
+			wantPrefix: "",
+			wantRest:   "Read b/c.go",
+		},
+		{
+			name:       "empty string",
+			input:      "",
+			wantPrefix: "",
+			wantRest:   "",
+		},
+		{
+			name:       "bracket without closing bracket-space",
+			input:      "[incomplete",
+			wantPrefix: "",
+			wantRest:   "[incomplete",
+		},
+		{
+			name:       "bracket at start with ] but no space after",
+			input:      "[slug]nospace",
+			wantPrefix: "",
+			wantRest:   "[slug]nospace",
+		},
+		{
+			name:       "bracket not at start",
+			input:      "x[slug] rest",
+			wantPrefix: "",
+			wantRest:   "x[slug] rest",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			prefix, rest := splitProgressPrefix(tt.input)
+			if prefix != tt.wantPrefix {
+				t.Errorf("prefix=%q, want %q", prefix, tt.wantPrefix)
+			}
+			if rest != tt.wantRest {
+				t.Errorf("rest=%q, want %q", rest, tt.wantRest)
+			}
+		})
+	}
+}
+
+func TestExtractToolName(t *testing.T) {
+	tests := []struct {
+		name    string
+		summary string
+		want    string
+	}{
+		{
+			name:    "Bash with colon separator",
+			summary: "Bash: cat /etc/passwd",
+			want:    "Bash",
+		},
+		{
+			name:    "Read with space separator",
+			summary: "Read tail.go",
+			want:    "Read",
+		},
+		{
+			name:    "tool name only",
+			summary: "CustomTool",
+			want:    "CustomTool",
+		},
+		{
+			name:    "empty string",
+			summary: "",
+			want:    "",
+		},
+		{
+			name:    "Glob with space",
+			summary: "Glob **/*.go",
+			want:    "Glob",
+		},
+		{
+			name:    "Agent with colon",
+			summary: "Agent: explore codebase",
+			want:    "Agent",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractToolName(tt.summary)
+			if got != tt.want {
+				t.Errorf("extractToolName(%q) = %q, want %q", tt.summary, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSanitizeTailEntry(t *testing.T) {
+	ts := mustParseTS(testTS)
+
+	t.Run("assistant text is redacted", func(t *testing.T) {
+		e := TailEntry{Timestamp: ts, Type: "assistant", Activity: "text", Summary: "secret code", Detail: "full detail"}
+		got := sanitizeTailEntry(e)
+		if got.Summary != "(text output)" {
+			t.Errorf("summary=%q, want %q", got.Summary, "(text output)")
+		}
+		if got.Detail != "" {
+			t.Errorf("detail should be empty, got %q", got.Detail)
+		}
+	})
+
+	t.Run("user text is redacted", func(t *testing.T) {
+		e := TailEntry{Timestamp: ts, Type: "user", Activity: "text", Summary: "user secret"}
+		got := sanitizeTailEntry(e)
+		if got.Summary != "(user input)" {
+			t.Errorf("summary=%q, want %q", got.Summary, "(user input)")
+		}
+	})
+
+	t.Run("thinking is redacted", func(t *testing.T) {
+		e := TailEntry{Timestamp: ts, Type: "assistant", Activity: "thinking", Summary: "deep thoughts"}
+		got := sanitizeTailEntry(e)
+		if got.Summary != "(thinking)" {
+			t.Errorf("summary=%q, want %q", got.Summary, "(thinking)")
+		}
+	})
+
+	t.Run("thinking with progress prefix preserves prefix", func(t *testing.T) {
+		e := TailEntry{Timestamp: ts, Type: "progress", Activity: "thinking", Summary: "[sub] deep thoughts"}
+		got := sanitizeTailEntry(e)
+		if got.Summary != "[sub] (thinking)" {
+			t.Errorf("summary=%q, want %q", got.Summary, "[sub] (thinking)")
+		}
+	})
+
+	t.Run("tool_result is redacted", func(t *testing.T) {
+		e := TailEntry{Timestamp: ts, Type: "user", Activity: "tool_result", Summary: "→ file contents here"}
+		got := sanitizeTailEntry(e)
+		if got.Summary != "(result)" {
+			t.Errorf("summary=%q, want %q", got.Summary, "(result)")
+		}
+	})
+
+	t.Run("tool_result with progress prefix preserves prefix", func(t *testing.T) {
+		e := TailEntry{Timestamp: ts, Type: "progress", Activity: "tool_result", Summary: "[sub] received result"}
+		got := sanitizeTailEntry(e)
+		if got.Summary != "[sub] (result)" {
+			t.Errorf("summary=%q, want %q", got.Summary, "[sub] (result)")
+		}
+	})
+
+	t.Run("tool_use extracts tool name", func(t *testing.T) {
+		e := TailEntry{Timestamp: ts, Type: "assistant", Activity: "tool_use", Summary: "Read src/main.go"}
+		got := sanitizeTailEntry(e)
+		if got.Summary != "Read" {
+			t.Errorf("summary=%q, want %q", got.Summary, "Read")
+		}
+	})
+
+	t.Run("tool_use with progress prefix preserves prefix", func(t *testing.T) {
+		e := TailEntry{Timestamp: ts, Type: "progress", Activity: "tool_use", Summary: "[sub] Bash: make test"}
+		got := sanitizeTailEntry(e)
+		if got.Summary != "[sub] Bash" {
+			t.Errorf("summary=%q, want %q", got.Summary, "[sub] Bash")
+		}
+	})
+
+	t.Run("tool_use Bash with colon", func(t *testing.T) {
+		e := TailEntry{Timestamp: ts, Type: "assistant", Activity: "tool_use", Summary: "Bash: go test ./..."}
+		got := sanitizeTailEntry(e)
+		if got.Summary != "Bash" {
+			t.Errorf("summary=%q, want %q", got.Summary, "Bash")
+		}
+	})
+
+	t.Run("subagent summary passes through", func(t *testing.T) {
+		e := TailEntry{Timestamp: ts, Type: "progress", Activity: "subagent", Summary: "[sub] progress"}
+		got := sanitizeTailEntry(e)
+		if got.Summary != "[sub] progress" {
+			t.Errorf("summary=%q, want %q", got.Summary, "[sub] progress")
+		}
+	})
+
+	t.Run("system compact summary passes through", func(t *testing.T) {
+		e := TailEntry{Timestamp: ts, Type: "system", Activity: "compact", Summary: "context compacted"}
+		got := sanitizeTailEntry(e)
+		if got.Summary != "context compacted" {
+			t.Errorf("summary=%q, want %q", got.Summary, "context compacted")
+		}
+	})
+
+	t.Run("detail always cleared", func(t *testing.T) {
+		activities := []struct {
+			activity string
+			entry    TailEntry
+		}{
+			{"text", TailEntry{Timestamp: ts, Type: "assistant", Activity: "text", Summary: "x", Detail: "secret"}},
+			{"tool_use", TailEntry{Timestamp: ts, Type: "assistant", Activity: "tool_use", Summary: "Read foo", Detail: "secret"}},
+			{"subagent", TailEntry{Timestamp: ts, Type: "progress", Activity: "subagent", Summary: "[sub] progress", Detail: "secret"}},
+			{"system", TailEntry{Timestamp: ts, Type: "system", Activity: "system", Summary: "event", Detail: "secret"}},
+		}
+		for _, tt := range activities {
+			got := sanitizeTailEntry(tt.entry)
+			if got.Detail != "" {
+				t.Errorf("activity %q: detail should be empty, got %q", tt.activity, got.Detail)
+			}
+		}
+	})
+}
+
+func TestSanitizeTailEntries(t *testing.T) {
+	ts := mustParseTS(testTS)
+
+	entries := []TailEntry{
+		{Timestamp: ts, Type: "assistant", Activity: "text", Summary: "secret", Detail: "detail"},
+		{Timestamp: ts, Type: "assistant", Activity: "tool_use", Summary: "Read src/main.go"},
+		{Timestamp: ts, Type: "user", Activity: "tool_result", Summary: "→ file contents"},
+	}
+
+	got := SanitizeTailEntries(entries)
+	if len(got) != 3 {
+		t.Fatalf("expected 3 entries, got %d", len(got))
+	}
+
+	if got[0].Summary != "(text output)" {
+		t.Errorf("[0] summary=%q, want %q", got[0].Summary, "(text output)")
+	}
+	if got[0].Detail != "" {
+		t.Errorf("[0] detail should be empty")
+	}
+	if got[1].Summary != "Read" {
+		t.Errorf("[1] summary=%q, want %q", got[1].Summary, "Read")
+	}
+	if got[2].Summary != "(result)" {
+		t.Errorf("[2] summary=%q, want %q", got[2].Summary, "(result)")
+	}
+
+	// Original entries should be unmodified.
+	if entries[0].Summary != "secret" {
+		t.Error("original entry was mutated")
+	}
+	if entries[0].Detail != "detail" {
+		t.Error("original entry detail was mutated")
+	}
+}
+
 func TestParseTailEntries(t *testing.T) {
 	t.Run("basic assistant text", func(t *testing.T) {
 		data := mkJSONL(assistantText(testTS, "hello"))
