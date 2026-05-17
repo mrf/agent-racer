@@ -337,6 +337,39 @@ func TestUpdateTrackValidation(t *testing.T) {
 	}
 }
 
+// --- Path-based ID injection guard ---
+
+func TestPathInjectionRejected(t *testing.T) {
+	// IDs with path traversal or metacharacters must not succeed.
+	// Slash-containing IDs are rejected at the routing level (wrong path);
+	// other invalid characters are rejected by the validID regex in the store.
+	cases := []struct {
+		name   string
+		method string
+		id     string
+		body   string
+		reject int
+	}{
+		{"GET traversal", http.MethodGet, "../../../etc/passwd", "", http.StatusOK},
+		{"GET nested slash", http.MethodGet, "track/nested", "", http.StatusOK},
+		{"GET semicolon", http.MethodGet, "semi;colon", "", http.StatusOK},
+		{"PUT traversal", http.MethodPut, "../escape", `{"name":"X","width":2,"height":2,"tiles":[["",""],["",""]]}`, http.StatusOK},
+		{"PUT nested slash", http.MethodPut, "slash/id", `{"name":"X","width":2,"height":2,"tiles":[["",""],["",""]]}`, http.StatusOK},
+		{"DELETE traversal", http.MethodDelete, "../escape", "", http.StatusNoContent},
+		{"DELETE nested slash", http.MethodDelete, "slash/id", "", http.StatusNoContent},
+	}
+	for i := 0; i < len(cases); i++ {
+		tc := cases[i]
+		t.Run(tc.name, func(t *testing.T) {
+			h := newTestHandler(t)
+			w := doRequest(h, tc.method, "/api/tracks/"+tc.id, tc.body)
+			if w.Code == tc.reject {
+				t.Fatalf("%s /api/tracks/%s: status = %d, expected rejection", tc.method, tc.id, w.Code)
+			}
+		})
+	}
+}
+
 // --- Response content type ---
 
 func TestResponseContentTypeJSON(t *testing.T) {

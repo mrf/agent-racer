@@ -103,3 +103,40 @@ func TestExpectedPresetIDs(t *testing.T) {
 		}
 	}
 }
+
+func TestPresetsHaveStartLine(t *testing.T) {
+	presets := Presets()
+	for i := 0; i < len(presets); i++ {
+		p := presets[i]
+		found := false
+		for row := 0; row < len(p.Tiles); row++ {
+			for col := 0; col < len(p.Tiles[row]); col++ {
+				if p.Tiles[row][col] == "start-line" {
+					found = true
+					break
+				}
+			}
+			if found {
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("preset %q has no start-line tile", p.ID)
+		}
+	}
+}
+
+func TestPresetsContainOnlyValidTileTypes(t *testing.T) {
+	presets := Presets()
+	for i := 0; i < len(presets); i++ {
+		p := presets[i]
+		for row := 0; row < len(p.Tiles); row++ {
+			for col := 0; col < len(p.Tiles[row]); col++ {
+				tile := p.Tiles[row][col]
+				if !validTileTypes[tile] {
+					t.Fatalf("preset %q has invalid tile type %q at [%d][%d]", p.ID, tile, row, col)
+				}
+			}
+		}
+	}
+}
