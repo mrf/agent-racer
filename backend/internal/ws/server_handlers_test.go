@@ -212,6 +212,15 @@ func TestHandleConfig_ReturnsSoundConfig(t *testing.T) {
 
 // ─── handleStats ─────────────────────────────────────────────────────────────
 
+func TestHandleStats_MethodNotAllowed(t *testing.T) {
+	s := newHandlerTestServer(t, "")
+	rec := httptest.NewRecorder()
+	s.handleStats(rec, authReq(http.MethodPost, "/api/stats", "", ""))
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusMethodNotAllowed)
+	}
+}
+
 func TestHandleStats_NoAuth(t *testing.T) {
 	s := newHandlerTestServer(t, "secret")
 	rec := httptest.NewRecorder()
@@ -253,6 +262,15 @@ func TestHandleStats_WithTracker(t *testing.T) {
 }
 
 // ─── handleAchievements ──────────────────────────────────────────────────────
+
+func TestHandleAchievements_MethodNotAllowed(t *testing.T) {
+	s := newHandlerTestServer(t, "")
+	rec := httptest.NewRecorder()
+	s.handleAchievements(rec, authReq(http.MethodPost, "/api/achievements", "", ""))
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusMethodNotAllowed)
+	}
+}
 
 func TestHandleAchievements_NoAuth(t *testing.T) {
 	s := newHandlerTestServer(t, "secret")
@@ -702,6 +720,15 @@ func TestHandleSessionRoutes_UnknownAction(t *testing.T) {
 }
 
 // ─── handleChallenges ────────────────────────────────────────────────────────
+
+func TestHandleChallenges_MethodNotAllowed(t *testing.T) {
+	s := newHandlerTestServer(t, "")
+	rec := httptest.NewRecorder()
+	s.handleChallenges(rec, authReq(http.MethodPost, "/api/challenges", "", ""))
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusMethodNotAllowed)
+	}
+}
 
 func TestHandleChallenges_NoAuth(t *testing.T) {
 	s := newHandlerTestServer(t, "secret")
