@@ -735,49 +735,7 @@ func TestDecodeBody_TooLarge(t *testing.T) {
 }
 
 // ─── authorize ───────────────────────────────────────────────────────────────
-
-func TestAuthorize_NoToken(t *testing.T) {
-	s := newHandlerTestServer(t, "")
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	if !s.authorize(req) {
-		t.Error("authorize should return true when no auth token configured")
-	}
-}
-
-func TestAuthorize_ValidToken(t *testing.T) {
-	s := newHandlerTestServer(t, "my-secret")
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("Authorization", "Bearer my-secret")
-	if !s.authorize(req) {
-		t.Error("authorize should return true for valid token")
-	}
-}
-
-func TestAuthorize_InvalidToken(t *testing.T) {
-	s := newHandlerTestServer(t, "my-secret")
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("Authorization", "Bearer wrong-token")
-	if s.authorize(req) {
-		t.Error("authorize should return false for invalid token")
-	}
-}
-
-func TestAuthorize_MissingHeader(t *testing.T) {
-	s := newHandlerTestServer(t, "my-secret")
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	if s.authorize(req) {
-		t.Error("authorize should return false when no Authorization header")
-	}
-}
-
-func TestAuthorize_WrongScheme(t *testing.T) {
-	s := newHandlerTestServer(t, "my-secret")
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("Authorization", "Basic my-secret")
-	if s.authorize(req) {
-		t.Error("authorize should return false for non-Bearer scheme")
-	}
-}
+// Comprehensive authorize() tests live in server_test.go (TestAuthorize + TestAuthorizeExported).
 
 // ─── writeRateLimitExceeded ──────────────────────────────────────────────────
 
