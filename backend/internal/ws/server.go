@@ -446,6 +446,10 @@ func (s *Server) handleActiveTrack(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	if !s.authorize(r) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -472,6 +476,10 @@ type achievementResponse struct {
 }
 
 func (s *Server) handleAchievements(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	if !s.authorize(r) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -505,6 +513,10 @@ func (s *Server) handleAchievements(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleChallenges(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	if !s.authorize(r) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
