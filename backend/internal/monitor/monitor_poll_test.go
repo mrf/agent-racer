@@ -335,6 +335,72 @@ func TestPollProcessActivityEnrichment(t *testing.T) {
 	}
 }
 
+func TestProcessScanThrottle(t *testing.T) {
+	src := newStubSource("claude")
+	mon, store, broadcaster := newTestEnv(src)
+	defer broadcaster.Stop()
+
+	scanCount := 0
+	mon.discoverProcessActivity = func(prev map[int]cpuSample, elapsed time.Duration) ([]ProcessActivity, map[int]cpuSample) {
+		scanCount++
+		return []ProcessActivity{
+			{PID: 12345, CPU: 50.0, TCPConns: 2, WorkingDir: "/home/user/project"},
+		}, prev
+	}
+	mon.processPollInterval = 5 * time.Second
+
+	now := time.Now()
+	src.setHandles([]awsource.SessionHandle{
+		{ID: "sess-1", Source: "claude", WorkingDir: "/home/user/project", StartedAt: now},
+	})
+	src.setUpdate("sess-1", awsource.SourceUpdate{
+		SessionID:      "sess-1",
+		Activity:       awsession.ActivityWorking,
+		WorkingDir:     "/home/user/project",
+		LastActivityAt: now,
+	})
+
+	// First poll: should scan (lastProcessPoll is zero).
+	mon.poll(context.Background())
+	if scanCount != 1 {
+		t.Fatalf("after first poll: scanCount = %d, want 1", scanCount)
+	}
+
+	state, ok := store.Get("claude:sess-1")
+	if !ok {
+		t.Fatal("session not found after first poll")
+	}
+	if state.PID != 12345 {
+		t.Errorf("PID = %d, want 12345 after first poll", state.PID)
+	}
+
+	// Second poll immediately after: should use cached data, not scan again.
+	src.setUpdate("sess-1", awsource.SourceUpdate{
+		SessionID:      "sess-1",
+		Activity:       awsession.ActivityWorking,
+		WorkingDir:     "/home/user/project",
+		LastActivityAt: now.Add(time.Second),
+	})
+	mon.poll(context.Background())
+	if scanCount != 1 {
+		t.Errorf("after second poll: scanCount = %d, want 1 (throttled)", scanCount)
+	}
+
+	// Simulate time passing beyond the interval by backdating lastProcessPoll.
+	mon.lastProcessPoll = time.Now().Add(-6 * time.Second)
+
+	src.setUpdate("sess-1", awsource.SourceUpdate{
+		SessionID:      "sess-1",
+		Activity:       awsession.ActivityWorking,
+		WorkingDir:     "/home/user/project",
+		LastActivityAt: now.Add(7 * time.Second),
+	})
+	mon.poll(context.Background())
+	if scanCount != 2 {
+		t.Errorf("after interval elapsed: scanCount = %d, want 2", scanCount)
+	}
+}
+
 func TestSetConfigUpdatesInterval(t *testing.T) {
 	src := newStubSource("claude")
 	mon, _, broadcaster := newTestEnv(src)
