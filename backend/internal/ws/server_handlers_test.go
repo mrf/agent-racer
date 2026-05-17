@@ -14,6 +14,7 @@ import (
 	"github.com/agent-racer/backend/internal/gamification"
 	"github.com/agent-racer/backend/internal/session"
 	"github.com/agent-racer/backend/internal/tracks"
+	"github.com/gorilla/websocket"
 )
 
 // newHandlerTestServer creates a Server with a real store and broadcaster,
@@ -41,6 +42,30 @@ func newTrackerForTest(t *testing.T) *gamification.StatsTracker {
 	t.Helper()
 	dir := t.TempDir()
 	persist := gamification.NewStore(dir)
+	tracker, _, err := gamification.NewStatsTracker(persist, 16, nil)
+	if err != nil {
+		t.Fatalf("NewStatsTracker: %v", err)
+	}
+	return tracker
+}
+
+// newTrackerWithAchievement creates a StatsTracker with a pre-unlocked achievement.
+func newTrackerWithAchievement(t *testing.T, achievementID string) *gamification.StatsTracker {
+	t.Helper()
+	dir := t.TempDir()
+	persist := gamification.NewStore(dir)
+
+	// Write stats with the achievement pre-unlocked so Load() picks it up.
+	stats := &gamification.Stats{
+		Version:              1,
+		SessionsPerSource:    make(map[string]int),
+		SessionsPerModel:     make(map[string]int),
+		AchievementsUnlocked: map[string]time.Time{achievementID: time.Now()},
+	}
+	if err := persist.Save(stats); err != nil {
+		t.Fatalf("Save stats: %v", err)
+	}
+
 	tracker, _, err := gamification.NewStatsTracker(persist, 16, nil)
 	if err != nil {
 		t.Fatalf("NewStatsTracker: %v", err)
@@ -384,6 +409,76 @@ func TestHandleEquip_InvalidBody(t *testing.T) {
 	s.handleEquip(rec, authReq(http.MethodPost, "/api/equip", "", `not json`))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleEquip_Success(t *testing.T) {
+	s := newHandlerTestServer(t, "")
+	tracker := newTrackerWithAchievement(t, "first_lap")
+	s.SetStatsTracker(tracker)
+
+	rec := httptest.NewRecorder()
+	s.handleEquip(rec, authReq(http.MethodPost, "/api/equip", "", `{"rewardId":"rookie_paint","slot":"paint"}`))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+	var loadout gamification.Equipped
+	if err := json.NewDecoder(rec.Body).Decode(&loadout); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if loadout.Paint != "rookie_paint" {
+		t.Errorf("paint = %q, want %q", loadout.Paint, "rookie_paint")
+	}
+}
+
+func TestHandleEquip_SuccessBroadcastsWSMessage(t *testing.T) {
+	s := newHandlerTestServer(t, "")
+	tracker := newTrackerWithAchievement(t, "first_lap")
+	s.SetStatsTracker(tracker)
+
+	// Set up a WebSocket test server and connect a client.
+	mux := http.NewServeMux()
+	s.SetupRoutes(mux)
+	ts := httptest.NewServer(mux)
+	t.Cleanup(ts.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("ws dial: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	// Drain the initial snapshot message.
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, _, _ = conn.ReadMessage()
+
+	// Equip via HTTP.
+	rec := httptest.NewRecorder()
+	s.handleEquip(rec, authReq(http.MethodPost, "/api/equip", "", `{"rewardId":"rookie_paint","slot":"paint"}`))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("equip status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	// Read the broadcast message from the WebSocket.
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, msg, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("ws read: %v", err)
+	}
+
+	var wsMsg struct {
+		Type    string          `json:"type"`
+		Payload json.RawMessage `json:"payload"`
+	}
+	if err := json.Unmarshal(msg, &wsMsg); err != nil {
+		t.Fatalf("ws unmarshal: %v", err)
+	}
+	if wsMsg.Type != "equipped" {
+		t.Errorf("ws message type = %q, want %q", wsMsg.Type, "equipped")
 	}
 }
 
