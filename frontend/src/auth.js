@@ -1,18 +1,12 @@
 const AUTH_TOKEN_STORAGE_KEY = 'agent-racer-auth-token';
 
 function warnOnURLToken(source, persistedToSession) {
-  if (typeof console === 'undefined' || typeof console.warn !== 'function') {
-    return;
-  }
-
   const baseMessage =
     source === 'search'
       ? 'Auth token was read from the URL query string. Query-string tokens can leak through browser history, server logs, and referrer headers.'
       : 'Auth token was read from the URL. Avoid passing credentials in the URL when possible.';
-  const storageMessage = persistedToSession
-    ? ' The token was copied to sessionStorage for this tab.'
-    : '';
-  console.warn(`${baseMessage}${storageMessage}`);
+  const suffix = persistedToSession ? ' The token was copied to sessionStorage for this tab.' : '';
+  console.warn(`${baseMessage}${suffix}`);
 }
 
 function resolveAuthToken() {
@@ -21,7 +15,6 @@ function resolveAuthToken() {
 
   let searchParams = new URLSearchParams();
   let hashParams = new URLSearchParams();
-  let sawTokenInURL = false;
   let sawTokenInSearch = false;
   let sawTokenInHash = false;
   let token = '';
@@ -31,7 +24,6 @@ function resolveAuthToken() {
     if (hashParams.has('token')) {
       token = hashParams.get('token') || '';
       hashParams.delete('token');
-      sawTokenInURL = true;
       sawTokenInHash = true;
     }
 
@@ -41,7 +33,6 @@ function resolveAuthToken() {
         token = searchParams.get('token') || '';
       }
       searchParams.delete('token');
-      sawTokenInURL = true;
       sawTokenInSearch = true;
     }
   }
@@ -62,6 +53,7 @@ function resolveAuthToken() {
     }
   }
 
+  const sawTokenInURL = sawTokenInSearch || sawTokenInHash;
   if (sawTokenInURL && hasLocation && typeof history !== 'undefined' && typeof history.replaceState === 'function') {
     const pathname = location.pathname || '/';
     const search = searchParams.toString();
