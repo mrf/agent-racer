@@ -39,9 +39,7 @@ jobs:
           path: backend/coverage.out
 
       - name: Run golangci-lint
-        run: |
-          cd backend
-          golangci-lint run --config ../.golangci.yml
+        run: make lint
 
   vitest:
     runs-on: ubuntu-latest
