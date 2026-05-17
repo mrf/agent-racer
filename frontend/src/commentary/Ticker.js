@@ -58,11 +58,13 @@ export class Ticker {
    * @param {number} canvasHeight
    */
   draw(ctx, canvasWidth, canvasHeight) {
-    if (!this._message) return;
-
     const y = canvasHeight - TICKER_HEIGHT;
 
+    // Always clear the ticker area so stale copies don't linger when the
+    // message changes or expires.
     ctx.clearRect(0, y, canvasWidth, TICKER_HEIGHT);
+
+    if (!this._message) return;
 
     // Background bar
     ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
