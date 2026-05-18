@@ -1,6 +1,9 @@
 server:
   port: 8077
   host: "127.0.0.1"
+  # auth_token is NOT committed here. playwright.config.ts generates a random
+  # token at test time and injects it into .e2e-config.generated.yaml (gitignored),
+  # which is what the backend actually loads during e2e runs.
 
 sources:
   claude: true
