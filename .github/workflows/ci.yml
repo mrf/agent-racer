@@ -161,3 +161,6 @@ jobs:
 
       - name: Build binary
         run: make build
+
+      - name: Build TUI binary
+        run: make tui
