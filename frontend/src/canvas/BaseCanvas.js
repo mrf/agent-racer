@@ -66,6 +66,9 @@ export class BaseCanvas {
     this._trackGroupsKey = '';
     this._zoneCounts = { racing: 0, pit: 0, parked: 0 };
     this._needsResize = false;
+    this._lastEntityCount = 0;
+    this._cachedViewportWidth = 0;
+    this._cachedViewportHeight = 0;
 
     this._customSampler = null;
     this._customTrackPixelW = 0;
@@ -131,9 +134,23 @@ export class BaseCanvas {
 
   resize() {
     const dpr = window.devicePixelRatio || 1;
+
+    // Fast-path: use cached viewport to avoid a forced layout reflow.
+    // Only falls through to the DOM read when dimensions would actually change.
+    if (this._cachedViewportWidth > 0 && dpr === this._dpr) {
+      const zonesH = this.track.getRequiredHeight(this._trackGroups, this._pitLaneCount, this._parkingLotLaneCount);
+      const dashMin = this.dashboard.getRequiredHeight(this.entities.size);
+      const newH = zonesH + Math.max(dashMin, Math.max(0, this._cachedViewportHeight - zonesH));
+      if (this.width === this._cachedViewportWidth && this.height === newH) {
+        return;
+      }
+    }
+
     const rect = this.canvas.parentElement.getBoundingClientRect();
     const viewportWidth = rect.width;
     const viewportHeight = rect.height;
+    this._cachedViewportWidth = viewportWidth;
+    this._cachedViewportHeight = viewportHeight;
 
     this.track.updateViewport(viewportHeight, viewportWidth);
 
@@ -300,16 +317,19 @@ export class BaseCanvas {
 
   _syncTrackGroups(trackGroups, pitLaneCount, parkingLotLaneCount) {
     const groupsKey = trackGroups.map((group) => `${group.maxTokens}:${group.laneCount}`).join(',');
+    const entityCount = this.entities.size;
     if (
       groupsKey !== this._trackGroupsKey ||
       pitLaneCount !== this._pitLaneCount ||
-      parkingLotLaneCount !== this._parkingLotLaneCount
+      parkingLotLaneCount !== this._parkingLotLaneCount ||
+      entityCount !== this._lastEntityCount
     ) {
       this._trackGroups = trackGroups;
       this._trackGroupsKey = groupsKey;
       this._activeLaneCount = trackGroups.reduce((sum, group) => sum + group.laneCount, 0) || 1;
       this._pitLaneCount = pitLaneCount;
       this._parkingLotLaneCount = parkingLotLaneCount;
+      this._lastEntityCount = entityCount;
       this._needsResize = true;
     }
   }
