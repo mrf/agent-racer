@@ -101,6 +101,40 @@ func (l *clientRateLimiter) Allow(clientID string) rateLimitDecision {
 	}
 }
 
+// Penalize deducts extra tokens from a client's bucket as a penalty (e.g. for
+// failed authentication). This makes brute-force attempts exhaust the rate limit
+// faster. If the client has no bucket yet, one is created and penalized.
+func (l *clientRateLimiter) Penalize(clientID string, tokens int) {
+	if l == nil || tokens <= 0 {
+		return
+	}
+
+	now := l.now()
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	bucket, ok := l.clients[clientID]
+	if !ok {
+		bucket = clientTokenBucket{
+			tokens:   l.burst,
+			last:     now,
+			lastSeen: now,
+		}
+	}
+
+	// Refill before penalizing so the deduction is against the current balance.
+	elapsed := now.Sub(bucket.last).Seconds()
+	if elapsed > 0 {
+		bucket.tokens = math.Min(l.burst, bucket.tokens+(elapsed*l.rate))
+		bucket.last = now
+	}
+
+	bucket.tokens -= float64(tokens)
+	bucket.lastSeen = now
+	l.clients[clientID] = bucket
+}
+
 func (l *clientRateLimiter) sweep(now time.Time) {
 	if len(l.clients) == 0 || now.Sub(l.lastSweep) < l.idleTTL {
 		return

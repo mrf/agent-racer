@@ -139,3 +139,61 @@ func TestSetupRoutes_RateLimitsWebSocketAuthAttempts(t *testing.T) {
 		t.Fatal("Retry-After header missing on WebSocket rate limit response")
 	}
 }
+
+func TestSetupRoutes_FailedWSAuthPenalizesRateLimit(t *testing.T) {
+	// Use a higher burst so we can observe the penalty effect.
+	store := session.NewStore()
+	broadcaster := NewBroadcaster(store, 10*time.Millisecond, time.Second, 10)
+	t.Cleanup(func() { broadcaster.Stop() })
+
+	server := NewServer(&config.Config{}, store, broadcaster, "", false, nil, nil, "secret-token")
+	// burst=10: 1 token per connection + 5 penalty per failure = 6 tokens consumed per failed attempt.
+	server.wsAuthRateLimiter = newClientRateLimiter(10, time.Minute, 10)
+
+	testServer := startServer(t, server)
+	wsURL := "ws" + strings.TrimPrefix(testServer.URL, "http") + "/ws"
+	headers := http.Header{}
+
+	// First failed auth: costs 1 (Allow) + 5 (Penalize) = 6 tokens, leaving 4.
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, headers)
+	if err != nil {
+		t.Fatalf("Dial[0]: %v", err)
+	}
+	// Send wrong token.
+	_ = conn.WriteJSON(wsAuthMessage{Type: "auth", Token: "wrong"})
+	// Wait for server to close.
+	_, _, readErr := conn.ReadMessage()
+	if readErr == nil {
+		t.Fatal("expected connection to be closed after bad auth")
+	}
+	_ = conn.Close()
+
+	// Second failed auth: costs 1 + 5 = 6, but only 4 remain → Allow passes (4 >= 1),
+	// then Penalize deducts 5 more → balance goes to -2.
+	conn2, _, err := websocket.DefaultDialer.Dial(wsURL, headers)
+	if err != nil {
+		t.Fatalf("Dial[1]: %v", err)
+	}
+	_ = conn2.WriteJSON(wsAuthMessage{Type: "auth", Token: "wrong"})
+	_, _, readErr = conn2.ReadMessage()
+	if readErr == nil {
+		t.Fatal("expected connection to be closed after bad auth")
+	}
+	_ = conn2.Close()
+
+	// Third attempt should be rate-limited at the HTTP level (tokens < 1).
+	_, resp, err := websocket.DefaultDialer.Dial(wsURL, headers)
+	if err == nil {
+		t.Fatal("third WebSocket attempt should be rate limited after penalties")
+	}
+	if resp == nil {
+		t.Fatal("rate-limited dial did not return an HTTP response")
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("status %d, want %d", resp.StatusCode, http.StatusTooManyRequests)
+	}
+}

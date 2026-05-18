@@ -106,7 +106,7 @@ func NewServer(cfg *config.Config, store *session.Store, broadcaster *Broadcaste
 		achievementEngine: gamification.NewAchievementEngine(),
 		rewardRegistry:    gamification.NewRewardRegistry(),
 		apiRateLimiter:    newClientRateLimiter(600, time.Minute, 200),
-		wsAuthRateLimiter: newClientRateLimiter(600, time.Minute, 200),
+		wsAuthRateLimiter: newClientRateLimiter(30, time.Minute, 10),
 		startTime:         time.Now(),
 	}
 	s.config.Store(cfg)
@@ -275,6 +275,8 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		}
 		var auth wsAuthMessage
 		if err := json.Unmarshal(msg, &auth); err != nil || auth.Type != "auth" || auth.Token != s.authToken {
+			// Penalize failed auth attempts to slow brute-force attacks.
+			s.wsAuthRateLimiter.Penalize(clientAddress(r), 5)
 			_ = conn.SetWriteDeadline(time.Now().Add(writeWait))
 			_ = conn.WriteMessage(websocket.CloseMessage,
 				websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "unauthorized"))

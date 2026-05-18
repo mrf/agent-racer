@@ -36,6 +36,66 @@ func TestClientRateLimiter(t *testing.T) {
 	}
 }
 
+func TestClientRateLimiter_Penalize(t *testing.T) {
+	limiter := newClientRateLimiter(2, time.Minute, 10)
+	if limiter == nil {
+		t.Fatal("newClientRateLimiter returned nil")
+	}
+
+	base := time.Unix(100, 0)
+	limiter.now = func() time.Time { return base }
+
+	// Use 1 token normally.
+	if decision := limiter.Allow("127.0.0.1"); !decision.Allowed {
+		t.Fatal("first request should be allowed")
+	}
+
+	// Penalize by 5 tokens (bucket had 10, used 1 = 9, minus 5 = 4 remaining).
+	limiter.Penalize("127.0.0.1", 5)
+
+	// Should still have 4 tokens left.
+	for i := 0; i < 4; i++ {
+		if decision := limiter.Allow("127.0.0.1"); !decision.Allowed {
+			t.Fatalf("Allow[%d] rejected after penalize, expected allowed", i)
+		}
+	}
+
+	// Next should be rate-limited.
+	if decision := limiter.Allow("127.0.0.1"); decision.Allowed {
+		t.Fatal("request should be rate limited after penalize exhausted tokens")
+	}
+}
+
+func TestClientRateLimiter_PenalizeNewClient(t *testing.T) {
+	limiter := newClientRateLimiter(2, time.Minute, 10)
+	if limiter == nil {
+		t.Fatal("newClientRateLimiter returned nil")
+	}
+
+	base := time.Unix(100, 0)
+	limiter.now = func() time.Time { return base }
+
+	// Penalize a client that hasn't been seen yet (burst=10, penalty=8 → 2 left).
+	limiter.Penalize("192.168.1.1", 8)
+
+	// Should have 2 tokens.
+	for i := 0; i < 2; i++ {
+		if decision := limiter.Allow("192.168.1.1"); !decision.Allowed {
+			t.Fatalf("Allow[%d] rejected, expected allowed with 2 remaining tokens", i)
+		}
+	}
+
+	if decision := limiter.Allow("192.168.1.1"); decision.Allowed {
+		t.Fatal("request should be rate limited")
+	}
+}
+
+func TestClientRateLimiter_PenalizeNilLimiter(t *testing.T) {
+	var limiter *clientRateLimiter
+	// Should not panic.
+	limiter.Penalize("127.0.0.1", 5)
+}
+
 func TestClientAddress(t *testing.T) {
 	tests := []struct {
 		name     string
