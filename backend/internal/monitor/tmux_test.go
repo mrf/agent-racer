@@ -183,11 +183,16 @@ func TestResolve_NilResolver(t *testing.T) {
 
 func TestListTmuxPanesWithTimeout(t *testing.T) {
 	origExec := execCommandContext
+	origLookup := lookupExecPath
 	execCommandContext = func(ctx context.Context, name string, arg ...string) *exec.Cmd {
 		return origExec(ctx, "sh", "-c", "sleep 1")
 	}
+	lookupExecPath = func(name string) (string, error) {
+		return "/usr/bin/tmux", nil // fake resolved path
+	}
 	t.Cleanup(func() {
 		execCommandContext = origExec
+		lookupExecPath = origLookup
 	})
 
 	_, err := listTmuxPanesWithTimeout(20 * time.Millisecond)

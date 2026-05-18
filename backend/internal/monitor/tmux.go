@@ -18,6 +18,9 @@ const defaultTmuxListTimeout = 2 * time.Second
 
 var execCommandContext = exec.CommandContext
 
+// lookupExecPath resolves a binary name to its full path. Overridable for tests.
+var lookupExecPath = exec.LookPath
+
 // TmuxPane represents a single tmux pane and its shell PID.
 type TmuxPane struct {
 	SessionName string // e.g. "main"
@@ -78,12 +81,16 @@ func listTmuxPanesWithTimeout(timeout time.Duration) ([]TmuxPane, error) {
 	if timeout <= 0 {
 		timeout = defaultTmuxListTimeout
 	}
+	tmuxPath, err := lookupExecPath("tmux")
+	if err != nil {
+		return nil, nil // tmux not installed
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	cmd := execCommandContext(
 		ctx,
-		"tmux",
+		tmuxPath,
 		"list-panes",
 		"-a",
 		"-F",
