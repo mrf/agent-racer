@@ -821,9 +821,9 @@ func (s *Server) checkOrigin(r *http.Request) bool {
 //
 // Content-Security-Policy directives:
 //   - default-src 'self': baseline — only same-origin resources allowed unless overridden below.
-//   - connect-src 'self' ws://host wss://host: allows fetch/XHR to the same origin and WebSocket
-//     connections only to the server's own host. The ws/wss origins are derived from the request's
-//     Host header because 'self' alone does not reliably cover ws/wss across all browsers.
+//   - connect-src 'self': allows fetch/XHR and WebSocket connections only to the server's own
+//     origin. Using 'self' avoids trusting the spoofable Host request header and covers both
+//     HTTP and WebSocket schemes on all modern browsers (Chrome 40+, Firefox 39+, Safari 10+).
 //   - style-src 'self': permits only same-origin stylesheets. All component styles live in the
 //     static styles.css file; no runtime <style> injection or inline style= attributes are used.
 //   - img-src 'self' data:: allows same-origin images and data: URIs. Canvas drawImage() with
@@ -843,18 +843,14 @@ func securityHeaders(next http.Handler) http.Handler {
 		"gyroscope=(), " +
 		"accelerometer=()"
 
+	const csp = "default-src 'self'; " +
+		"connect-src 'self'; " +
+		"style-src 'self'; " +
+		"img-src 'self' data:; " +
+		"object-src 'none'; " +
+		"base-uri 'self'"
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		host := r.Host
-		wsOrigin := "ws://" + host
-		wssOrigin := "wss://" + host
-
-		csp := "default-src 'self'; " +
-			"connect-src 'self' " + wsOrigin + " " + wssOrigin + "; " +
-			"style-src 'self'; " +
-			"img-src 'self' data:; " +
-			"object-src 'none'; " +
-			"base-uri 'self'"
-
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("X-XSS-Protection", "1; mode=block")

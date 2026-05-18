@@ -50,15 +50,16 @@ func TestSecurityHeaders(t *testing.T) {
 	}
 
 	// Verify each required CSP directive is present.
-	// The connect-src directive should restrict WebSocket origins to the
-	// request's Host, not blanket ws:/wss: schemes.
+	// connect-src uses only 'self' — no explicit ws:/wss: origins — so it
+	// is not spoofable via the Host header and covers WebSocket on all
+	// modern browsers (Chrome 40+, Firefox 39+, Safari 10+).
 	csp := rec.Header().Get("Content-Security-Policy")
 	if csp == "" {
 		t.Fatal("Content-Security-Policy header is missing")
 	}
 	requiredDirectives := []string{
 		"default-src 'self'",
-		"connect-src 'self' ws://example.com wss://example.com",
+		"connect-src 'self'",
 		"style-src 'self'",
 		"img-src 'self' data:",
 		"object-src 'none'",
@@ -70,9 +71,10 @@ func TestSecurityHeaders(t *testing.T) {
 		}
 	}
 
-	// Verify blanket ws:/wss: schemes are NOT present.
-	if strings.Contains(csp, " ws: ") || strings.Contains(csp, " wss:;") || strings.Contains(csp, " wss: ") {
-		t.Errorf("CSP should not contain blanket ws:/wss: schemes, got %q", csp)
+	// Verify no explicit ws:/wss: schemes are present (self is sufficient).
+	if strings.Contains(csp, " ws://") || strings.Contains(csp, " wss://") ||
+		strings.Contains(csp, " ws: ") || strings.Contains(csp, " wss: ") {
+		t.Errorf("CSP should not contain explicit ws:/wss: origins, got %q", csp)
 	}
 }
 
