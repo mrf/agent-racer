@@ -6,22 +6,15 @@ function contextBarColor(utilization) {
   return '#22c55e';
 }
 
-// Structural key captures conditional sections. When it changes, a full
-// re-render is needed. Otherwise we can patch individual value elements.
-function detailStructuralKey(state) {
-  const subIds = (state.subagents || []).map(s => s.id).join(',');
-  return `${state.isChurning ? 1 : 0}|${state.completedAt ? 1 : 0}|${state.slug ? 1 : 0}|${subIds}`;
-}
-
 function renderDetailContent(state) {
   const pct = (state.contextUtilization * 100).toFixed(1);
 
   return `
-    <div class="detail-row">
+    <div class="detail-row" data-row="activity">
       <span class="label">Activity</span>
       <span class="value" data-field="activity"><span class="detail-activity ${esc(state.activity)}">${esc(state.activity)}</span></span>
     </div>
-    ${state.isChurning ? `<div class="detail-row">
+    ${state.isChurning ? `<div class="detail-row" data-section="churning">
       <span class="label">Process</span>
       <span class="value"><span class="detail-activity thinking">CPU Active</span></span>
     </div>` : ''}
@@ -51,11 +44,11 @@ function renderDetailContent(state) {
       <span class="label">Branch</span>
       <span class="value">${esc(state.branch) || '-'}</span>
     </div>
-    <div class="detail-row">
+    <div class="detail-row" data-row="tmux">
       <span class="label">Tmux</span>
       <span class="value">${state.tmuxTarget ? `${esc(state.tmuxTarget)} <span class="tmux-hint">(click car to jump)</span>` : 'not in tmux'}</span>
     </div>
-    ${state.slug ? `<div class="detail-row">
+    ${state.slug ? `<div class="detail-row" data-section="slug">
       <span class="label">Session Name</span>
       <span class="value">${esc(state.slug)}</span>
     </div>` : ''}
@@ -90,12 +83,12 @@ function renderDetailContent(state) {
       <span class="label">Last Activity</span>
       <span class="value" data-field="last-activity">${formatTime(state.lastActivityAt)}</span>
     </div>
-    <div class="detail-row">
+    <div class="detail-row" data-row="elapsed">
       <span class="label">Elapsed</span>
       <span class="value" data-field="elapsed">${formatElapsed(state.startedAt)}</span>
     </div>
     ${state.completedAt ? `
-    <div class="detail-row">
+    <div class="detail-row" data-section="completed">
       <span class="label">Completed</span>
       <span class="value" data-field="completed">${formatTime(state.completedAt)}</span>
     </div>` : ''}
@@ -107,16 +100,16 @@ function renderDetailContent(state) {
       <span class="label">Max Tokens</span>
       <span class="value">${formatTokens(state.maxContextTokens)}</span>
     </div>
-    <div class="detail-row">
+    <div class="detail-row" data-row="context-pct">
       <span class="label">Context %</span>
       <span class="value" data-field="context-pct">${pct}%</span>
     </div>
     ${(state.subagents && state.subagents.length > 0) ? `
-    <div class="detail-row detail-section-divider">
+    <div class="detail-row detail-section-divider" data-section="subagents-header">
       <span class="label detail-section-header" data-field="subagents-header">Subagents (${state.subagents.length})</span>
     </div>
     ${state.subagents.map((sub, i) => `
-    <div class="detail-row">
+    <div class="detail-row" data-section="sub-${i}">
       <span class="label">${esc(sub.slug || sub.id)}</span>
       <span class="value" data-field="sub-${i}"><span class="detail-activity ${esc(sub.activity)}">${esc(sub.activity)}</span>${sub.currentTool ? ' · ' + esc(sub.currentTool) : ''}</span>
     </div>`).join('')}` : ''}
@@ -171,12 +164,37 @@ function patchHtml(container, field, html) {
   if (el && el.innerHTML !== html) el.innerHTML = html;
 }
 
+function createRow(section, labelText, valueHtml) {
+  const row = document.createElement('div');
+  row.className = 'detail-row';
+  row.setAttribute('data-section', section);
+  row.innerHTML = `<span class="label">${labelText}</span><span class="value">${valueHtml}</span>`;
+  return row;
+}
+
+function toggleSection(container, section, shouldExist, anchorRow, labelText, valueHtml) {
+  const existing = container.querySelector(`[data-section="${section}"]`);
+  if (shouldExist && !existing) {
+    const anchor = container.querySelector(`[data-row="${anchorRow}"]`);
+    if (anchor) {
+      const row = createRow(section, labelText, valueHtml);
+      anchor.after(row);
+    }
+  } else if (!shouldExist && existing) {
+    existing.remove();
+  }
+}
+
 function patchDetailContent(container, state) {
   const pct = (state.contextUtilization * 100).toFixed(1);
   const barColor = contextBarColor(state.contextUtilization);
 
   patchHtml(container, 'activity',
     `<span class="detail-activity ${esc(state.activity)}">${esc(state.activity)}</span>`);
+
+  // Structural: churning row (inserted after activity row)
+  toggleSection(container, 'churning', state.isChurning, 'activity',
+    'Process', '<span class="detail-activity thinking">CPU Active</span>');
 
   const bar = container.querySelector('[data-field="progress-bar"]');
   if (bar) {
@@ -196,12 +214,102 @@ function patchDetailContent(container, state) {
   patchText(container, 'input-tokens', formatTokens(state.tokensUsed));
   patchText(container, 'context-pct', `${pct}%`);
 
-  if (state.subagents && state.subagents.length > 0) {
-    patchText(container, 'subagents-header', `Subagents (${state.subagents.length})`);
-    for (let i = 0; i < state.subagents.length; i++) {
-      const sub = state.subagents[i];
-      patchHtml(container, `sub-${i}`,
-        `<span class="detail-activity ${esc(sub.activity)}">${esc(sub.activity)}</span>${sub.currentTool ? ' · ' + esc(sub.currentTool) : ''}`);
+  // Structural: completed row (inserted after elapsed row)
+  const completedEl = container.querySelector('[data-section="completed"]');
+  if (state.completedAt && !completedEl) {
+    const anchor = container.querySelector('[data-row="elapsed"]');
+    if (anchor) {
+      const row = createRow('completed', 'Completed', `<span data-field="completed">${formatTime(state.completedAt)}</span>`);
+      anchor.after(row);
+    }
+  } else if (!state.completedAt && completedEl) {
+    completedEl.remove();
+  } else if (state.completedAt && completedEl) {
+    patchText(container, 'completed', formatTime(state.completedAt));
+  }
+
+  // Structural: slug row (inserted after tmux row)
+  const slugEl = container.querySelector('[data-section="slug"]');
+  if (state.slug && !slugEl) {
+    const anchor = container.querySelector('[data-row="tmux"]');
+    if (anchor) {
+      const row = createRow('slug', 'Session Name', esc(state.slug));
+      anchor.after(row);
+    }
+  } else if (!state.slug && slugEl) {
+    slugEl.remove();
+  } else if (state.slug && slugEl) {
+    const valueEl = slugEl.querySelector('.value');
+    if (valueEl && valueEl.textContent !== state.slug) valueEl.textContent = state.slug;
+  }
+
+  // Structural: subagent rows
+  const subagents = state.subagents || [];
+  const headerEl = container.querySelector('[data-section="subagents-header"]');
+
+  if (subagents.length > 0) {
+    if (!headerEl) {
+      // Create header and all subagent rows
+      const anchor = container.querySelector('[data-row="context-pct"]');
+      if (anchor) {
+        const header = document.createElement('div');
+        header.className = 'detail-row detail-section-divider';
+        header.setAttribute('data-section', 'subagents-header');
+        header.innerHTML = `<span class="label detail-section-header" data-field="subagents-header">Subagents (${subagents.length})</span>`;
+        anchor.after(header);
+        let prev = header;
+        for (let i = 0; i < subagents.length; i++) {
+          const sub = subagents[i];
+          const row = document.createElement('div');
+          row.className = 'detail-row';
+          row.setAttribute('data-section', `sub-${i}`);
+          row.innerHTML = `<span class="label">${esc(sub.slug || sub.id)}</span><span class="value" data-field="sub-${i}"><span class="detail-activity ${esc(sub.activity)}">${esc(sub.activity)}</span>${sub.currentTool ? ' \u00b7 ' + esc(sub.currentTool) : ''}</span>`;
+          prev.after(row);
+          prev = row;
+        }
+      }
+    } else {
+      // Update header count
+      patchText(container, 'subagents-header', `Subagents (${subagents.length})`);
+      // Reconcile subagent rows
+      for (let i = 0; i < subagents.length; i++) {
+        const sub = subagents[i];
+        const existing = container.querySelector(`[data-section="sub-${i}"]`);
+        if (existing) {
+          // Update label (slug may change) and value
+          const label = existing.querySelector('.label');
+          const newLabel = sub.slug || sub.id;
+          if (label && label.textContent !== newLabel) label.textContent = newLabel;
+          patchHtml(container, `sub-${i}`,
+            `<span class="detail-activity ${esc(sub.activity)}">${esc(sub.activity)}</span>${sub.currentTool ? ' \u00b7 ' + esc(sub.currentTool) : ''}`);
+        } else {
+          // Insert new subagent row after the last existing one or header
+          const prev = container.querySelector(`[data-section="sub-${i - 1}"]`) || headerEl;
+          const row = document.createElement('div');
+          row.className = 'detail-row';
+          row.setAttribute('data-section', `sub-${i}`);
+          row.innerHTML = `<span class="label">${esc(sub.slug || sub.id)}</span><span class="value" data-field="sub-${i}"><span class="detail-activity ${esc(sub.activity)}">${esc(sub.activity)}</span>${sub.currentTool ? ' \u00b7 ' + esc(sub.currentTool) : ''}</span>`;
+          prev.after(row);
+        }
+      }
+      // Remove excess subagent rows
+      let idx = subagents.length;
+      let excess = container.querySelector(`[data-section="sub-${idx}"]`);
+      while (excess) {
+        excess.remove();
+        idx++;
+        excess = container.querySelector(`[data-section="sub-${idx}"]`);
+      }
+    }
+  } else if (headerEl) {
+    // Remove all subagent elements
+    headerEl.remove();
+    let idx = 0;
+    let row = container.querySelector(`[data-section="sub-${idx}"]`);
+    while (row) {
+      row.remove();
+      idx++;
+      row = container.querySelector(`[data-section="sub-${idx}"]`);
     }
   }
 }
@@ -222,7 +330,6 @@ export function createFlyout({ detailFlyout, flyoutContent, canvas }) {
   let flyoutCurrentX = null;
   let flyoutCurrentY = null;
   let lastMode = null;       // 'detail' | 'hamster'
-  let lastStructKey = null;  // structural fingerprint for patch eligibility
 
   function positionFlyout(carX, carY) {
     if (!isVisible()) return;
@@ -312,7 +419,6 @@ export function createFlyout({ detailFlyout, flyoutContent, canvas }) {
     flyoutContent.innerHTML = renderDetailContent(state);
     patchDetailContent(flyoutContent, state);
     lastMode = 'detail';
-    lastStructKey = detailStructuralKey(state);
     detailFlyout.classList.remove('hidden');
     positionFlyout(carX, carY);
   }
@@ -323,7 +429,6 @@ export function createFlyout({ detailFlyout, flyoutContent, canvas }) {
     resetPosition();
     flyoutContent.innerHTML = renderHamsterContent(hamsterState, parentState);
     lastMode = 'hamster';
-    lastStructKey = null;
     detailFlyout.classList.remove('hidden');
     positionFlyout(hamsterX, hamsterY);
   }
@@ -333,7 +438,6 @@ export function createFlyout({ detailFlyout, flyoutContent, canvas }) {
     selectedSessionId = null;
     selectedHamsterId = null;
     lastMode = null;
-    lastStructKey = null;
     resetPosition();
   }
 
@@ -344,30 +448,25 @@ export function createFlyout({ detailFlyout, flyoutContent, canvas }) {
     if (selectedHamsterId) {
       const sub = (state.subagents || []).find(s => s.id === selectedHamsterId);
       if (sub) {
-        if (lastMode === 'hamster') {
-          patchHamsterContent(flyoutContent, sub);
-        } else {
+        if (lastMode !== 'hamster') {
           flyoutContent.innerHTML = renderHamsterContent(sub, state);
           lastMode = 'hamster';
-          lastStructKey = null;
         }
+        patchHamsterContent(flyoutContent, sub);
       } else {
         selectedHamsterId = null;
-        flyoutContent.innerHTML = renderDetailContent(state);
+        if (lastMode !== 'detail') {
+          flyoutContent.innerHTML = renderDetailContent(state);
+          lastMode = 'detail';
+        }
         patchDetailContent(flyoutContent, state);
-        lastMode = 'detail';
-        lastStructKey = detailStructuralKey(state);
       }
     } else {
-      const newKey = detailStructuralKey(state);
-      if (lastMode === 'detail' && lastStructKey === newKey) {
-        patchDetailContent(flyoutContent, state);
-      } else {
+      if (lastMode !== 'detail') {
         flyoutContent.innerHTML = renderDetailContent(state);
-        patchDetailContent(flyoutContent, state);
         lastMode = 'detail';
-        lastStructKey = newKey;
       }
+      patchDetailContent(flyoutContent, state);
     }
   }
 
