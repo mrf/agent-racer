@@ -61,8 +61,8 @@ export class TilePalette {
     });
   }
 
-  show() { if (this.el) this.el.style.display = ''; }
-  hide() { if (this.el) this.el.style.display = 'none'; }
+  show() { if (this.el) this.el.classList.remove('tp-hidden'); }
+  hide() { if (this.el) this.el.classList.add('tp-hidden'); }
 
   unmount() {
     if (this.el) { this.el.remove(); this.el = null; }
