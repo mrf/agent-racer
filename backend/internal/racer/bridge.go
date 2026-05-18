@@ -154,7 +154,7 @@ func (b *Bridge) PushUpdate(updates []*session.SessionState) {
 			NewPosition:   ov.NewPosition,
 		})
 		if err != nil {
-			slog.Error("overtake message marshal failed", "error", err)
+			slog.Error("overtake message marshal failed", "component", "racer", "error", err)
 			continue
 		}
 		b.broadcaster.BroadcastMessage(msg)

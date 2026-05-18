@@ -236,10 +236,10 @@ func (s *Server) SetupRoutes(mux *http.ServeMux) {
 	mux.Handle("/api/", s.rateLimitAPI(apiMux))
 
 	if s.dev {
-		slog.Info("serving frontend from filesystem", "dir", s.frontendDir)
+		slog.Info("serving frontend from filesystem", "component", "ws", "dir", s.frontendDir)
 		mux.Handle("/", http.FileServer(http.Dir(s.frontendDir)))
 	} else if s.embeddedHandler != nil {
-		slog.Info("serving embedded frontend")
+		slog.Info("serving embedded frontend", "component", "ws")
 		mux.Handle("/", s.embeddedHandler)
 	}
 }
@@ -257,7 +257,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		slog.Warn("ws upgrade failed", "error", err)
+		slog.Warn("ws upgrade failed", "component", "ws", "error", err)
 		return
 	}
 
@@ -287,15 +287,15 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 
 	c, err := s.broadcaster.AddClient(conn)
 	if err != nil {
-		slog.Warn("websocket rejected", "addr", r.RemoteAddr, "error", err)
+		slog.Warn("websocket rejected", "component", "ws", "addr", r.RemoteAddr, "error", err)
 		return
 	}
-	slog.Info("websocket client connected", "addr", r.RemoteAddr)
+	slog.Info("websocket client connected", "component", "ws", "addr", r.RemoteAddr)
 
 	go func() {
 		defer func() {
 			s.broadcaster.RemoveClient(c)
-			slog.Info("websocket client disconnected", "addr", r.RemoteAddr)
+			slog.Info("websocket client disconnected", "component", "ws", "addr", r.RemoteAddr)
 		}()
 		for {
 			_, msg, err := conn.ReadMessage()
@@ -597,7 +597,7 @@ func (s *Server) handleEquip(w http.ResponseWriter, r *http.Request) {
 
 	// Broadcast the change to all WebSocket clients.
 	if msg, err := NewEquippedMessage(EquippedPayload{Loadout: loadout}); err != nil {
-		slog.Error("equip marshal failed", "error", err)
+		slog.Error("equip marshal failed", "component", "ws", "error", err)
 	} else {
 		s.broadcaster.BroadcastMessage(msg)
 	}
@@ -646,7 +646,7 @@ func (s *Server) handleUnequip(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if msg, err := NewEquippedMessage(EquippedPayload{Loadout: loadout}); err != nil {
-		slog.Error("unequip marshal failed", "error", err)
+		slog.Error("unequip marshal failed", "component", "ws", "error", err)
 	} else {
 		s.broadcaster.BroadcastMessage(msg)
 	}
@@ -702,7 +702,7 @@ func (s *Server) handleFocus(w http.ResponseWriter, r *http.Request, sessionID s
 	}
 
 	if err := tmuxFocusSession(state.TmuxTarget); err != nil {
-		slog.Error("tmux focus failed", "session", sessionID, "target", state.TmuxTarget, "error", err)
+		slog.Error("tmux focus failed", "component", "ws", "session", sessionID, "target", state.TmuxTarget, "error", err)
 		http.Error(w, "tmux focus failed", http.StatusInternalServerError)
 		return
 	}
@@ -726,7 +726,7 @@ func (s *Server) handleTail(w http.ResponseWriter, r *http.Request, sessionID st
 	}
 
 	if err := session.ValidateLogPath(state.LogPath); err != nil {
-		slog.Warn("tail: invalid log path", "session", sessionID, "error", err)
+		slog.Warn("invalid log path", "component", "ws", "session", sessionID, "error", err)
 		http.Error(w, "invalid log path", http.StatusForbidden)
 		return
 	}
@@ -747,7 +747,7 @@ func (s *Server) handleTail(w http.ResponseWriter, r *http.Request, sessionID st
 
 	entries, newOffset, err := session.ParseTailEntries(state.LogPath, offset, limit)
 	if err != nil {
-		slog.Error("tail parse failed", "session", sessionID, "error", err)
+		slog.Error("tail parse failed", "component", "ws", "session", sessionID, "error", err)
 		http.Error(w, "failed to read log", http.StatusInternalServerError)
 		return
 	}

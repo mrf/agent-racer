@@ -221,7 +221,7 @@ func (b *Broadcaster) QueueRemoval(ids []string) {
 func (b *Broadcaster) BroadcastAchievement(payload AchievementUnlockedPayload) {
 	msg, err := NewAchievementUnlockedMessage(payload)
 	if err != nil {
-		slog.Error("broadcast achievement marshal failed", "error", err)
+		slog.Error("broadcast achievement marshal failed", "component", "ws", "error", err)
 		return
 	}
 	b.broadcast(msg)
@@ -230,7 +230,7 @@ func (b *Broadcaster) BroadcastAchievement(payload AchievementUnlockedPayload) {
 func (b *Broadcaster) BroadcastBattlePassProgress(payload BattlePassProgressPayload) {
 	msg, err := NewBattlePassProgressMessage(payload)
 	if err != nil {
-		slog.Error("broadcast battle pass progress marshal failed", "error", err)
+		slog.Error("broadcast battle pass progress marshal failed", "component", "ws", "error", err)
 		return
 	}
 	b.broadcast(msg)
@@ -243,7 +243,7 @@ func (b *Broadcaster) QueueCompletion(sessionID string, activity session.Activit
 		Name:      name,
 	})
 	if err != nil {
-		slog.Error("queue completion marshal failed", "error", err)
+		slog.Error("queue completion marshal failed", "component", "ws", "error", err)
 		return
 	}
 	b.broadcast(msg)
@@ -274,7 +274,7 @@ func (b *Broadcaster) flush() {
 		Teams:   session.ComputeTeams(allSessions),
 	})
 	if err != nil {
-		slog.Error("flush marshal failed", "error", err)
+		slog.Error("flush marshal failed", "component", "ws", "error", err)
 		return
 	}
 	b.broadcast(msg)
@@ -331,7 +331,7 @@ func (b *Broadcaster) snapshotMessage() WSMessage {
 	}
 	msg, err := NewSnapshotMessage(payload)
 	if err != nil {
-		slog.Error("snapshot message marshal failed", "error", err)
+		slog.Error("snapshot message marshal failed", "component", "ws", "error", err)
 		return WSMessage{Type: MsgSnapshot}
 	}
 	return msg
@@ -341,7 +341,7 @@ func (b *Broadcaster) broadcast(msg WSMessage) {
 	msg.Seq = b.seq.Add(1)
 	data, err := json.Marshal(msg)
 	if err != nil {
-		slog.Error("broadcast marshal failed", "error", err)
+		slog.Error("broadcast marshal failed", "component", "ws", "error", err)
 		return
 	}
 
@@ -355,7 +355,7 @@ func (b *Broadcaster) broadcast(msg WSMessage) {
 	for _, c := range clients {
 		if !c.trySend(data) {
 			// Client can't keep up or already closed, disconnect it
-			slog.Warn("dropping slow ws client")
+			slog.Warn("dropping slow ws client", "component", "ws")
 			b.RemoveClient(c)
 		}
 	}
@@ -367,7 +367,7 @@ func (b *Broadcaster) SendSnapshot(c *client) {
 	msg.Seq = b.seq.Add(1)
 	data, err := json.Marshal(msg)
 	if err != nil {
-		slog.Error("snapshot marshal failed", "error", err)
+		slog.Error("snapshot marshal failed", "component", "ws", "error", err)
 		return
 	}
 	c.trySend(data)

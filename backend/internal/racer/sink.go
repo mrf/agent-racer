@@ -345,7 +345,7 @@ func (s *Sink) emitStats(ev StatsEvent) {
 		s.statsDropped++
 		now := time.Now()
 		if s.statsLastDrop.IsZero() || now.Sub(s.statsLastDrop) >= 10*time.Second {
-			slog.Warn("racer sink: stats events dropped", "count", s.statsDropped)
+			slog.Warn("stats events dropped", "component", "racer", "count", s.statsDropped)
 			s.statsDropped = 0
 			s.statsLastDrop = now
 		}

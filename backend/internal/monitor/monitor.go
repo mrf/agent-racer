@@ -128,7 +128,7 @@ func (m *Monitor) buildAWMonitor(sources []awsource.Source) *awmonitor.Monitor {
 		awmonitor.WithHealthThreshold(threshold),
 	)
 	if err != nil {
-		slog.Error("failed to create agentwatch monitor", "error", err)
+		slog.Error("failed to create agentwatch monitor", "component", "monitor", "error", err)
 		return nil
 	}
 	return awMon
@@ -223,7 +223,7 @@ func (m *Monitor) Start(ctx context.Context) {
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
-	slog.Info("monitor started", "sources", sourceNames)
+	slog.Info("monitor started", "component", "monitor", "sources", sourceNames)
 
 	// Initial poll.
 	m.poll(ctx)
@@ -231,7 +231,7 @@ func (m *Monitor) Start(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			slog.Info("monitor stopped")
+			slog.Info("monitor stopped", "component", "monitor")
 			return
 		case <-m.reconfigureCh:
 			ticker.Stop()
@@ -239,7 +239,7 @@ func (m *Monitor) Start(ctx context.Context) {
 			newInterval := m.cfg.Monitor.PollInterval
 			m.mu.RUnlock()
 			ticker = time.NewTicker(newInterval)
-			slog.Info("monitor poll interval updated", "interval", newInterval)
+			slog.Info("monitor poll interval updated", "component", "monitor", "interval", newInterval)
 		case <-ticker.C:
 			m.poll(ctx)
 		}
@@ -256,7 +256,7 @@ func (m *Monitor) poll(ctx context.Context) {
 	}
 
 	if err := awMon.PollOnce(ctx); err != nil {
-		slog.Warn("poll error", "error", err)
+		slog.Warn("poll error", "component", "monitor", "error", err)
 	}
 }
 
@@ -335,7 +335,7 @@ func (m *Monitor) handleDeltaEvent(ev awmonitor.Event) {
 		}
 		existing, existed := m.store.Get(updates[i].ID)
 		if existed && !existing.IsTerminal() {
-			slog.Info("session terminal", "session", updates[i].ID, "name", updates[i].Name, "activity", updates[i].Activity)
+			slog.Info("session terminal", "component", "monitor", "session", updates[i].ID, "name", updates[i].Name, "activity", updates[i].Activity)
 			m.bridge.QueueCompletion(updates[i].ID, updates[i].Activity, updates[i].Name)
 		} else if !existed {
 			// New session discovered already terminal — still broadcast.
@@ -384,11 +384,11 @@ func (m *Monitor) handleHealthEvent(ev awmonitor.Event) {
 		Timestamp:        h.UpdatedAt,
 	})
 	if err != nil {
-		slog.Error("source health marshal failed", "source", h.Source, "error", err)
+		slog.Error("source health marshal failed", "component", "monitor", "source", h.Source, "error", err)
 		return
 	}
 	m.broadcaster.BroadcastMessage(msg)
-	slog.Info("health status changed", "source", h.Source, "status", status)
+	slog.Info("health status changed", "component", "monitor", "source", h.Source, "status", status)
 }
 
 // ---------------------------------------------------------------------------
@@ -849,7 +849,7 @@ func (m *Monitor) emitEvent(evType session.EventType, state *session.SessionStat
 		m.statsDropped++
 		now := time.Now()
 		if m.statsLastDropLog.IsZero() || now.Sub(m.statsLastDropLog) >= 10*time.Second {
-			slog.Warn("stats events dropped", "count", m.statsDropped)
+			slog.Warn("stats events dropped", "component", "monitor", "count", m.statsDropped)
 			m.statsDropped = 0
 			m.statsLastDropLog = now
 		}

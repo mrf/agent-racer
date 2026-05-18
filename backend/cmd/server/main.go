@@ -6,7 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -85,7 +85,7 @@ func registrySources(reg *awsource.Registry) []awsource.Source {
 		}
 		src, err := f()
 		if err != nil {
-			log.Printf("failed to build source %q: %v", names[i], err)
+			slog.Error("failed to build source", "component", "server", "source", names[i], "error", err)
 			continue
 		}
 		sources = append(sources, src)
@@ -117,7 +117,7 @@ func buildAWMonitor(cfg *config.Config, sources []awsource.Source, sink awmonito
 		awmonitor.WithHealthThreshold(threshold),
 	)
 	if err != nil {
-		log.Printf("failed to create agentwatch monitor: %v", err)
+		slog.Error("failed to create agentwatch monitor", "component", "server", "error", err)
 		return nil
 	}
 	return awMon
@@ -155,6 +155,9 @@ func main() {
 		return
 	}
 
+	// Set up structured JSON logging.
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, nil)))
+
 	// Use XDG config directory if no config path specified
 	cfgPath := opts.configPath
 	if cfgPath == "" {
@@ -163,10 +166,11 @@ func main() {
 
 	cfg, cfgWarnings, err := config.LoadOrDefault(cfgPath)
 	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+		slog.Error("failed to load config", "component", "server", "error", err)
+		os.Exit(1)
 	}
 	for _, w := range cfgWarnings {
-		log.Printf("Config warning: %s", w)
+		slog.Warn("config warning", "component", "server", "message", w)
 	}
 
 	if opts.port > 0 {
@@ -175,10 +179,11 @@ func main() {
 
 	// Validate TLS config: both cert and key must be provided together.
 	if (cfg.Server.TLSCert == "") != (cfg.Server.TLSKey == "") {
-		log.Fatal("TLS misconfigured: both tls_cert and tls_key must be set (or both empty)")
+		slog.Error("TLS misconfigured: both tls_cert and tls_key must be set (or both empty)", "component", "server")
+		os.Exit(1)
 	}
 	if cfg.Server.TLSEnabled() {
-		log.Printf("TLS enabled: cert=%s key=%s", cfg.Server.TLSCert, cfg.Server.TLSKey)
+		slog.Info("TLS enabled", "component", "server", "cert", cfg.Server.TLSCert, "key", cfg.Server.TLSKey)
 	}
 
 	store := session.NewStore()
@@ -198,7 +203,8 @@ func main() {
 
 	// Verify embedded frontend integrity before serving.
 	if err := frontend.Verify(); err != nil {
-		log.Fatalf("Frontend integrity check failed: %v", err)
+		slog.Error("frontend integrity check failed", "component", "server", "error", err)
+		os.Exit(1)
 	}
 
 	// Embedded frontend handler: when built with -tags embed, serves from binary.
@@ -210,7 +216,7 @@ func main() {
 			cwd, _ := os.Getwd()
 			fallback := filepath.Join(cwd, "..", "frontend")
 			if _, err := os.Stat(fallback); err == nil {
-				log.Printf("No embedded frontend, falling back to: %s", fallback)
+				slog.Info("no embedded frontend, falling back to filesystem", "component", "server", "dir", fallback)
 				embeddedHandler = http.FileServer(http.Dir(fallback))
 			}
 		}
@@ -218,26 +224,22 @@ func main() {
 
 	authToken := config.NormalizeAuthToken(cfg.Server.AuthToken)
 	if config.IsWeakAuthToken(authToken) {
-		log.Println("========================================")
-		log.Printf("  WARNING: Weak auth_token %q is not allowed.", authToken)
-		log.Println("  Generating a random token for this startup.")
-		log.Println("  Use a long random value in server.auth_token to persist.")
-		log.Println("========================================")
+		slog.Warn("weak auth token rejected, generating random token",
+			"component", "server", "rejected_token", authToken)
 		authToken = ""
 	}
 	if authToken == "" {
 		var err error
 		authToken, err = config.GenerateToken()
 		if err != nil {
-			log.Fatalf("Failed to generate auth token: %v", err)
+			slog.Error("failed to generate auth token", "component", "server", "error", err)
+			os.Exit(1)
 		}
-		log.Println("========================================")
-		log.Println("  WARNING: No auth_token configured.")
-		log.Printf("  Generated token: %s", authToken)
-		log.Printf("  Open: %s://%s:%d/#token=%s", cfg.Server.Scheme(), cfg.Server.Host, cfg.Server.Port, authToken)
-		log.Println("  The token is read from URL fragment and then removed from the address bar.")
-		log.Println("  Set server.auth_token in config to persist.")
-		log.Println("========================================")
+		slog.Warn("no auth token configured, generated random token",
+			"component", "server",
+			"token", authToken,
+			"url", fmt.Sprintf("%s://%s:%d/#token=%s", cfg.Server.Scheme(), cfg.Server.Host, cfg.Server.Port, authToken),
+		)
 	}
 
 	// Set up replay recorder and API (records session snapshots to JSONL files).
@@ -247,7 +249,7 @@ func main() {
 		var recErr error
 		rec, recErr = replay.NewRecorder(replayDir, cfg.Replay.RetentionDays)
 		if recErr != nil {
-			log.Printf("Replay recorder disabled: %v", recErr)
+			slog.Warn("replay recorder disabled", "component", "server", "error", recErr)
 		}
 		if rec != nil {
 			rec.SetPrivacyFilter(cfg.Privacy.NewPrivacyFilter())
@@ -259,7 +261,7 @@ func main() {
 	// Track store for custom race circuits.
 	trackStore, trackErr := tracks.NewStore("")
 	if trackErr != nil {
-		log.Printf("Warning: track store unavailable: %v", trackErr)
+		slog.Warn("track store unavailable", "component", "server", "error", trackErr)
 	} else {
 		th := tracks.NewHandler(trackStore)
 		th.SetActiveTrackProvider(
@@ -287,7 +289,8 @@ func main() {
 	}
 	tracker, statsCh, err := gamification.NewStatsTracker(gamStore, cfg.Monitor.StatsEventBuffer, seasonCfg)
 	if err != nil {
-		log.Fatalf("Failed to initialize stats tracker: %v", err)
+		slog.Error("failed to initialize stats tracker", "component", "server", "error", err)
+		os.Exit(1)
 	}
 
 	tracker.OnBattlePassProgress(func(progress gamification.BattlePassProgress, recentXP []gamification.XPEntry) {
@@ -336,12 +339,12 @@ func main() {
 	var mon *monitor.Monitor
 	var monitorSink awmonitor.EventSink // reused across SIGHUP rebuilds
 	if opts.mockMode {
-		log.Println("Starting in mock mode")
+		slog.Info("starting in mock mode", "component", "server")
 		gen := mock.NewGenerator(store, broadcaster, cfg.Monitor.MockTickInterval)
 		gen.SetStatsEvents(statsCh)
 		gen.Start(ctx)
 	} else {
-		log.Println("Starting in real mode (process monitoring)")
+		slog.Info("starting in real mode", "component", "server")
 
 		// Build sources via agentwatch Registry.
 		reg := buildRegistry(cfg)
@@ -391,22 +394,22 @@ func main() {
 
 			newCfg, reloadWarnings, err := config.LoadOrDefault(cfgPath)
 			if err != nil {
-				log.Printf("Config reload failed: %v", err)
+				slog.Error("config reload failed", "component", "server", "error", err)
 				continue
 			}
 			for _, w := range reloadWarnings {
-				log.Printf("Config warning: %s", w)
+				slog.Warn("config warning", "component", "server", "message", w)
 			}
 
 			oldCfg := server.Config()
 			changes := config.Diff(oldCfg, newCfg)
 			if len(changes) == 0 {
-				log.Println("Config reloaded: no changes detected")
+				slog.Info("config reloaded, no changes detected", "component", "server")
 				continue
 			}
 
 			for _, c := range changes {
-				log.Printf("Config changed: %s", c)
+				slog.Info("config changed", "component", "server", "change", c)
 			}
 
 			// Apply privacy filter (always safe to update).
@@ -440,7 +443,7 @@ func main() {
 			}
 
 			server.SetConfig(newCfg)
-			log.Printf("Config reload complete (%d change(s) applied)", len(changes))
+			slog.Info("config reload complete", "component", "server", "changes", len(changes))
 		}
 	}()
 
@@ -460,16 +463,16 @@ func main() {
 	defer signal.Stop(sigCh)
 	go func() {
 		sig := <-sigCh
-		log.Printf("Shutting down after signal: %s", sig)
+		slog.Info("shutting down", "component", "server", "signal", sig)
 		cancel()
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer shutdownCancel()
 		if err := httpServer.Shutdown(shutdownCtx); err != nil {
-			log.Printf("HTTP shutdown error: %v", err)
+			slog.Error("HTTP shutdown error", "component", "server", "error", err)
 		}
 	}()
 
-	log.Printf("Server listening on %s (%s)", httpServer.Addr, cfg.Server.Scheme())
+	slog.Info("server listening", "component", "server", "addr", httpServer.Addr, "scheme", cfg.Server.Scheme())
 	var listenErr error
 	if cfg.Server.TLSEnabled() {
 		listenErr = httpServer.ListenAndServeTLS(cfg.Server.TLSCert, cfg.Server.TLSKey)
@@ -478,7 +481,8 @@ func main() {
 	}
 	if listenErr != nil && !errors.Is(listenErr, http.ErrServerClosed) {
 		cleanup()
-		log.Fatalf("Server error: %v", listenErr)
+		slog.Error("server error", "component", "server", "error", listenErr)
+		os.Exit(1)
 	}
 	cleanup()
 }

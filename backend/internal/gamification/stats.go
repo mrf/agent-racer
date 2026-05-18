@@ -411,7 +411,7 @@ func (t *StatsTracker) mutateLoadout(fn func() error) (Equipped, error) {
 	t.mu.Unlock()
 
 	if err := t.persist.Save(stats); err != nil {
-		slog.Error("failed to save stats after loadout change", "error", err)
+		slog.Error("failed to save stats after loadout change", "component", "gamification", "error", err)
 	}
 	return equipped, nil
 }
@@ -423,6 +423,6 @@ func (t *StatsTracker) save() {
 	t.mu.Unlock()
 
 	if err := t.persist.Save(stats); err != nil {
-		slog.Error("failed to save stats", "error", err)
+		slog.Error("failed to save stats", "component", "gamification", "error", err)
 	}
 }
