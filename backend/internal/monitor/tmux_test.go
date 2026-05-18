@@ -64,6 +64,38 @@ func TestParseTmuxPanes_EmptyAndMalformed(t *testing.T) {
 	}
 }
 
+func TestParseTmuxPanes_UnsafeSessionNames(t *testing.T) {
+	// Session names with shell metacharacters must be filtered out to
+	// prevent command injection if the target reaches exec.Command.
+	dangerous := []string{
+		"1234\t$(whoami)\t0\t0",
+		"1234\t`id`\t0\t0",
+		"1234\tfoo;rm -rf /\t0\t0",
+		"1234\tfoo bar\t0\t0",
+		"1234\tfoo\tnewline\t0\t0", // extra field from embedded tab
+		"1234\t\t0\t0",             // empty session name
+	}
+	for _, line := range dangerous {
+		panes := parseTmuxPanes(line + "\n")
+		if len(panes) != 0 {
+			t.Errorf("unsafe session name accepted: %q → target %q", line, panes[0].Target)
+		}
+	}
+
+	// Safe names mixed with dangerous ones — only safe ones survive.
+	mixed := "1234\tmain\t0\t0\n5678\t$(evil)\t1\t0\n9012\tdev-2\t2\t0\n"
+	panes := parseTmuxPanes(mixed)
+	if len(panes) != 2 {
+		t.Fatalf("expected 2 safe panes, got %d", len(panes))
+	}
+	if panes[0].Target != "main:0.0" {
+		t.Errorf("pane 0: target=%q, want %q", panes[0].Target, "main:0.0")
+	}
+	if panes[1].Target != "dev-2:2.0" {
+		t.Errorf("pane 1: target=%q, want %q", panes[1].Target, "dev-2:2.0")
+	}
+}
+
 func TestParseParentPID(t *testing.T) {
 	tests := []struct {
 		name string

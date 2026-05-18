@@ -4,10 +4,15 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 )
+
+// safeSessionName matches tmux session names that contain only safe characters.
+// Reject anything else to prevent command-injection via crafted session names.
+var safeSessionName = regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`)
 
 const defaultTmuxListTimeout = 2 * time.Second
 
@@ -118,6 +123,12 @@ func parseTmuxPanes(output string) []TmuxPane {
 		}
 		paneIdx, err := strconv.Atoi(fields[3])
 		if err != nil {
+			continue
+		}
+
+		// Defense-in-depth: reject session names with characters that could
+		// be dangerous if the target string reaches exec.Command.
+		if !safeSessionName.MatchString(fields[1]) {
 			continue
 		}
 
