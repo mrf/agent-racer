@@ -141,6 +141,62 @@ func TestRecorder_WriteSnapshotEncodesJSON(t *testing.T) {
 	}
 }
 
+func TestRecorder_WriteSnapshotSanitizesSensitiveFields(t *testing.T) {
+	file, rec := newStubRecorder(nil, nil)
+
+	sessions := []*session.SessionState{
+		{
+			ID:                "s1",
+			Name:              "test-session",
+			Source:            "claude",
+			WorkingDir:        "/home/user/secret-project",
+			PID:               12345,
+			TmuxTarget:        "main:2.0",
+			Branch:            "worktree-fix-auth-bypass",
+			LastAssistantText: "The API key is sk-secret-value",
+		},
+	}
+	rec.WriteSnapshot(sessions)
+
+	var snap Snapshot
+	if err := json.Unmarshal(file.buffer.Bytes(), &snap); err != nil {
+		t.Fatalf("decode snapshot: %v", err)
+	}
+	if len(snap.Sessions) != 1 {
+		t.Fatalf("got %d sessions, want 1", len(snap.Sessions))
+	}
+	s := snap.Sessions[0]
+
+	// WorkingDir should be reduced to basename.
+	if s.WorkingDir != "secret-project" {
+		t.Errorf("WorkingDir = %q, want %q", s.WorkingDir, "secret-project")
+	}
+	// PID should be zeroed.
+	if s.PID != 0 {
+		t.Errorf("PID = %d, want 0", s.PID)
+	}
+	// TmuxTarget should be cleared.
+	if s.TmuxTarget != "" {
+		t.Errorf("TmuxTarget = %q, want %q", s.TmuxTarget, "")
+	}
+	// Branch should be cleared.
+	if s.Branch != "" {
+		t.Errorf("Branch = %q, want %q", s.Branch, "")
+	}
+	// LastAssistantText should be cleared.
+	if s.LastAssistantText != "" {
+		t.Errorf("LastAssistantText = %q, want %q", s.LastAssistantText, "")
+	}
+
+	// Non-sensitive fields preserved.
+	if s.ID != "s1" {
+		t.Errorf("ID = %q, want %q", s.ID, "s1")
+	}
+	if s.Name != "test-session" {
+		t.Errorf("Name = %q, want %q", s.Name, "test-session")
+	}
+}
+
 func TestRecorder_WriteSnapshotConcurrent(t *testing.T) {
 	file, rec := newStubRecorder(nil, nil)
 

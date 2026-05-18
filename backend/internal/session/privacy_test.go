@@ -133,6 +133,24 @@ func TestPrivacyFilter_Apply(t *testing.T) {
 		}
 	})
 
+	t.Run("mask branches", func(t *testing.T) {
+		s := &SessionState{ID: "claude:1", Branch: "worktree-fix-login-timeout"}
+		f := &PrivacyFilter{MaskBranches: true}
+		result := f.Apply(s)
+		if result.Branch != "" {
+			t.Errorf("expected Branch = %q, got %q", "", result.Branch)
+		}
+	})
+
+	t.Run("mask assistant text", func(t *testing.T) {
+		s := &SessionState{ID: "claude:1", LastAssistantText: "Here is the API key: sk-secret123"}
+		f := &PrivacyFilter{MaskAssistantText: true}
+		result := f.Apply(s)
+		if result.LastAssistantText != "" {
+			t.Errorf("expected LastAssistantText = %q, got %q", "", result.LastAssistantText)
+		}
+	})
+
 	t.Run("no masking is noop", func(t *testing.T) {
 		f := &PrivacyFilter{}
 		result := f.Apply(original)
@@ -235,6 +253,8 @@ func TestPrivacyFilter_IsNoop(t *testing.T) {
 		{"MaskSessionIDs", PrivacyFilter{MaskSessionIDs: true}},
 		{"MaskPIDs", PrivacyFilter{MaskPIDs: true}},
 		{"MaskTmuxTargets", PrivacyFilter{MaskTmuxTargets: true}},
+		{"MaskBranches", PrivacyFilter{MaskBranches: true}},
+		{"MaskAssistantText", PrivacyFilter{MaskAssistantText: true}},
 		{"AllowedPaths", PrivacyFilter{AllowedPaths: []string{"/foo"}}},
 		{"BlockedPaths", PrivacyFilter{BlockedPaths: []string{"/bar"}}},
 	}

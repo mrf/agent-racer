@@ -9,12 +9,14 @@ import (
 // PrivacyFilter applies masking and path-based filtering to session state
 // before it is broadcast to clients. The zero value is a no-op filter.
 type PrivacyFilter struct {
-	MaskWorkingDirs bool
-	MaskSessionIDs  bool
-	MaskPIDs        bool
-	MaskTmuxTargets bool
-	AllowedPaths    []string
-	BlockedPaths    []string
+	MaskWorkingDirs    bool
+	MaskSessionIDs     bool
+	MaskPIDs           bool
+	MaskTmuxTargets    bool
+	MaskBranches       bool
+	MaskAssistantText  bool
+	AllowedPaths       []string
+	BlockedPaths       []string
 }
 
 // IsAllowed reports whether a session with the given working directory should
@@ -101,6 +103,14 @@ func (f *PrivacyFilter) Apply(s *SessionState) *SessionState {
 		masked.TmuxTarget = ""
 	}
 
+	if f.MaskBranches {
+		masked.Branch = ""
+	}
+
+	if f.MaskAssistantText {
+		masked.LastAssistantText = ""
+	}
+
 	return &masked
 }
 
@@ -120,6 +130,7 @@ func (f *PrivacyFilter) FilterSlice(sessions []*SessionState) []*SessionState {
 // IsNoop reports whether the filter does nothing (no masking, no path filtering).
 func (f *PrivacyFilter) IsNoop() bool {
 	return !f.MaskWorkingDirs && !f.MaskSessionIDs && !f.MaskPIDs && !f.MaskTmuxTargets &&
+		!f.MaskBranches && !f.MaskAssistantText &&
 		len(f.AllowedPaths) == 0 && len(f.BlockedPaths) == 0
 }
 
