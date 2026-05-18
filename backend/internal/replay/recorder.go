@@ -14,13 +14,16 @@ import (
 )
 
 // replayPrivacy is a hardcoded privacy filter applied to all replay snapshots.
-// Fields with zero replay value (PID, TmuxTarget) are always stripped, and
-// working directories are always reduced to their basename — full filesystem
-// paths have no playback value and persist on disk for the retention period.
+// Fields with zero replay value (PID, TmuxTarget, Branch, LastAssistantText)
+// are always stripped, and working directories are always reduced to their
+// basename — full filesystem paths have no playback value and persist on disk
+// for the retention period.
 var replayPrivacy = &session.PrivacyFilter{
-	MaskWorkingDirs: true,
-	MaskPIDs:        true,
-	MaskTmuxTargets: true,
+	MaskWorkingDirs:   true,
+	MaskPIDs:          true,
+	MaskTmuxTargets:   true,
+	MaskBranches:      true,
+	MaskAssistantText: true,
 }
 
 // Snapshot is a point-in-time capture of all active session states.
@@ -39,8 +42,9 @@ type snapshotFile interface {
 // One file is created per server run; old files are pruned on startup.
 //
 // Sessions are sanitized before writing: fields with zero replay value (PID,
-// TmuxTarget) are always stripped, working directories are reduced to basename,
-// and the user's privacy filter (path filtering, session ID masking) is applied.
+// TmuxTarget, Branch, LastAssistantText) are always stripped, working
+// directories are reduced to basename, and the user's privacy filter (path
+// filtering, session ID masking) is applied.
 type Recorder struct {
 	mu      sync.Mutex
 	file    snapshotFile
