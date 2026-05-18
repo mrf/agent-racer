@@ -464,7 +464,7 @@ func decodeTryPaths(parts []string) string {
 			}
 
 			if len(nextCandidates) > maxDecodePathCandidates {
-				slog.Warn("aborting ambiguous path decode", "source", "jsonl", "candidates", len(nextCandidates), "encoded", "/"+strings.Join(parts, "-"))
+				slog.Warn("aborting ambiguous path decode", "component", "monitor", "candidates", len(nextCandidates), "encoded", "/"+strings.Join(parts, "-"))
 				return ""
 			}
 		}
