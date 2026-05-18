@@ -87,7 +87,7 @@ privacy:
   # e.g. "/home/user/secret-project" becomes "secret-project"
   mask_working_dirs: true
   # Replace session IDs with opaque short hashes
-  mask_session_ids: false
+  mask_session_ids: true
   # Hide process IDs from broadcast data
   mask_pids: true
   # Hide tmux pane locations from broadcast data

@@ -166,8 +166,8 @@ func TestLoadOrDefaultMissingFile(t *testing.T) {
 	if !cfg.Privacy.MaskTmuxTargets {
 		t.Error("Privacy.MaskTmuxTargets = false, want default true")
 	}
-	if cfg.Privacy.MaskSessionIDs {
-		t.Error("Privacy.MaskSessionIDs = true, want default false")
+	if !cfg.Privacy.MaskSessionIDs {
+		t.Error("Privacy.MaskSessionIDs = false, want default true")
 	}
 }
 

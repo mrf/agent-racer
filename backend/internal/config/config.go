@@ -378,6 +378,7 @@ func defaultConfig() *Config {
 		},
 		Privacy: PrivacyConfig{
 			MaskWorkingDirs: true,
+			MaskSessionIDs:  true,
 			MaskPIDs:        true,
 			MaskTmuxTargets: true,
 		},
