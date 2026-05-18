@@ -484,6 +484,43 @@ func TestParseSessionJSONLLargeLine(t *testing.T) {
 	}
 }
 
+// TestParseSessionJSONLLargeFirstLine is a regression test for agent-racer-dgby.
+// readFirstTimestamp formerly used bufio.Scanner with the default 64KB token
+// buffer; a first line > 64KB caused Scan() to fail and returned a zero
+// timestamp, bypassing the stale-on-startup check.
+//
+// readFirstTimestamp was deleted when the monitor migrated to the agentwatch
+// library (which uses bufio.NewReader and is not subject to the 64KB limit).
+// This test ensures ParseSessionJSONL also handles a large first line without
+// losing the timestamp — guarding against any regression in the JSONL reader.
+func TestParseSessionJSONLLargeFirstLine(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test-session.jsonl")
+
+	// Build a first line whose JSON content exceeds bufio.Scanner's default
+	// 64KB token limit by embedding a large padding field.
+	padding := strings.Repeat("x", 128*1024) // 128KB — well above the 64KB Scanner default
+	firstLine := `{"type":"system","subtype":"init","timestamp":"2026-01-30T10:00:00.000Z","sessionId":"big-first-line","padding":"` + padding + `"}` + "\n"
+	secondLine := `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"hello"}]},"sessionId":"big-first-line","timestamp":"2026-01-30T10:00:01.000Z"}` + "\n"
+
+	if err := os.WriteFile(path, []byte(firstLine+secondLine), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, _, err := ParseSessionJSONL(path, 0, "", nil)
+	if err != nil {
+		t.Fatalf("unexpected error parsing JSONL with large first line: %v", err)
+	}
+	// The user entry on the second line must be counted.
+	if result.MessageCount != 1 {
+		t.Errorf("MessageCount = %d, want 1 (large first line must not block subsequent lines)", result.MessageCount)
+	}
+	// SessionID must be extracted (proves the first or second line was read).
+	if result.SessionID == "" {
+		t.Error("SessionID is empty — JSONL reader failed to parse any line")
+	}
+}
+
 // TestParseSessionJSONLFileSizeLimit verifies that normal-sized files are accepted.
 // Creating a real 500 MB+ file to test the rejection path is impractical in unit
 // tests; the guard is validated by inspection and integration testing.
