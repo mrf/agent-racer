@@ -28,7 +28,7 @@ JSONL File Discovery               Go Backend            Browser (Canvas)
 
 ## Quick Start
 
-**Prerequisites:** Go 1.22+, a modern browser (for web UI) or terminal (for TUI).
+**Prerequisites:** Go 1.25+, a modern browser (for web UI) or terminal (for TUI).
 
 **Localhost-only:** Agent Racer is intended to run on your local machine only. It is not designed or supported for public or multi-user deployment.
 
@@ -495,7 +495,7 @@ cp agent-racer-server agent-racer /usr/local/bin/
 
 ## Requirements
 
-- **Go 1.22+** for building
+- **Go 1.25+** for building
 - **Linux or macOS** for real mode (process discovery via gopsutil)
 - Mock mode works on any platform
 - Modern browser with Canvas support
