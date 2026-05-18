@@ -10,6 +10,7 @@ function parseSnapshotLine(line, lineNumber, malformedLines) {
     const obj = JSON.parse(trimmed);
     return { t: new Date(obj.t), s: obj.s || [] };
   } catch (error) {
+    console.warn(`[ReplayPlayer] Skipping malformed line ${lineNumber}:`, error);
     malformedLines.push({ lineNumber, error });
     return null;
   }
