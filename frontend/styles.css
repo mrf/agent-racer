@@ -1196,6 +1196,10 @@ header {
   margin-bottom: 4px;
 }
 
+.tp-hidden {
+  display: none;
+}
+
 .tp-tile-btn {
   background: #2a2a3a;
   border: 1px solid #555;
