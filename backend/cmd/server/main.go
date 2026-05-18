@@ -256,6 +256,10 @@ func main() {
 
 	server := ws.NewServer(cfg, store, broadcaster, frontendDir, opts.devMode, embeddedHandler, cfg.Server.AllowedOrigins, authToken)
 
+	// cfgMu serializes read-modify-write cycles on the server config
+	// (SIGHUP reload and track-handler updates).
+	var cfgMu sync.Mutex
+
 	// Track store for custom race circuits.
 	trackStore, trackErr := tracks.NewStore("")
 	if trackErr != nil {
@@ -265,10 +269,12 @@ func main() {
 		th.SetActiveTrackProvider(
 			func() string { return server.Config().Track.Active },
 			func(id string) error {
+				cfgMu.Lock()
 				old := server.Config()
 				newCfg := *old
 				newCfg.Track.Active = id
 				server.SetConfig(&newCfg)
+				cfgMu.Unlock()
 				broadcaster.BroadcastSnapshot()
 				return nil
 			},
@@ -398,48 +404,57 @@ func main() {
 				log.Printf("Config warning: %s", w)
 			}
 
-			oldCfg := server.Config()
-			changes := config.Diff(oldCfg, newCfg)
+			changes := func() []string {
+				cfgMu.Lock()
+				defer cfgMu.Unlock()
+
+				oldCfg := server.Config()
+				changes := config.Diff(oldCfg, newCfg)
+				if len(changes) == 0 {
+					return nil
+				}
+
+				// Apply privacy filter (always safe to update).
+				pf := newCfg.Privacy.NewPrivacyFilter()
+				broadcaster.SetPrivacyFilter(pf)
+				if rec != nil {
+					rec.SetPrivacyFilter(pf)
+				}
+
+				// Apply broadcaster timing changes.
+				if oldCfg.Monitor.BroadcastThrottle != newCfg.Monitor.BroadcastThrottle ||
+					oldCfg.Monitor.SnapshotInterval != newCfg.Monitor.SnapshotInterval {
+					broadcaster.SetConfig(newCfg.Monitor.BroadcastThrottle, newCfg.Monitor.SnapshotInterval)
+				}
+
+				// Apply monitor-level config (models, token norm, timings).
+				if mon != nil {
+					// Rebuild the agentwatch monitor when source config or
+					// immutable timing settings change.
+					needsRebuild := oldCfg.Sources != newCfg.Sources ||
+						oldCfg.Monitor.SessionStaleAfter != newCfg.Monitor.SessionStaleAfter ||
+						oldCfg.Monitor.CompletionRemoveAfter != newCfg.Monitor.CompletionRemoveAfter ||
+						oldCfg.Monitor.HealthWarningThreshold != newCfg.Monitor.HealthWarningThreshold
+					if needsRebuild {
+						newSources := registrySources(buildRegistry(newCfg))
+						newAwMon := buildAWMonitor(newCfg, newSources, monitorSink)
+						mon.SetAWMonitor(newAwMon)
+					}
+
+					mon.SetConfig(newCfg)
+				}
+
+				server.SetConfig(newCfg)
+				return changes
+			}()
+
 			if len(changes) == 0 {
 				log.Println("Config reloaded: no changes detected")
 				continue
 			}
-
 			for _, c := range changes {
 				log.Printf("Config changed: %s", c)
 			}
-
-			// Apply privacy filter (always safe to update).
-			pf := newCfg.Privacy.NewPrivacyFilter()
-			broadcaster.SetPrivacyFilter(pf)
-			if rec != nil {
-				rec.SetPrivacyFilter(pf)
-			}
-
-			// Apply broadcaster timing changes.
-			if oldCfg.Monitor.BroadcastThrottle != newCfg.Monitor.BroadcastThrottle ||
-				oldCfg.Monitor.SnapshotInterval != newCfg.Monitor.SnapshotInterval {
-				broadcaster.SetConfig(newCfg.Monitor.BroadcastThrottle, newCfg.Monitor.SnapshotInterval)
-			}
-
-			// Apply monitor-level config (models, token norm, timings).
-			if mon != nil {
-				// Rebuild the agentwatch monitor when source config or
-				// immutable timing settings change.
-				needsRebuild := oldCfg.Sources != newCfg.Sources ||
-					oldCfg.Monitor.SessionStaleAfter != newCfg.Monitor.SessionStaleAfter ||
-					oldCfg.Monitor.CompletionRemoveAfter != newCfg.Monitor.CompletionRemoveAfter ||
-					oldCfg.Monitor.HealthWarningThreshold != newCfg.Monitor.HealthWarningThreshold
-				if needsRebuild {
-					newSources := registrySources(buildRegistry(newCfg))
-					newAwMon := buildAWMonitor(newCfg, newSources, monitorSink)
-					mon.SetAWMonitor(newAwMon)
-				}
-
-				mon.SetConfig(newCfg)
-			}
-
-			server.SetConfig(newCfg)
 			log.Printf("Config reload complete (%d change(s) applied)", len(changes))
 		}
 	}()
