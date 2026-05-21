@@ -53,6 +53,7 @@ func buildRegistry(cfg *config.Config) *awsource.Registry {
 		_ = awclaude.Register(reg,
 			awclaude.WithRoot(filepath.Join(home, ".claude", "projects")),
 			awclaude.WithSessionEndDir(cfg.Monitor.SessionEndDir),
+			awclaude.WithDiscoverWindow(30*time.Minute),
 		)
 	}
 	if cfg.Sources.Codex {
