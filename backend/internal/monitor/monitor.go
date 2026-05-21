@@ -71,6 +71,14 @@ type Monitor struct {
 	terminalReasons map[string]terminalInfo
 	pendingRemovals []string
 
+	// sessionSources maps raw agentwatch session IDs to their source name,
+	// enabling localID construction for delta-event removals (which lack
+	// source information). Populated in handleDeltaEvent from ev.Updates.
+	sessionSources map[string]string
+
+	// lastReconcile tracks when we last ran a store reconciliation pass.
+	lastReconcile time.Time
+
 	statsEvents      chan<- session.Event
 	statsDropped     int64
 	statsLastDropLog time.Time
@@ -96,6 +104,7 @@ func NewMonitor(cfg *config.Config, store *session.Store, broadcaster *ws.Broadc
 		tmuxResolverTTL:         defaultTmuxResolverTTL,
 		tokenSnapshots:          make(map[string][]tokenSnapshot),
 		terminalReasons:         make(map[string]terminalInfo),
+		sessionSources:          make(map[string]string),
 		reconfigureCh:           make(chan struct{}, 1),
 	}
 	m.awMon = m.buildAWMonitor(sources)
@@ -311,6 +320,10 @@ func (m *Monitor) handleDeltaEvent(ev awmonitor.Event) {
 		awState := &ev.Updates[i]
 		localID := awState.Source + ":" + awState.ID
 
+		// Record the source for this raw session ID so delta-event removals
+		// (which lack source info) can construct the correct localID.
+		m.sessionSources[awState.ID] = awState.Source
+
 		existing, existed := m.store.Get(localID)
 		local := m.convertSession(cfg, awState, localID, existing, existed, activityByDir, now)
 		updates = append(updates, local)
@@ -348,12 +361,39 @@ func (m *Monitor) handleDeltaEvent(ev awmonitor.Event) {
 		m.bridge.PushUpdate(updates)
 	}
 
-	// Handle removals collected from lifecycle events.
-	if len(m.pendingRemovals) > 0 {
-		removals := m.pendingRemovals
-		m.pendingRemovals = nil
+	// Warn if the local store is accumulating too many sessions — this is
+	// the leading indicator of the mass-spawn bug where removals fail to
+	// keep pace with discovery.
+	if count := m.store.Count(); count > 100 {
+		slog.Warn("session count unexpectedly high",
+			"component", "monitor", "count", count)
+	}
+
+	// Handle removals: merge lifecycle-event pendingRemovals with the delta
+	// event's Removed list. The lifecycle path is the primary removal signal,
+	// but processing ev.Removed as well provides defense-in-depth against
+	// sessions lingering in the local store if a lifecycle event is lost.
+	removals := m.pendingRemovals
+	m.pendingRemovals = nil
+	if len(ev.Removed) > 0 {
+		seen := make(map[string]struct{}, len(removals))
+		for _, id := range removals {
+			seen[id] = struct{}{}
+		}
+		for _, rawID := range ev.Removed {
+			src := m.sessionSources[rawID]
+			if src == "" {
+				continue // unknown source, can't construct localID
+			}
+			localID := src + ":" + rawID
+			if _, ok := seen[localID]; !ok {
+				removals = append(removals, localID)
+			}
+			delete(m.sessionSources, rawID)
+		}
+	}
+	if len(removals) > 0 {
 		m.bridge.PushRemoval(removals)
-		// Clean up token snapshots for removed sessions.
 		for _, id := range removals {
 			delete(m.tokenSnapshots, id)
 		}
@@ -364,8 +404,55 @@ func (m *Monitor) handleDeltaEvent(ev awmonitor.Event) {
 		delete(m.terminalReasons, k)
 	}
 
+	// Periodic reconciliation: prune local store sessions that agentwatch
+	// no longer reports. This catches orphaned sessions that slipped through
+	// the normal removal path (e.g., after an agentwatch monitor rebuild).
+	m.reconcileStore(now, cfg)
+
 	if m.snapshotHook != nil {
 		m.snapshotHook(m.store.GetAll())
+	}
+}
+
+const reconcileInterval = 30 * time.Second
+
+// reconcileStore periodically scans the local store for sessions that
+// agentwatch no longer tracks. Terminal sessions whose last data is older
+// than the stale threshold plus completion retention are pruned. This
+// defends against session accumulation after monitor rebuilds or lost events.
+func (m *Monitor) reconcileStore(now time.Time, cfg *config.Config) {
+	if now.Sub(m.lastReconcile) < reconcileInterval {
+		return
+	}
+	m.lastReconcile = now
+
+	stale := cfg.Monitor.SessionStaleAfter
+	retention := cfg.Monitor.CompletionRemoveAfter
+	if stale <= 0 && retention <= 0 {
+		return
+	}
+	// A session is considered orphaned if it is terminal and its last data
+	// arrived longer ago than stale + retention + a 30s safety margin.
+	maxAge := stale + retention + 30*time.Second
+	cutoff := now.Add(-maxAge)
+
+	allSessions := m.store.GetAll()
+	var orphaned []string
+	for _, s := range allSessions {
+		if !s.IsTerminal() {
+			continue
+		}
+		if s.LastDataReceivedAt.IsZero() || s.LastDataReceivedAt.Before(cutoff) {
+			orphaned = append(orphaned, s.ID)
+		}
+	}
+	if len(orphaned) > 0 {
+		slog.Warn("reconciliation: pruning orphaned terminal sessions",
+			"component", "monitor", "count", len(orphaned))
+		m.bridge.PushRemoval(orphaned)
+		for _, id := range orphaned {
+			delete(m.tokenSnapshots, id)
+		}
 	}
 }
 
