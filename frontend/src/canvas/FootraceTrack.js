@@ -53,6 +53,10 @@ export class FootraceTrack {
 
   // ──── viewport ────
 
+  // FootraceTrack does not support custom tile tracks — no-op to satisfy
+  // the shared BaseCanvas.setCustomTrack() call on every view switch.
+  setActiveTrack(_data) {}
+
   updateViewport(viewportHeight) {
     let mode;
     if (viewportHeight >= CROWD_FULL_MIN_HEIGHT) {
