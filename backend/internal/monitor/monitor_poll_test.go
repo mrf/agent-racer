@@ -335,6 +335,95 @@ func TestPollProcessActivityEnrichment(t *testing.T) {
 	}
 }
 
+// TestPollWaitingSessionGetsPID verifies that a session first discovered in
+// Waiting state (waiting for user input) still gets its PID set from process
+// activity. This is required for tmux target resolution — waiting sessions
+// still have a running process that needs to be found.
+func TestPollWaitingSessionGetsPID(t *testing.T) {
+	src := newStubSource("claude")
+	mon, store, broadcaster := newTestEnv(src)
+	defer broadcaster.Stop()
+
+	mon.discoverProcessActivity = func(prev map[int]cpuSample, elapsed time.Duration) ([]ProcessActivity, map[int]cpuSample) {
+		return []ProcessActivity{
+			{PID: 9999, CPU: 0.1, TCPConns: 0, WorkingDir: "/home/user/project"},
+		}, prev
+	}
+	mon.processPollInterval = 0
+
+	now := time.Now()
+	src.setHandles([]awsource.SessionHandle{
+		{ID: "sess-w", Source: "claude", WorkingDir: "/home/user/project", StartedAt: now},
+	})
+	src.setUpdate("sess-w", awsource.SourceUpdate{
+		SessionID:      "sess-w",
+		Activity:       awsession.ActivityWaiting, // discovered while waiting for user input
+		WorkingDir:     "/home/user/project",
+		LastActivityAt: now,
+	})
+
+	mon.poll(context.Background())
+
+	state, ok := store.Get("claude:sess-w")
+	if !ok {
+		t.Fatal("session not found")
+	}
+	if state.PID != 9999 {
+		t.Errorf("PID = %d, want 9999 — waiting sessions must still get a PID for tmux resolution", state.PID)
+	}
+	// Waiting sessions should NOT be marked as churning.
+	if state.IsChurning {
+		t.Error("IsChurning = true for a waiting session, want false")
+	}
+}
+
+// TestPollWaitingSessionGetsTmuxTarget verifies end-to-end that a session
+// first discovered in Waiting state gets a tmux target resolved via its PID.
+// The resolver maps the process PID directly to a pane target (no parent walk).
+func TestPollWaitingSessionGetsTmuxTarget(t *testing.T) {
+	src := newStubSource("claude")
+	mon, store, broadcaster := newTestEnv(src)
+	defer broadcaster.Stop()
+
+	const claudePID = 5001
+
+	mon.discoverProcessActivity = func(prev map[int]cpuSample, elapsed time.Duration) ([]ProcessActivity, map[int]cpuSample) {
+		return []ProcessActivity{
+			{PID: claudePID, CPU: 0.0, TCPConns: 0, WorkingDir: "/home/user/project"},
+		}, prev
+	}
+	mon.processPollInterval = 0
+
+	// Resolver maps the claude PID directly to a pane target (simulates the
+	// case where the claude process IS the pane's shell, or parent lookup
+	// is handled by the resolver internally).
+	mon.newTmuxResolver = func() *TmuxResolver {
+		return &TmuxResolver{targetByPID: map[int]string{claudePID: "main:1.0"}}
+	}
+	mon.tmuxResolverTTL = 0
+
+	now := time.Now()
+	src.setHandles([]awsource.SessionHandle{
+		{ID: "sess-tmux", Source: "claude", WorkingDir: "/home/user/project", StartedAt: now},
+	})
+	src.setUpdate("sess-tmux", awsource.SourceUpdate{
+		SessionID:      "sess-tmux",
+		Activity:       awsession.ActivityWaiting,
+		WorkingDir:     "/home/user/project",
+		LastActivityAt: now,
+	})
+
+	mon.poll(context.Background())
+
+	state, ok := store.Get("claude:sess-tmux")
+	if !ok {
+		t.Fatal("session not found")
+	}
+	if state.TmuxTarget != "main:1.0" {
+		t.Errorf("TmuxTarget = %q, want %q", state.TmuxTarget, "main:1.0")
+	}
+}
+
 func TestProcessScanThrottle(t *testing.T) {
 	src := newStubSource("claude")
 	mon, store, broadcaster := newTestEnv(src)

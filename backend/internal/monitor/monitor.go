@@ -452,12 +452,18 @@ func (m *Monitor) convertSession(
 	local.BurnRatePerMinute = m.calculateBurnRate(localID, local.ContextTokens, now)
 
 	// Process activity enrichment (churning, PID).
-	if !local.IsTerminal() && local.Activity != session.Waiting {
+	// PID is set for all non-terminal sessions regardless of activity state —
+	// waiting sessions still have a running process that needs tmux resolution.
+	// IsChurning is only meaningful when the session is actively working, so
+	// it is excluded for waiting sessions.
+	if !local.IsTerminal() {
 		if pa, ok := activityByDir[local.WorkingDir]; ok {
-			local.IsChurning = pa.IsChurning(
-				cfg.Monitor.ChurningCPUThreshold,
-				cfg.Monitor.ChurningRequiresNetwork,
-			)
+			if local.Activity != session.Waiting {
+				local.IsChurning = pa.IsChurning(
+					cfg.Monitor.ChurningCPUThreshold,
+					cfg.Monitor.ChurningRequiresNetwork,
+				)
+			}
 			if pa.PID > 0 && local.PID == 0 {
 				local.PID = pa.PID
 			}
