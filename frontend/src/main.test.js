@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-import { installCanvasContextMock } from './test/canvasMock.js';
+import { installCanvasContextMock, createMockCanvasContext } from './test/canvasMock.js';
 
 const mocks = vi.hoisted(() => ({
   engine: null,
@@ -30,7 +30,7 @@ function createMockView() {
     entities,
     racers: entities,
     dt: 16,
-    ctx: {},
+    ctx: createMockCanvasContext(),
     width: 800,
     onRacerClick: null,
     onHamsterClick: null,
