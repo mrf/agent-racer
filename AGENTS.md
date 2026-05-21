@@ -1,6 +1,6 @@
 # Agent Instructions
 
-This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get started.
+This project uses **br** (beads_rust) for issue tracking.
 
 ## General Rules
 
@@ -35,9 +35,9 @@ This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get sta
 
 ## Scope Discipline
 
-**Test tasks must only add tests.** When a beads issue says "add tests for X", the spawned session must NOT refactor, rewrite, or extend the production code it's testing. If a test reveals a bug or improvement opportunity, file a new beads issue — don't fix it in the test branch. Production changes hiding in "test" branches bypass review and cause regressions.
+**Test tasks must only add tests.** When a br issue says "add tests for X", the spawned session must NOT refactor, rewrite, or extend the production code it's testing. If a test reveals a bug or improvement opportunity, file a new beads issue — don't fix it in the test branch. Production changes hiding in "test" branches bypass review and cause regressions.
 
-**Spawned worktree sessions must stay in scope.** The seed prompt defines the task boundary. If the agent discovers adjacent work, it should create a beads issue (with `discovered-from` dependency) rather than expanding scope.
+**Spawned worktree sessions must stay in scope.** The seed prompt defines the task boundary. If the agent discovers adjacent work, it should create a br issue (with `discovered-from` dependency) rather than expanding scope.
 
 ## Git Worktrees
 
@@ -78,71 +78,23 @@ When a regression is reported after merges, follow this diagnostic order:
 ## Quick Reference
 
 ```bash
-bd ready              # Find available work
-bd show <id>          # View issue details
-bd update <id> --status in_progress  # Claim work
-bd close <id>         # Complete work
-bd sync               # Sync with git
+br ready              # Find available work
+br show <id>          # View issue details
+br update <id> --status in_progress  # Claim work
+br close <id>         # Complete work
 ```
 
 ## Landing the Plane (Session Completion)
 
 **When ending a work session**, complete ALL steps below before stopping.
 
-1. **File issues for remaining work** — `bd create` for anything that needs follow-up
+1. **File issues for remaining work** — `br create` for anything that needs follow-up
 2. **Run quality gates** (if code changed) — tests, linters, builds
-3. **Update issue status** — `bd close` finished work, update in-progress items
+3. **Update issue status** — `br close` finished work, update in-progress items
 4. **Commit all changes** — everything staged and committed, nothing left dirty
-5. **Sync beads** — `bd sync`
-6. **Hand off** — provide context for the next session
+5. **Hand off** — provide context for the next session
 
 **Rules:**
+- Use `br` for ALL task tracking — do NOT use TodoWrite, TaskCreate, or markdown TODO lists
 - Do NOT perform remote git operations (push, pull, fetch) — the user handles those
 - Worktree sessions: commit and stop. The parent session handles merge and cleanup.
-
-<!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:ca08a54f -->
-## Beads Issue Tracker
-
-This project uses **bd (beads)** for issue tracking. Run `bd prime` to see full workflow context and commands.
-
-### Quick Reference
-
-```bash
-bd ready              # Find available work
-bd show <id>          # View issue details
-bd update <id> --claim  # Claim work
-bd close <id>         # Complete work
-```
-
-### Rules
-
-- Use `bd` for ALL task tracking — do NOT use TodoWrite, TaskCreate, or markdown TODO lists
-- Run `bd prime` for detailed command reference and session close protocol
-- Use `bd remember` for persistent knowledge — do NOT use MEMORY.md files
-
-## Session Completion
-
-**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
-
-**MANDATORY WORKFLOW:**
-
-1. **File issues for remaining work** - Create issues for anything that needs follow-up
-2. **Run quality gates** (if code changed) - Tests, linters, builds
-3. **Update issue status** - Close finished work, update in-progress items
-4. **PUSH TO REMOTE** - This is MANDATORY:
-   ```bash
-   git pull --rebase
-   bd dolt push
-   git push
-   git status  # MUST show "up to date with origin"
-   ```
-5. **Clean up** - Clear stashes, prune remote branches
-6. **Verify** - All changes committed AND pushed
-7. **Hand off** - Provide context for next session
-
-**CRITICAL RULES:**
-- Work is NOT complete until `git push` succeeds
-- NEVER stop before pushing - that leaves work stranded locally
-- NEVER say "ready to push when you are" - YOU must push
-- If push fails, resolve and retry until it succeeds
-<!-- END BEADS INTEGRATION -->
