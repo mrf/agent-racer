@@ -653,3 +653,64 @@ describe('view switching', () => {
     expect(sessionStorage.getItem('agent-racer-auth-token')).toBeNull();
   });
 });
+
+// ── Session cap (mass spawn defense) ─────────────────────────────────
+
+describe('session rendering cap', () => {
+  function makeSessions(count, overrides = {}) {
+    return Array.from({ length: count }, (_, i) =>
+      makeSession({ id: `s${i}`, ...overrides })
+    );
+  }
+
+  it('passes all sessions to view when under the cap', () => {
+    const list = makeSessions(10);
+    mocks.conn.onSnapshot({ sessions: list });
+    expect(mocks.activeView.setAllRacers).toHaveBeenCalledWith(list);
+  });
+
+  it('caps rendered sessions at 200 for large snapshots', () => {
+    const list = makeSessions(300, { activity: 'complete' });
+    mocks.conn.onSnapshot({ sessions: list });
+    const rendered = mocks.activeView.setAllRacers.mock.calls[0][0];
+    expect(rendered.length).toBe(200);
+  });
+
+  it('prioritizes active sessions over terminal in capped list', () => {
+    const active = makeSessions(50, { activity: 'thinking' });
+    const terminal = makeSessions(250, { activity: 'complete' });
+    // Give each a unique id
+    active.forEach((s, i) => { s.id = `active-${i}`; });
+    terminal.forEach((s, i) => { s.id = `terminal-${i}`; });
+
+    mocks.conn.onSnapshot({ sessions: [...active, ...terminal] });
+    const rendered = mocks.activeView.setAllRacers.mock.calls[0][0];
+
+    expect(rendered.length).toBe(200);
+    // All 50 active sessions should be present.
+    const activeIds = rendered.filter(s => s.activity === 'thinking');
+    expect(activeIds.length).toBe(50);
+  });
+
+  it('rebuilds from capped list when delta pushes entities over cap', () => {
+    // Start with exactly 200 sessions.
+    const initial = makeSessions(200, { activity: 'thinking' });
+    mocks.conn.onSnapshot({ sessions: initial });
+    mocks.activeView.setAllRacers.mockClear();
+
+    // Simulate entities map growing beyond cap after delta updates.
+    for (let i = 0; i < 210; i++) {
+      mocks.activeView.entities.set(`s${i}`, {});
+    }
+
+    // Delta that adds one more session.
+    mocks.conn.onDelta({
+      updates: [makeSession({ id: 's210', activity: 'thinking' })],
+    });
+
+    // setAllRacers should be called again with the capped list.
+    expect(mocks.activeView.setAllRacers).toHaveBeenCalled();
+    const rendered = mocks.activeView.setAllRacers.mock.calls[0][0];
+    expect(rendered.length).toBeLessThanOrEqual(200);
+  });
+});

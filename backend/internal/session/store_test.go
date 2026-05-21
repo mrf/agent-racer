@@ -20,6 +20,22 @@ func TestNewStore(t *testing.T) {
 	}
 }
 
+func TestCount(t *testing.T) {
+	s := NewStore()
+	if got := s.Count(); got != 0 {
+		t.Errorf("empty store Count() = %d, want 0", got)
+	}
+	s.Update(&SessionState{ID: "a", Activity: Thinking})
+	s.Update(&SessionState{ID: "b", Activity: Complete})
+	if got := s.Count(); got != 2 {
+		t.Errorf("Count() = %d, want 2 (includes terminal)", got)
+	}
+	s.Remove("a")
+	if got := s.Count(); got != 1 {
+		t.Errorf("Count() after remove = %d, want 1", got)
+	}
+}
+
 func TestGetMissing(t *testing.T) {
 	s := NewStore()
 	st, ok := s.Get("nonexistent")

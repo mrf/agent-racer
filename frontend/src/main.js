@@ -38,6 +38,9 @@ const canvas = document.getElementById('race-canvas');
 const trackEditor = new TrackEditor(canvas);
 
 let sessions = new Map();
+// Safety cap: maximum number of sessions to render. Prevents viewport crashes
+// from runaway session accumulation. Non-terminal sessions are always prioritized.
+const MAX_RENDERED_SESSIONS = 200;
 const debugEnabled = import.meta.env?.DEV || new URLSearchParams(window.location.search).has('debug');
 let debugVisible = false;
 let muted = false;
@@ -234,6 +237,31 @@ function handleSourceHealth(payload) {
   log(`Source [${src}] health: ${status} (discover=${payload.discoverFailures}, parse=${payload.parseFailures})${errMsg}`, level);
 }
 
+// capSessions returns at most MAX_RENDERED_SESSIONS entries for rendering,
+// prioritizing non-terminal sessions and the most recently active terminals.
+function capSessions(sessionList) {
+  if (sessionList.length <= MAX_RENDERED_SESSIONS) return sessionList;
+  const active = sessionList.filter(s => !isTerminalActivity(s.activity));
+  const terminal = sessionList.filter(s => isTerminalActivity(s.activity));
+  // Sort terminal by last activity descending so we keep the most recent.
+  terminal.sort((a, b) => {
+    const aT = a.lastActivityAt || a.startedAt || '';
+    const bT = b.lastActivityAt || b.startedAt || '';
+    if (bT < aT) return -1;
+    if (bT > aT) return 1;
+    return 0;
+  });
+  const remaining = MAX_RENDERED_SESSIONS - active.length;
+  let capped;
+  if (remaining > 0) {
+    capped = active.concat(terminal.slice(0, remaining));
+  } else {
+    capped = active.slice(0, MAX_RENDERED_SESSIONS);
+  }
+  log(`Session cap applied: ${sessionList.length} -> ${capped.length} (${active.length} active, ${terminal.length} terminal)`, 'error');
+  return capped;
+}
+
 function handleSnapshot(payload) {
   sessions.clear();
   for (const s of payload.sessions) {
@@ -260,7 +288,8 @@ function handleSnapshot(payload) {
   updateSessionCount();
   log(`Snapshot: ${payload.sessions.length} sessions`, 'info');
   if (!replayActive) {
-    activeView.setAllRacers(payload.sessions);
+    const renderList = capSessions(payload.sessions);
+    activeView.setAllRacers(renderList);
     if (payload.teams && activeView.setTeams) {
       activeView.setTeams(payload.teams);
     }
@@ -288,6 +317,11 @@ function handleDelta(payload) {
   }
 
   tracker.onDelta(payload.updates, payload.removed);
+
+  // Safety: if entities exceed the cap after a delta, rebuild from capped list.
+  if (!replayActive && activeView.entities.size > MAX_RENDERED_SESSIONS) {
+    activeView.setAllRacers(capSessions([...sessions.values()]));
+  }
 
   updateSessionCount();
   if (!replayActive) {

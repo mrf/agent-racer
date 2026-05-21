@@ -103,6 +103,12 @@ func (s *Store) BatchRemoveAndNotify(ids []string, notify func()) {
 	}
 }
 
+func (s *Store) Count() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.sessions)
+}
+
 func (s *Store) ActiveCount() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
