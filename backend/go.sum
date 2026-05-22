@@ -9,8 +9,8 @@ github.com/gorilla/websocket v1.5.3 h1:saDtZ6Pbx/0u+bgYQ3q96pZgCzfhKXGPqt7kZ72aN
 github.com/gorilla/websocket v1.5.3/go.mod h1:YR8l580nyteQvAITg2hZ9XVh4b55+EU/adAjf1fMHhE=
 github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 h1:6E+4a0GO5zZEnZ81pIr0yLvtUWk2if982qA3F3QD6H4=
 github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0/go.mod h1:zJYVVT2jmtg6P3p1VtQj7WsuWi/y4VnjVBn7F8KPB3I=
-github.com/mrf/agentwatch v0.1.2 h1:WjXUkigvI6uDK5h+wc6/fjQPK+aKl66f/ZFM6XfZzjQ=
-github.com/mrf/agentwatch v0.1.2/go.mod h1:2BDYv29CcW0a7Z7X4lDnK11tYaa1jiT86nZaMySp/54=
+github.com/mrf/agentwatch v0.1.3 h1:sT67+x0zffalL5sCP1raCTg/7sPT5ToLD5/er17x9wI=
+github.com/mrf/agentwatch v0.1.3/go.mod h1:2BDYv29CcW0a7Z7X4lDnK11tYaa1jiT86nZaMySp/54=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/power-devops/perfstat v0.0.0-20210106213030-5aafc221ea8c h1:ncq/mPwQF4JjgDlrVEn3C11VoGHZN7m8qihwgMEtzYw=

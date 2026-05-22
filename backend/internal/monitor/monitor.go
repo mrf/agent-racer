@@ -635,6 +635,7 @@ func convertSubagents(awSubs []awsession.SubagentState, parentID string) []sessi
 			ID:              sub.ID,
 			ParentToolUseID: sub.ParentID,
 			SessionID:       parentID,
+			Slug:            sub.Slug,
 			Activity:        activity,
 			CurrentTool:     sub.CurrentTool,
 			StartedAt:       sub.StartedAt,
