@@ -36,7 +36,8 @@ JSONL File Discovery               Go Backend            Browser (Canvas)
 # Clone and run in mock mode (demo with 5 simulated sessions)
 cd agent-racer
 make dev
-# Open http://localhost:8080
+# Open http://localhost:5173 (Vite dev server with hot-reload)
+# Go backend API runs on :8080; Vite proxies /api and /ws there automatically
 ```
 
 ```bash
@@ -464,7 +465,7 @@ agent-racer/
 
 | Target | Description |
 |--------|-------------|
-| `make dev` | Run mock mode with filesystem frontend (hot-reload friendly) |
+| `make dev` | Start Go backend (mock, :8080) + Vite dev server (:5173) with hot-reload |
 | `make run` | Run real mode with filesystem frontend fallback |
 | `make build` | Embed frontend into Go binary, produce `./agent-racer-server` |
 | `make tui` | Build TUI binary, produce `./agent-racer` |
