@@ -518,6 +518,16 @@ func (m *Monitor) convertSession(
 		Subagents:          convertSubagents(awState.Subagents, localID),
 	}
 
+	// If the session is resuming from a terminal state, clear stale subagents.
+	// Agentwatch preserves old subagents from the terminal state when a resumed
+	// parse batch contains no new subagent data (applyUpdate only replaces
+	// Subagents when len(u.Subagents) > 0). Those subagents belong to the
+	// pre-terminal work and are not relevant to the resumed active phase.
+	// Subsequent polls will repopulate subagents as new progress records arrive.
+	if existed && existing.IsTerminal() && !local.IsTerminal() {
+		local.Subagents = nil
+	}
+
 	// Carry forward local-only fields from existing state.
 	if existed {
 		local.PID = existing.PID

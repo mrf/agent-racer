@@ -523,6 +523,90 @@ func TestSetSourcesRebuildsMonitor(t *testing.T) {
 	}
 }
 
+// TestSubagentStateClearedOnResume verifies that stale subagents from a
+// terminal session are cleared when the session resumes. Agentwatch's
+// applyUpdate only replaces Subagents when len(u.Subagents) > 0; if the
+// resume parse batch has no new subagent data, old subagents persist in the
+// agentwatch state. The local convertSession must detect the resume case and
+// discard those carry-forward subagents so they don't pollute the new active
+// phase.
+func TestSubagentStateClearedOnResume(t *testing.T) {
+	src := newStubSource("claude")
+	mon, store, broadcaster := newTestEnv(src)
+	defer broadcaster.Stop()
+
+	now := time.Now()
+	handle := awsource.SessionHandle{ID: "sess-resume", Source: "claude", StartedAt: now}
+	src.setHandles([]awsource.SessionHandle{handle})
+
+	// Poll 1: session is active with two subagents.
+	src.setUpdate("sess-resume", awsource.SourceUpdate{
+		SessionID:         "sess-resume",
+		Activity:          awsession.ActivityWorking,
+		MessageCountDelta: 2,
+		LastActivityAt:    now,
+		Subagents: []awsession.SubagentState{
+			{ID: "sub-1", Slug: "first-agent", Activity: awsession.ActivityTerminal},
+			{ID: "sub-2", Slug: "second-agent", Activity: awsession.ActivityTerminal},
+		},
+	})
+	mon.poll(context.Background())
+
+	state, ok := store.Get("claude:sess-resume")
+	if !ok {
+		t.Fatal("session not found after first poll")
+	}
+	if len(state.Subagents) != 2 {
+		t.Fatalf("expected 2 subagents after active poll, got %d", len(state.Subagents))
+	}
+	if state.MessageCount != 2 {
+		t.Fatalf("MessageCount = %d, want 2", state.MessageCount)
+	}
+
+	// Poll 2: session goes terminal.
+	src.setUpdate("sess-resume", awsource.SourceUpdate{
+		SessionID:      "sess-resume",
+		Terminal:       true,
+		EndReason:      "completed",
+		LastActivityAt: now.Add(time.Second),
+	})
+	mon.poll(context.Background())
+
+	state, ok = store.Get("claude:sess-resume")
+	if !ok {
+		t.Fatal("session not found after terminal poll")
+	}
+	if !state.IsTerminal() {
+		t.Fatal("expected session to be terminal")
+	}
+
+	// Poll 3: session resumes with new data but NO new subagent data.
+	// Agentwatch would carry forward the old subagents; the local code must clear them.
+	src.setHandles([]awsource.SessionHandle{handle})
+	src.setUpdate("sess-resume", awsource.SourceUpdate{
+		SessionID:         "sess-resume",
+		Activity:          awsession.ActivityWorking,
+		MessageCountDelta: 1,
+		LastActivityAt:    now.Add(2 * time.Second),
+		// No Subagents field — simulates a resume batch with no subagent progress records.
+	})
+	mon.poll(context.Background())
+
+	state, ok = store.Get("claude:sess-resume")
+	if !ok {
+		t.Fatal("session not found after resume poll")
+	}
+	if state.IsTerminal() {
+		t.Fatal("session should be active after resume")
+	}
+	if len(state.Subagents) != 0 {
+		t.Errorf("Subagents = %d, want 0 — stale subagents must be cleared on resume", len(state.Subagents))
+	}
+	if state.MessageCount != 3 {
+		t.Errorf("MessageCount = %d, want 3 (accumulated across terminal/resume boundary)", state.MessageCount)
+	}
+}
+
 func TestHealthEventBroadcast(t *testing.T) {
 	m := &Monitor{
 		cfg:             testConfig(),
